@@ -30,12 +30,13 @@ COPY member/package.json member/package.json
 COPY member/src member/src
 COPY tsconfig.base.json ./
 
-# Non-root by convention; docker-compose pins to UID 1000 + cap-drop ALL.
-RUN addgroup -g 1000 -S night && adduser -u 1000 -S -G night night \
-	&& mkdir -p /workspace \
-	&& chown -R night:night /workspace /app
+# Reuse the `node` user that ships in node:22-alpine (UID/GID 1000), which
+# is what docker-compose.yml's `user: "1000:1000"` and `cap-drop ALL` pin to.
+# Creating our own `night` user at GID 1000 would conflict; reusing avoids
+# the duplicate.
+RUN mkdir -p /workspace && chown -R node:node /workspace /app
 
-USER night
+USER node
 VOLUME ["/workspace"]
 
 ENV WORKSPACE_DIR=/workspace

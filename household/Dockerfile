@@ -37,12 +37,10 @@ COPY household/drizzle.config.ts household/drizzle.config.ts
 COPY --from=web-build /app/household/web/dist household/web/dist
 COPY tsconfig.base.json ./
 
-# Sandbox basics — non-root user, writable dirs only via volumes.
-RUN addgroup -S night && adduser -S -G night night \
-	&& mkdir -p /data /config \
-	&& chown -R night:night /data /config /app
+# Reuse the `node` user that ships in node:22-alpine (UID/GID 1000).
+RUN mkdir -p /data /config && chown -R node:node /data /config /app
 
-USER night
+USER node
 VOLUME ["/data", "/config"]
 EXPOSE 8080
 
