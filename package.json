@@ -15,7 +15,9 @@
 		"format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\"",
 		"test": "npm run test --workspaces --if-present",
 		"dev:household": "npm run dev --workspace @night/household",
-		"dev:member": "npm run dev --workspace @night/member"
+		"dev:member": "npm run dev --workspace @night/member",
+		"build:household": "docker compose build household",
+		"build:member": "docker compose build member"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",
