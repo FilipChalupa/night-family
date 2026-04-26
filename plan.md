@@ -280,14 +280,14 @@ Member je navržen tak, aby přežil výpadek Householdu bez ztráty práce.
 - `HOUSEHOLD_URL` — např. `wss://household.local:8080`
 - `HOUSEHOLD_ACCESS_TOKEN` — join-token vydaný Householdem (klidně
   sdílený mezi více instancemi Memberu)
-- `MEMBER_ID` — unikátní identifikátor instance Memberu (UUID).
-  **Volitelný** — pokud nezadán, Member při prvním startu vygeneruje
-  UUID v4 a uloží ho do `/workspace/.member-id`; při dalším startu
-  načte ze souboru. Volume reset = nový ID = nový Member z pohledu
-  Householdu.
 - `MEMBER_NAME` — friendly nickname pro UI, **nemusí být unikátní**
   (víc instancí může sdílet stejný název). Volitelné, default odvozen
-  z hostname / ID.
+  z hostname.
+
+`member_id` (perzistentní UUID v4) Member generuje sám při prvním startu
+a uloží do `/workspace/.member-id`; při dalším startu ho odtud načte.
+Žádný env override — volume reset = nový ID = nový Member z pohledu
+Householdu.
 - `MEMBER_SKILLS` — čárkou oddělené role z enumu (exact match):
   `implement`, `review`, `estimate`. Default `implement,review,estimate`
   (Member umí všechno). Pro dedikované workery (např. cheap LLM jen
