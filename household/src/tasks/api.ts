@@ -1,10 +1,10 @@
+import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Hono } from 'hono'
 import type { Logger } from 'pino'
-import type { TaskKind, TaskStatus } from '@night/shared'
+import type { AdminGuard } from '../auth/guard.ts'
 import type { MemberRegistry } from '../members/registry.ts'
 import type { Dispatcher } from './dispatcher.ts'
 import type { TaskStore } from './store.ts'
-import type { AdminGuard } from '../auth/guard.ts'
 
 const VALID_KINDS = new Set<TaskKind>(['estimate', 'implement', 'review', 'respond', 'summarize'])
 
@@ -18,6 +18,9 @@ export interface TasksApiDeps {
 
 export function mountTasksApi(app: Hono, deps: TasksApiDeps): void {
 	app.get('/api/tasks', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
 		const status = c.req.query('status')
 		const repo = c.req.query('repo') ?? undefined
 		const filter: { status?: TaskStatus[]; repo?: string } = {}
@@ -30,6 +33,9 @@ export function mountTasksApi(app: Hono, deps: TasksApiDeps): void {
 	})
 
 	app.get('/api/tasks/:id', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
 		const id = c.req.param('id')
 		const task = deps.taskStore.get(id)
 		if (!task) return c.json({ error: 'not_found' }, 404)

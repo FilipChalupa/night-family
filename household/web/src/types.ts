@@ -50,6 +50,24 @@ export interface TaskRecord {
 	metadata: Record<string, unknown> | null
 }
 
+export type UserRole = 'admin' | 'readonly'
+
+export interface CurrentUser {
+	authenticated: boolean
+	oauth_configured: boolean
+	require_ui_login: boolean
+	username?: string
+	role?: UserRole
+	csrfToken?: string
+}
+
+export interface UserRecord {
+	username: string
+	role: UserRole
+	added_at: string
+	added_by: string
+}
+
 export type UiEvent =
 	| { type: 'snapshot'; members: MemberSnapshot[]; tasks: TaskRecord[] }
 	| { type: 'member.connected'; member: MemberSnapshot }

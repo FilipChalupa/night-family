@@ -1,11 +1,15 @@
 import type { WSContext } from 'hono/ws'
 import type { Logger } from 'pino'
+import { getSessionIdFromCookieHeader } from '../auth/oauth.ts'
+import type { SessionStore } from '../auth/sessions.ts'
 import type { MemberRegistry } from '../members/registry.ts'
 import type { TaskStore } from '../tasks/store.ts'
 
 export interface UiWsDeps {
 	registry: MemberRegistry
 	taskStore: TaskStore
+	sessions: SessionStore
+	requireUiLogin: boolean
 	logger: Logger
 }
 
@@ -15,15 +19,20 @@ export interface UiWsDeps {
  *   - registry events (member connected / disconnected / updated)
  *   - task events (created / updated / deleted)
  *
- * Auth (session cookie) for /ws/ui will be added alongside CSRF — for now
- * we accept any connection. Don't expose Household publicly without a proxy.
+ * When REQUIRE_UI_LOGIN=true, /ws/ui requires a valid session cookie.
  */
 export function createUiWsHandler(deps: UiWsDeps) {
-	return () => {
+	return (c: { req: { header: (name: string) => string | undefined } }) => {
+		const sessionId = getSessionIdFromCookieHeader(c.req.header('cookie'))
+		const session = sessionId ? deps.sessions.get(sessionId) : null
 		let unsubscribers: Array<() => void> = []
 
 		return {
 			onOpen: (_evt: unknown, ws: WSContext<unknown>) => {
+				if (deps.requireUiLogin && !session) {
+					ws.close(4401, 'not_authenticated')
+					return
+				}
 				deps.logger.debug('ui ws opened')
 
 				ws.send(

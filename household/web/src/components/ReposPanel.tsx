@@ -7,7 +7,7 @@ interface RepoBinding {
 	updatedAt: string
 }
 
-export function ReposPanel() {
+export function ReposPanel({ canManage }: { canManage: boolean }) {
 	const [repos, setRepos] = useState<RepoBinding[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
@@ -40,19 +40,25 @@ export function ReposPanel() {
 
 	return (
 		<>
-			{showForm ? (
-				<RepoForm
-					onCreated={() => {
-						setShowForm(false)
-						refresh()
-					}}
-					onCancel={() => setShowForm(false)}
-				/>
+			{canManage ? (
+				showForm ? (
+					<RepoForm
+						onCreated={() => {
+							setShowForm(false)
+							refresh()
+						}}
+						onCancel={() => setShowForm(false)}
+					/>
+				) : (
+					<div className="panel-actions">
+						<button type="button" className="ghost" onClick={() => setShowForm(true)}>
+							+ Add repo binding
+						</button>
+					</div>
+				)
 			) : (
-				<div style={{ marginBottom: 12 }}>
-					<button type="button" className="ghost" onClick={() => setShowForm(true)}>
-						+ Add repo binding
-					</button>
+				<div className="note">
+					Repository bindings are visible here, but changing them is admin-only.
 				</div>
 			)}
 
@@ -87,15 +93,17 @@ export function ReposPanel() {
 									{new Date(r.createdAt).toLocaleDateString()}
 								</td>
 								<td>
-									<button
-										type="button"
-										className="ghost"
-										onClick={() => {
-											void remove(r.repo)
-										}}
-									>
-										Remove
-									</button>
+									{canManage ? (
+										<button
+											type="button"
+											className="ghost"
+											onClick={() => {
+												void remove(r.repo)
+											}}
+										>
+											Remove
+										</button>
+									) : null}
 								</td>
 							</tr>
 						))}

@@ -10,7 +10,11 @@ export interface RepoApiDeps {
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
-	app.get('/api/repos', (c) => c.json({ repos: deps.bindings.list() }))
+	app.get('/api/repos', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+		return c.json({ repos: deps.bindings.list() })
+	})
 
 	app.post('/api/repos', async (c) => {
 		const guardResult = deps.guard.requireAdmin(c)

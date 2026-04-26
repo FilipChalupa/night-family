@@ -13,6 +13,7 @@ npm install
 ### Run Household
 
 ```bash
+REQUIRE_UI_LOGIN=false \
 PRIMARY_ADMIN_GITHUB_USERNAME=your-github-login \
 DATA_DIR=$(pwd)/.tmp/data \
 CONFIG_DIR=$(pwd)/.tmp/config \
@@ -25,6 +26,11 @@ Household listens on http://localhost:8080. Endpoints:
 - `GET /api/members` — connected Members snapshot
 - `WS /ws/member` — Member fleet (bearer-token auth)
 - `WS /ws/ui` — UI live updates
+
+If you want the dashboard and UI APIs to require login, set `REQUIRE_UI_LOGIN=true`.
+In that mode, `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
+`GITHUB_OAUTH_CLIENT_SECRET` are all required, and access to the dashboard,
+read APIs, and UI websocket is limited to signed-in users.
 
 ### Run the web UI
 
@@ -86,6 +92,10 @@ cp .env.member.example   .env.member
 # edit both to taste
 docker compose up --build
 ```
+
+To require GitHub login in Docker, set `REQUIRE_UI_LOGIN=true` in `.env.household`
+and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
+`GITHUB_OAUTH_CLIENT_SECRET` before starting Household.
 
 Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
 

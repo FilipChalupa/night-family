@@ -1,12 +1,12 @@
-import { randomBytes } from 'node:crypto'
-import type { Hono, Context } from 'hono'
-import { setCookie, deleteCookie } from 'hono/cookie'
 import { eq, lt } from 'drizzle-orm'
-import { oauthStates } from '../db/schema.ts'
+import type { Context, Hono } from 'hono'
+import { deleteCookie, setCookie } from 'hono/cookie'
+import { randomBytes } from 'node:crypto'
+import type { Logger } from 'pino'
 import type { Db } from '../db/index.ts'
+import { oauthStates } from '../db/schema.ts'
 import type { UserStore } from '../users/store.ts'
 import { SESSION_COOKIE, SESSION_TTL_MS, type SessionStore } from './sessions.ts'
-import type { Logger } from 'pino'
 
 export interface OAuthDeps {
 	clientId: string
@@ -145,23 +145,38 @@ export function mountOAuth(app: Hono, deps: OAuthDeps): void {
 
 export function mountWhoAmI(
 	app: Hono,
-	deps: { sessions: SessionStore; oauthConfigured: boolean },
+	deps: { sessions: SessionStore; oauthConfigured: boolean; requireUiLogin: boolean },
 ): void {
 	app.get('/api/me', (c) => {
 		if (!deps.oauthConfigured) {
-			return c.json({ authenticated: false, oauth_configured: false })
+			return c.json({
+				authenticated: false,
+				oauth_configured: false,
+				require_ui_login: deps.requireUiLogin,
+			})
 		}
 		const id = getSessionIdFromCookie(c)
-		if (!id) return c.json({ authenticated: false, oauth_configured: true })
+		if (!id) {
+			return c.json({
+				authenticated: false,
+				oauth_configured: true,
+				require_ui_login: deps.requireUiLogin,
+			})
+		}
 		const session = deps.sessions.get(id)
 		if (!session) {
 			deleteCookie(c, SESSION_COOKIE, { path: '/' })
-			return c.json({ authenticated: false, oauth_configured: true })
+			return c.json({
+				authenticated: false,
+				oauth_configured: true,
+				require_ui_login: deps.requireUiLogin,
+			})
 		}
 		deps.sessions.maybeRefresh(id)
 		return c.json({
 			authenticated: true,
 			oauth_configured: true,
+			require_ui_login: deps.requireUiLogin,
 			username: session.githubUsername,
 			role: session.role,
 			csrfToken: session.csrfToken,
@@ -170,8 +185,12 @@ export function mountWhoAmI(
 }
 
 export function getSessionIdFromCookie(c: Context): string | null {
-	const raw = c.req.header('cookie') ?? ''
-	for (const part of raw.split(';')) {
+	return getSessionIdFromCookieHeader(c.req.header('cookie'))
+}
+
+export function getSessionIdFromCookieHeader(raw: string | undefined): string | null {
+	const value = raw ?? ''
+	for (const part of value.split(';')) {
 		const [k, v] = part.trim().split('=', 2)
 		if (k === SESSION_COOKIE && v) return v
 	}

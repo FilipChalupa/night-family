@@ -3,6 +3,7 @@ import type { TaskKind, TaskRecord } from '../types.ts'
 
 interface Props {
 	tasks: TaskRecord[]
+	canManage: boolean
 	onCreate: (input: {
 		kind: TaskKind
 		title: string
@@ -23,11 +24,17 @@ const ACTIVE: ReadonlyArray<TaskRecord['status']> = [
 	'awaiting-merge',
 ]
 
-export function TasksPanel({ tasks, onCreate, onCancel }: Props) {
+export function TasksPanel({ tasks, canManage, onCreate, onCancel }: Props) {
 	return (
 		<>
-			<NewTaskForm onCreate={onCreate} />
-			<TasksTable tasks={tasks} onCancel={onCancel} />
+			{canManage ? (
+				<NewTaskForm onCreate={onCreate} />
+			) : (
+				<div className="note">
+					You can view tasks, but creating or cancelling tasks is admin-only.
+				</div>
+			)}
+			<TasksTable tasks={tasks} canManage={canManage} onCancel={onCancel} />
 		</>
 	)
 }
@@ -120,9 +127,17 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 	)
 }
 
-function TasksTable({ tasks, onCancel }: { tasks: TaskRecord[]; onCancel: Props['onCancel'] }) {
+function TasksTable({
+	tasks,
+	canManage,
+	onCancel,
+}: {
+	tasks: TaskRecord[]
+	canManage: boolean
+	onCancel: Props['onCancel']
+}) {
 	if (tasks.length === 0) {
-		return <div className="empty">No tasks yet. Create one above.</div>
+		return <div className="empty">No tasks yet.</div>
 	}
 	return (
 		<table>
@@ -173,7 +188,7 @@ function TasksTable({ tasks, onCancel }: { tasks: TaskRecord[]; onCancel: Props[
 							{relativeTime(t.createdAt)}
 						</td>
 						<td>
-							{ACTIVE.includes(t.status) ? (
+							{canManage && ACTIVE.includes(t.status) ? (
 								<button
 									type="button"
 									className="ghost"

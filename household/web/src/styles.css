@@ -104,8 +104,45 @@ header.top .meta {
 	color: #8a8f99;
 }
 
+.top-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.auth-link {
+	display: inline-flex;
+	align-items: center;
+	padding: 8px 14px;
+	border-radius: 6px;
+	background: #2c5cdc;
+	color: #fff;
+	text-decoration: none;
+	font-weight: 500;
+}
+
+.auth-link:hover {
+	background: #3a6cee;
+}
+
 .section {
 	margin-bottom: 32px;
+}
+
+.panel-actions {
+	margin-bottom: 12px;
+}
+
+.note {
+	margin-bottom: 12px;
+	padding: 12px 14px;
+	border: 1px solid #25272d;
+	border-radius: 8px;
+	background: #121419;
+	color: #b8bcc4;
+	font-size: 13px;
 }
 
 .section h2 {
@@ -269,4 +306,20 @@ td.dim {
 	color: #ff8a8a;
 	font-size: 13px;
 	margin-right: auto;
+}
+
+@media (max-width: 900px) {
+	header.top {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 12px;
+	}
+
+	.top-actions {
+		justify-content: flex-start;
+	}
+
+	.task-form .row {
+		flex-direction: column;
+	}
 }

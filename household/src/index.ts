@@ -9,17 +9,18 @@ import { SessionStore } from './auth/sessions.ts'
 import { loadConfig } from './config.ts'
 import { SecretCipher, resolveSecretsKey } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
-import { RepoBindingStore } from './github/bindings.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
+import { RepoBindingStore } from './github/bindings.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
 import { mountStaticUi } from './static.ts'
-import { Dispatcher } from './tasks/dispatcher.ts'
 import { mountTasksApi } from './tasks/api.ts'
+import { Dispatcher } from './tasks/dispatcher.ts'
 import { TaskEventLog } from './tasks/eventLog.ts'
 import { TaskStore } from './tasks/store.ts'
 import { TokenStore } from './tokens/auth.ts'
+import { mountUsersApi } from './users/api.ts'
 import { UserStore } from './users/store.ts'
 import { createMemberWsHandler } from './ws/members.ts'
 import { createUiWsHandler } from './ws/ui.ts'
@@ -32,12 +33,16 @@ logger.info({ dataDir: config.dataDir }, 'database opened, migrations applied')
 
 const registry = new MemberRegistry()
 const tokens = new TokenStore(join(config.configDir, 'tokens.yaml'))
-const users = new UserStore(join(config.configDir, 'users.yaml'), config.primaryAdminGithubUsername)
-users.bootstrapPrimaryAdmin()
-logger.info(
-	{ primaryAdmin: config.primaryAdminGithubUsername, total: users.list().length },
-	'users store ready',
-)
+const users = config.primaryAdminGithubUsername
+	? new UserStore(join(config.configDir, 'users.yaml'), config.primaryAdminGithubUsername)
+	: null
+if (users) {
+	users.bootstrapPrimaryAdmin()
+	logger.info(
+		{ primaryAdmin: config.primaryAdminGithubUsername, total: users.list().length },
+		'users store ready',
+	)
+}
 
 const { value: secretsKey } = resolveSecretsKey({
 	envValue: config.secretsKey,
@@ -85,8 +90,6 @@ app.get('/health', (c) => {
 	})
 })
 
-app.get('/api/members', (c) => c.json({ members: registry.list() }))
-
 const memberHandler = createMemberWsHandler({
 	registry,
 	tokens,
@@ -96,24 +99,33 @@ const memberHandler = createMemberWsHandler({
 	logger: logger.child({ component: 'ws.member' }),
 })
 
+const sessionStore = new SessionStore(dbHandles.db)
+sessionStore.purgeExpired()
+setInterval(() => sessionStore.purgeExpired(), 60 * 60 * 1000).unref()
+
 const uiHandler = createUiWsHandler({
 	registry,
 	taskStore,
+	sessions: sessionStore,
+	requireUiLogin: config.requireUiLogin,
 	logger: logger.child({ component: 'ws.ui' }),
 })
 
 app.get('/ws/member', upgradeWebSocket(memberHandler))
 app.get('/ws/ui', upgradeWebSocket(uiHandler))
 
-const sessionStore = new SessionStore(dbHandles.db)
-sessionStore.purgeExpired()
-setInterval(() => sessionStore.purgeExpired(), 60 * 60 * 1000).unref()
+const guard = new AdminGuard(sessionStore, config.requireUiLogin, !!config.githubOauth)
 
-const guard = new AdminGuard(sessionStore, !!config.githubOauth)
+app.get('/api/members', (c) => {
+	const guardResult = guard.requireAuthenticated(c)
+	if (guardResult) return guardResult
+	return c.json({ members: registry.list() })
+})
 
 mountWhoAmI(app, {
 	sessions: sessionStore,
 	oauthConfigured: !!config.githubOauth,
+	requireUiLogin: config.requireUiLogin,
 })
 
 mountTasksApi(app, {
@@ -125,6 +137,9 @@ mountTasksApi(app, {
 })
 
 mountRepoBindingsApi(app, { bindings: repoBindings, guard })
+if (users) {
+	mountUsersApi(app, { users, guard })
+}
 
 mountGithubWebhook(app, {
 	db: dbHandles.db,
@@ -136,6 +151,7 @@ mountGithubWebhook(app, {
 })
 
 if (config.githubOauth) {
+	if (!users) throw new Error('users store unavailable despite OAuth config')
 	mountOAuth(app, {
 		clientId: config.githubOauth.clientId,
 		clientSecret: config.githubOauth.clientSecret,
@@ -156,7 +172,7 @@ const webDistCandidates = [
 	process.env['WEB_DIST_DIR'],
 	join(__dirname, '..', 'web', 'dist'),
 ].filter((p): p is string => !!p)
-mountStaticUi(app, webDistCandidates, logger)
+mountStaticUi(app, webDistCandidates, logger, guard)
 
 const server = serve(
 	{

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
 import { ReposPanel } from './components/ReposPanel.tsx'
 import { TasksPanel } from './components/TasksPanel.tsx'
+import { UsersPanel } from './components/UsersPanel.tsx'
 import { useUiStream } from './hooks/useUiStream.ts'
-import type { MemberSnapshot, TaskKind } from './types.ts'
+import type { CurrentUser, MemberSnapshot, TaskKind } from './types.ts'
 
 interface Health {
 	status: string
@@ -14,6 +15,7 @@ interface Health {
 
 export function App() {
 	const [health, setHealth] = useState<Health | null>(null)
+	const [me, setMe] = useState<CurrentUser | null>(null)
 	const { members, tasks, connected } = useUiStream()
 
 	useEffect(() => {
@@ -21,7 +23,20 @@ export function App() {
 			.then((r) => r.json())
 			.then((j: Health) => setHealth(j))
 			.catch(() => setHealth(null))
+
+		void fetch('/api/me')
+			.then((r) => r.json())
+			.then((j: CurrentUser) => setMe(j))
+			.catch(() => setMe(null))
 	}, [])
+
+	const isAdmin = me?.authenticated === true && me.role === 'admin'
+	const canSeeUsers = me?.authenticated === true
+
+	const logout = async () => {
+		await fetch('/auth/logout', { method: 'POST' })
+		window.location.reload()
+	}
 
 	const createTask = async (input: {
 		kind: TaskKind
@@ -47,24 +62,47 @@ export function App() {
 	return (
 		<div className="app">
 			<header className="top">
-				<h1>
-					<span className={`dot ${connected ? 'live' : 'dead'}`} />
-					{health?.household ?? 'Night Agents'}
-				</h1>
-				<div className="meta">
-					{health ? (
+				<div>
+					<h1>
+						<span className={`dot ${connected ? 'live' : 'dead'}`} />
+						{health?.household ?? 'Night Agents'}
+					</h1>
+					<div className="meta">
+						{health ? (
+							<>
+								uptime {formatUptime(health.uptimeSec)} · status {health.status}
+							</>
+						) : (
+							'connecting…'
+						)}
+					</div>
+				</div>
+				<div className="top-actions">
+					{me?.authenticated ? (
 						<>
-							uptime {formatUptime(health.uptimeSec)} · status {health.status}
+							<div className="meta">
+								signed in as <strong>{me.username}</strong> · role {me.role}
+							</div>
+							<button type="button" className="ghost" onClick={() => void logout()}>
+								Sign out
+							</button>
 						</>
-					) : (
-						'connecting…'
-					)}
+					) : me?.oauth_configured ? (
+						<a className="auth-link" href="/auth/github?redirect_to=/">
+							Sign in with GitHub
+						</a>
+					) : null}
 				</div>
 			</header>
 
 			<section className="section">
 				<h2>Tasks ({tasks.length})</h2>
-				<TasksPanel tasks={tasks} onCreate={createTask} onCancel={cancelTask} />
+				<TasksPanel
+					tasks={tasks}
+					canManage={isAdmin}
+					onCreate={createTask}
+					onCancel={cancelTask}
+				/>
 			</section>
 
 			<section className="section">
@@ -74,8 +112,15 @@ export function App() {
 
 			<section className="section">
 				<h2>Repos</h2>
-				<ReposPanel />
+				<ReposPanel canManage={isAdmin} />
 			</section>
+
+			{canSeeUsers ? (
+				<section className="section">
+					<h2>Users</h2>
+					<UsersPanel canManage={isAdmin} currentUsername={me?.username ?? null} />
+				</section>
+			) : null}
 		</div>
 	)
 }
