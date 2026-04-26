@@ -58,7 +58,10 @@ reviewuje).
 - Správa **úkolů**: vytvoření, přiřazení, stavy (queued / in-progress / in-review /
   done / failed). Pro každý úkol může existovat **více paralelních review jobů**
   (různí Members + lidé).
-- Správa **auth tokenů Members**: generování, revoke, scope per-member.
+- Správa **join-tokenů**: generování, revoke. Token nereprezentuje
+  konkrétního Membera — jeden token mohou používat sdíleně desítky Member
+  instancí. Identita Membera (jméno, skill tagy, provider, model) se hlásí
+  v handshaku WS spojení.
 - Centrální držení **GitHub credentials** (PAT / GitHub App) — Household je
   jediný, kdo je skutečně zná, Memberům posílá pouze per-task **krátkodobé
   tokeny**. **LLM API klíče Household nedrží** — každý Member si svůj klíč
@@ -77,45 +80,60 @@ reviewuje).
 - Web UI: jednoduchý SPA (React / SvelteKit) nebo SSR (Next.js).
 - DB: SQLite v containeru pro start (mountnutý volume), později Postgres.
 - Real-time: WebSocket pro spojení s Members.
-- Auth: bearer tokeny (per-member) + admin login pro web UI.
+- Auth: bearer tokeny (jeden token sdílitelný mezi N Member instancemi) +
+  admin login pro web UI.
 - Šifrování secrets v DB (libsodium / age) — klíč drží Household z env.
 
 ### Web UI obrazovky (MVP)
-1. **Dashboard** — seznam Members (status, vytížení, provider/model), počet
-   úkolů ve frontě, **statistiky útrat** (tokeny + $ za den / týden / měsíc,
-   rozpad per Member, per provider, per úkol), aktivní cost-cap alerty.
-2. **Members** — detail, generování/revoke tokenu, nastavení:
-   - jméno, skill tagy
-   - **provider / model** — Member je nahlásí při handshaku (read-only
-     zobrazení; konfiguruje se v env Memberu)
-   - hard limit na útratu / token count (Household ho vynucuje na základě
-     usage eventů, které Member streamuje)
+1. **Dashboard** — seznam aktivních Member instancí (status, vytížení,
+   provider/model), počet úkolů ve frontě, **statistiky útrat** (tokeny + $
+   za den / týden / měsíc, rozpad per Member, per provider, per úkol).
+   Limity si Members hlídají sami; Dashboard pouze loguje hlášené překročení.
+2. **Members** — seznam aktivně připojených Member instancí (= živých WS
+   spojení). Read-only detail per instance, vše hlášené v handshaku:
+   `MEMBER_NAME`, skill tagy, provider, model, použitý join-token, aktuální
+   úkol, historie, spotřeba tokenů a $ ze streamu eventů. Tokeny se generují
+   v **Settings → Tokens** (token ≠ identita Membera — stejný token může
+   používat víc instancí současně).
 3. **Tasks** — kanban (queued / in-progress / in-review / approved / done),
    vytvoření úkolu ručně nebo importem z GH issue.
 4. **Task detail** — popis, přiřazený Member, history událostí, link na PR,
    **seznam paralelních review jobů** (každý se svým výstupem a verdiktem),
    log tool callů, spotřeba tokenů a $.
-5. **Settings** — GitHub PAT / App credentials, repo bindings (více rep),
-   default dispatch policy (kolik agentů reviewuje paralelně, preference
-   providerů, …). **Review aggregation a merge requirements jsou na straně
-   GitHubu** (branch protection / required reviews per repo).
+5. **Settings** — GitHub PAT / App credentials + webhook secret per repo,
+   repo bindings (více rep), default dispatch policy (kolik agentů reviewuje
+   paralelně, preference providerů, …), správa **join-tokenů** pro Members
+   (generování, revoke; jméno tokenu pro orientaci, scope, info kolik
+   instancí ho právě používá). **Review aggregation a merge requirements
+   jsou na straně GitHubu** (branch protection / required reviews per repo).
 
 ### API (hrubě)
-- `POST /api/members/:id/token` — vygeneruje token.
+- `POST /api/tokens`, `DELETE /api/tokens/:id` — správa join-tokenů.
+- `GET /api/members` — seznam aktivně připojených Member instancí.
 - `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`.
-- `WS /ws/member` — Member se autentizuje tokenem, dostává příkazy, posílá
-  heartbeat + status updates.
+- `WS /ws/member` — Member se autentizuje join-tokenem a v handshaku
+  nahlásí svoji identitu (jméno, skills, provider, model); dál posílá
+  heartbeat + status updates a přijímá příkazy.
 - `POST /webhooks/github` — příjem GH eventů (issues opened, PR review, …).
+  Každý request validován HMAC SHA-256 podpisem (`X-Hub-Signature-256`)
+  proti per-repo webhook secretu uloženému v Household DB; neplatný podpis
+  = 401 a žádné zpracování.
 
 ## 4. Member (klient)
 
 ### Odpovědnosti
-- Po startu načte konfiguraci z env: URL Householdu, vlastní token,
-  **provider, model, LLM API key**.
-- Otevře WS spojení s Household, autentizuje se a nahlásí svůj
-  provider/model. **Per-task** dostává od Householdu pouze: krátkodobý
-  GitHub token, repo URL, popis úkolu.
+- Po startu načte konfiguraci z env: URL Householdu, **join-token**,
+  vlastní identitu (jméno, skill tagy), **provider, model, LLM API key**
+  a vlastní **limity** (max tokenů / cena per úkol, denní strop, …).
+- Otevře WS spojení s Household, autentizuje se join-tokenem a v handshaku
+  nahlásí svoji identitu (jméno, skills, provider, model). **Per-task**
+  dostává od Householdu pouze: krátkodobý GitHub token, repo URL, popis
+  úkolu.
 - Posílá heartbeat (online/idle/busy + kapacita).
+- **Vlastní limity** — Member sleduje vlastní spotřebu tokenů a $; po
+  překročení svých env limitů úkol ukončí (`reason=quota_exceeded`)
+  a pošle event Householdu pro audit. Household sám žádné limity
+  nevynucuje.
 - Čeká na přiřazení úkolu. Typy úkolů:
   - **implement** — popis → kód → PR
   - **review** — PR URL → analýza diffu → komentáře / approve / request changes
@@ -146,18 +164,25 @@ reviewuje).
   jednotné nad ním.
 - Workspace = volume `/workspace` (per úkol vlastní podadresář, po dokončení
   smazán).
-- V env Memberu žije pouze to, co Member potřebuje pro připojení a vlastní
-  LLM (`MEMBER_TOKEN`, `AI_API_KEY`). **GitHub token Member v env nedrží** —
-  přijde per-task přes WS a žije pouze v paměti procesu, dokud běží úkol.
+- V env Memberu žije vše, co potřebuje pro připojení (`HOUSEHOLD_TOKEN`),
+  vlastní LLM (`AI_API_KEY`) a svou identitu/limity. **GitHub token Member
+  v env nedrží** — přijde per-task přes WS a žije pouze v paměti procesu,
+  dokud běží úkol.
 - Plná síť (Docker default) — uživatel akceptuje, že Member má volný internet.
 
 ### Konfigurace (env)
 - `HOUSEHOLD_URL` — např. `wss://household.local:8080`
-- `MEMBER_TOKEN` — vydaný Householdem
+- `HOUSEHOLD_TOKEN` — join-token vydaný Householdem (klidně sdílený mezi
+  více instancemi Memberu)
 - `MEMBER_NAME` — lidský identifikátor (volitelné, jinak default z Householdu)
+- `MEMBER_SKILLS` — čárkou oddělené skill tagy (volitelné)
 - `AI_PROVIDER` — `anthropic` / `gemini` / `openai`
 - `AI_MODEL` — např. `claude-opus-4-7`, `gemini-2.x`, `gpt-…`
 - `AI_API_KEY` — klíč k danému provideru
+
+Volitelně limity, které si Member vynucuje sám (Household pouze loguje):
+- `MAX_TOKENS_PER_TASK`, `MAX_COST_USD_PER_TASK`
+- `MAX_COST_USD_PER_DAY` (globální denní strop)
 
 Repo URL, per-task GitHub token a popis úkolu Member dostává od Householdu
 po připojení.
@@ -165,11 +190,16 @@ po připojení.
 ## 5. Auth flow
 
 1. Admin se přihlásí do web UI Householdu.
-2. V sekci Members klikne **„Add member“** → zadá jméno → Household vygeneruje
-   token (zobrazí se jednou, uloží se hash).
-3. Admin token vloží do env nového Member containeru a spustí ho.
-4. Member se připojí na WS, pošle token, Household ověří hash, naváže relaci.
-5. Token lze kdykoliv revoknout v UI → Household uzavře WS, odmítne reconnect.
+2. V **Settings → Tokens** klikne **„Generate token"** → zadá jméno tokenu
+   (čistě pro orientaci v UI) → Household vygeneruje token (zobrazí se
+   jednou, uloží se hash).
+3. Admin token vloží do env Member containerů — **stejný token klidně
+   i do víc containerů**, pokud chce N instancí.
+4. Member se při startu připojí na WS, pošle token + handshake (vlastní
+   jméno, skills, provider, model). Household ověří hash, naváže relaci
+   a zaeviduje instanci v Members dashboardu.
+5. Token lze kdykoliv revoknout v UI → Household uzavře všechny WS relace,
+   které ho používají, a odmítne další reconnect.
 
 ## 6. Životní cyklus úkolu
 
@@ -228,9 +258,13 @@ GH issue / ruční vytvoření
   scope-nutý na konkrétní repo a větev.
 - **Identita v commitech**: jeden bot GitHub account (např. `night-bot`).
   Konkrétní Member, který práci udělal, se rozlišuje v commit footeru.
-- **Repo bindings**: v Settings se zadá libovolný počet rep (`org/name`).
-  Každý úkol má pole `repo`. Web UI umožňuje filtrování podle repa,
-  per-repo dispatch policy a per-repo metriky.
+- **Repo bindings**: v Settings se zadá libovolný počet rep (`org/name`)
+  spolu s **webhook secretem** pro daný repo. Každý úkol má pole `repo`.
+  Web UI umožňuje filtrování podle repa, per-repo dispatch policy
+  a per-repo metriky.
+- **Webhook security**: každý příchozí GH webhook validovaný HMAC SHA-256
+  podpisem (`X-Hub-Signature-256`) proti webhook secretu daného repa.
+  Neplatný podpis = 401, žádné zpracování ani audit záznam.
 - **Issue import**: tlačítko / webhook „issue opened“ → vytvoří úkol s odkazem.
 - **PR tracking**: webhook na `pull_request` a `pull_request_review` aktualizuje
   stav úkolu (včetně human reviews); `mergeable_state` rozhoduje o přechodu
@@ -306,6 +340,7 @@ night-agents/
 7. **M7 — produkční hardening**
    - HTTPS, perzistence, backup DB.
    - Šifrování secrets v DB, rotace tokenů.
-   - Cost-cap hard limity (per Member, per úkol, globálně), alerty.
+   - Auditing spotřeby (alerty na hlášené quota_exceeded, weekly digest).
+     Samotné cost-cap limity běží na straně Memberů, ne v Householdu.
    - Lepší UI (filtry, search, realtime updaty), grafy útrat.
 
