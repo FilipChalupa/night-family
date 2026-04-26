@@ -23,3 +23,6 @@ household/web/dist/
 data/
 config/
 workspace/
+
+# Claude Code per-machine settings
+.claude/settings.local.json
