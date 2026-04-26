@@ -64,7 +64,8 @@ reviewuje).
   nový). Token nereprezentuje konkrétního Membera — jeden token mohou
   používat sdíleně desítky Member instancí. Per token Household drží
   audit: kdo a kdy ho vytvořil, kdo zrevoknul, kteří Members se s ním kdy
-  připojili. Identita Membera (jméno, skill tagy, provider, model) se
+  připojili. Identita Member instance (`member_id` — perzistentní UUID,
+  `member_name` — friendly nickname, skill tagy, provider, model) se
   hlásí v handshaku WS spojení.
 - Centrální držení **GitHub PAT** (event. GitHub App credentials) —
   Household je jediný, kdo drží long-lived credentials v DB (šifrovaně),
@@ -103,7 +104,7 @@ reviewuje).
 - Real-time: WebSocket pro spojení s Members.
 - Auth:
   - **Web UI** — GitHub OAuth. Při startu vyžadováno
-    `ADMIN_GITHUB_USERNAME` (root admin); další uživatelé se přidávají
+    `PRIMARY_ADMIN_GITHUB_USERNAME` (root admin); další uživatelé se přidávají
     přes UI s rolí `admin` / `readonly`. Persistuje se v
     `/config/users.yaml`.
   - **Members** — bearer tokeny v WS handshaku (jeden token sdílitelný
@@ -119,8 +120,11 @@ reviewuje).
    loguje hlášené překročení.
 2. **Members** — seznam aktivně připojených Member instancí (= živých WS
    spojení). Read-only detail per instance, vše hlášené v handshaku:
-   `MEMBER_NAME`, skill tagy, provider, model, worker profile, použitý
-   token, aktuální úkol, historie, spotřeba tokenů a $ ze streamu eventů.
+   `member_id` (perzistentní UUID), `member_name` (friendly), skill tagy,
+   provider, model, worker profile, použitý token, aktuální úkol,
+   historie, spotřeba tokenů a $ ze streamu eventů. Historie per Member
+   se klíčuje na `member_id`, takže přejmenování `MEMBER_NAME` ji
+   neztratí.
 3. **Tasks** — kanban (queued / in-progress / in-review / awaiting-merge /
    done / failed), vytvoření úkolu ručně nebo importem z GH issue.
 4. **Task detail** — popis, estimace (size + blockers), přiřazený Member,
@@ -128,7 +132,7 @@ reviewuje).
    (každý se svým výstupem a verdiktem), log tool callů, spotřeba
    tokenů a $.
 5. **Users** — seznam GitHub uživatelů s přístupem do UI, role
-   `admin` / `readonly`. Root admin (`ADMIN_GITHUB_USERNAME`) je vždy
+   `admin` / `readonly`. Root admin (`PRIMARY_ADMIN_GITHUB_USERNAME`) je vždy
    admin a nelze ho odebrat.
 6. **Settings** — GitHub PAT (event. App credentials) + webhook secret
    per repo, repo bindings (více rep), default dispatch policy (kolik
@@ -156,7 +160,7 @@ reviewuje).
 - `HOUSEHOLD_NAME` — pojmenování instance Householdu (default
   `Somnambulator`). Zobrazuje se v hlavičce web UI a v handshake response
   Memberům, ať si Member loguje, ke které ústředně je připojený.
-- `ADMIN_GITHUB_USERNAME` — GitHub login root admina (povinné při startu).
+- `PRIMARY_ADMIN_GITHUB_USERNAME` — GitHub login root admina (povinné při startu).
   Tento uživatel se zaeviduje v `/config/users.yaml` jako první admin
   a nelze ho odebrat.
 - `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` — credentials
@@ -170,10 +174,16 @@ reviewuje).
   vlastní identitu (jméno, skill tagy), **provider, model, LLM API key**,
   worker profile a vlastní limity.
 - Otevře WS spojení s Household, autentizuje se join-tokenem a v handshaku
-  nahlásí svoji identitu (jméno, skills, provider, model, worker profile).
-  Po dispatchi dostane od Householdu: GitHub PAT (v paměti, sdílený
-  s ostatními Members), repo URL, popis úkolu a případně obsah
-  `.night/instructions.md` z target repa.
+  nahlásí svoji identitu (`member_id`, `member_name`, skills, provider,
+  model, worker profile). `member_id` je perzistentní UUID (uložené
+  v `/workspace/.member-id`), `member_name` je friendly nickname, který
+  nemusí být unikátní.
+- Po dispatchi dostane od Householdu: GitHub PAT (v paměti, sdílený
+  s ostatními Members), repo URL, popis úkolu. **Project-specific
+  instrukce** (build/test commands, conventions, sensitive paths)
+  Member po cloneu načte sám z target repa — hledá v pořadí:
+  `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/*.md`, `.github/copilot-instructions.md`.
+  První nalezený přiloží jako system prompt addition pro agenta.
 - **Kapacita = 1 úkol v okamžik.** Žádný paralelní task v jedné instanci —
   pro víc paralelní práce stačí spustit víc Member containerů.
 - Posílá heartbeat (online/idle/busy) + `member.ready` po startu /
@@ -270,11 +280,18 @@ Member je navržen tak, aby přežil výpadek Householdu bez ztráty práce.
 - `HOUSEHOLD_URL` — např. `wss://household.local:8080`
 - `HOUSEHOLD_ACCESS_TOKEN` — join-token vydaný Householdem (klidně
   sdílený mezi více instancemi Memberu)
-- `MEMBER_NAME` — lidský identifikátor (volitelné, jinak default
-  z Householdu)
-- `MEMBER_SKILLS` — čárkou oddělené tagy z enumu (exact match):
-  `frontend`, `backend`, `infra`, `tests`, `docs`, `refactor`, `bugfix`.
-  Volitelné.
+- `MEMBER_ID` — unikátní identifikátor instance Memberu (UUID).
+  **Volitelný** — pokud nezadán, Member při prvním startu vygeneruje
+  UUID v4 a uloží ho do `/workspace/.member-id`; při dalším startu
+  načte ze souboru. Volume reset = nový ID = nový Member z pohledu
+  Householdu.
+- `MEMBER_NAME` — friendly nickname pro UI, **nemusí být unikátní**
+  (víc instancí může sdílet stejný název). Volitelné, default odvozen
+  z hostname / ID.
+- `MEMBER_SKILLS` — čárkou oddělené role z enumu (exact match):
+  `implement`, `review`, `estimate`. Default `implement,review,estimate`
+  (Member umí všechno). Pro dedikované workery (např. cheap LLM jen
+  na review) lze omezit.
 - `WORKER_PROFILE` — `hard` / `medium` / `lazy` (volitelné, default
   `medium`). Hint pro dispatch i interní agent loop (jak důkladný je
   v thinking, kolik review iterací atd.).
@@ -291,7 +308,7 @@ Repo URL, GitHub PAT a popis úkolu Member dostává od Householdu po dispatchi.
 ## 5. Auth flow
 
 ### Web UI (admin / users)
-1. Při startu Householdu je v env `ADMIN_GITHUB_USERNAME` (root admin).
+1. Při startu Householdu je v env `PRIMARY_ADMIN_GITHUB_USERNAME` (root admin).
    Tento uživatel je první zaevidovaný v `/config/users.yaml` s rolí
    `admin`.
 2. Admin (a další pozvaní uživatelé) se přihlašují přes **GitHub OAuth**
@@ -304,7 +321,8 @@ Repo URL, GitHub PAT a popis úkolu Member dostává od Householdu po dispatchi.
    tokenu (čistě pro orientaci v UI) → Household vygeneruje token
    (zobrazí se jednou, uloží se hash do `/config/tokens.yaml`).
 2. Token se v UI eviduje: kdo a kdy vytvořil, audit použití (kteří
-   Members se s ním kdy připojili — jméno instance, časový rozsah).
+   Members se s ním kdy připojili — `member_id` + `member_name` +
+   časový rozsah).
 3. Admin token vloží do env Member containerů — **stejný token klidně
    i do víc containerů**, pokud chce N instancí.
 4. Member se při startu připojí na WS, pošle token + handshake (vlastní
@@ -411,12 +429,11 @@ zpět in-progress      ČLOVĚK provede merge
   řešení, použité tools, soubory měněné, statistika tokenů a $,
   link na task v Householdu. Draft PR založí hned po prvním commitu,
   finální popis doplní při převedení do ready for review.
-- **`.night/instructions.md`** — volitelný soubor v target repu, který
-  Household při dispatchi přečte a pošle Memberovi v `task.assigned`
-  payloadu. Free-form markdown, použije se jako system prompt addition
-  pro agenta. Typický obsah: build/test/lint commands, konvence repa
-  (commit format, branch naming), sensitive paths které Member nesmí
-  editovat, code style preferences, „do/don't" pravidla.
+- **Project instructions** — Member po cloneu prohledá target repo na
+  známé agent config soubory (priorita: `AGENTS.md`, `CLAUDE.md`,
+  `.cursor/rules/*.md`, `.github/copilot-instructions.md`) a první
+  nalezený použije jako system prompt addition. Žádná Night-specific
+  konvence; spoléháme na to, co projekt už typicky má.
 - **Žádné automatické merge** — Members ani Household nemergují PR.
   Merge spouští výhradně člověk přes GitHub UI.
 
@@ -474,7 +491,7 @@ night-agents/
    - Member container (skeleton).
    - WS protokol (handshake, ready, ping/pong, heartbeat) — viz §11.
    - Dashboard zobrazující online Members.
-   - GitHub OAuth login pro web UI; `ADMIN_GITHUB_USERNAME` bootstrap.
+   - GitHub OAuth login pro web UI; `PRIMARY_ADMIN_GITHUB_USERNAME` bootstrap.
    - Persistence: SQLite `/data` + YAML `/config`.
    - CI pipeline (GitHub Actions) — typecheck, lint, unit testy, build.
 
@@ -502,7 +519,8 @@ night-agents/
    - PAT shared model.
    - Webhooky (PR, review, issues) s HMAC SHA-256 validací.
    - Stale base detection a `task.rebase_suggested`.
-   - `.night/instructions.md` načítání z target repa.
+   - Načítání standardních agent config souborů z target repa
+     (`AGENTS.md`, `CLAUDE.md`, …) v Memberu po cloneu.
 
 5. **M5 — paralelní review smyčka**
    - Dispatch více review jobů na různé Members současně (self-review
@@ -538,7 +556,9 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 
 ```ts
 { type: "handshake", protocol_version: 1,
-  member_name: "alice-1", skills: ["frontend", "tests"],
+  member_id: "550e8400-e29b-41d4-a716-446655440000",   // perzistentní UUID
+  member_name: "alice-laptop",                         // friendly, ne nutně unikátní
+  skills: ["implement", "review", "estimate"],
   provider: "anthropic", model: "claude-opus-4-7",
   worker_profile: "hard" | "medium" | "lazy",
   resumes: [{ task_id, last_seq }]   // jen při reconnectu
@@ -559,7 +579,7 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 ```ts
 { type: "handshake.ack", household_name: "Somnambulator", session_id }
 { type: "handshake.reject", reason }
-{ type: "task.assigned", task: {...}, github_token, repo_url, instructions_md? }
+{ type: "task.assigned", task: {...}, github_token, repo_url }
 { type: "events.replay_request", task_id, from_seq }
 { type: "task.rebase_suggested", task_id, behind_by }
 { type: "task.cancel", task_id, reason }
