@@ -31,7 +31,7 @@ reviewuje).
                           ▼
 ┌─────────────────────────────────────────────┐
 │           HOUSEHOLD  (NO AI)                │
-│  - Web UI (přehled, zadávání, $)            │
+│  - Web UI (přehled, zadávání, statistiky)   │
 │  - REST + WebSocket API                     │
 │  - DB /data (úkoly, audit, eventy)          │
 │  - Config /config YAML (users, tokeny)      │
@@ -127,22 +127,21 @@ reviewuje).
 ### Web UI obrazovky (MVP)
 1. **Dashboard** — seznam aktivních Member instancí (status, vytížení,
    provider/model, použitý token), počet úkolů ve frontě, **statistiky
-   útrat** (tokeny + $ za den / týden / měsíc, rozpad per Member, per
-   provider, per úkol). Limity si Members hlídají sami; Dashboard pouze
-   loguje hlášené překročení.
+   tokenů** (za den / týden / měsíc, rozpad per Member, per provider,
+   per úkol). Limity si Members hlídají sami; Dashboard pouze loguje
+   hlášené překročení. Žádné $ účtování — ceník per model neřešíme,
+   plánujeme čistě token counts.
 2. **Members** — seznam aktivně připojených Member instancí (= živých WS
    spojení). Read-only detail per instance, vše hlášené v handshaku:
    `member_id` (perzistentní UUID), `member_name` (friendly), skill tagy,
    provider, model, worker profile, použitý token, aktuální úkol,
-   historie, spotřeba tokenů a $ ze streamu eventů. Historie per Member
-   se klíčuje na `member_id`, takže přejmenování `MEMBER_NAME` ji
-   neztratí.
+   historie, spotřeba tokenů ze streamu eventů. Historie per Member se
+   klíčuje na `member_id`, takže přejmenování `MEMBER_NAME` ji neztratí.
 3. **Tasks** — kanban (queued / in-progress / in-review / awaiting-merge /
    done / failed), vytvoření úkolu ručně nebo importem z GH issue.
 4. **Task detail** — popis, estimace (size + blockers), přiřazený Member,
    history událostí, link na PR, **seznam paralelních review jobů**
-   (každý se svým výstupem a verdiktem), log tool callů, spotřeba
-   tokenů a $.
+   (každý se svým výstupem a verdiktem), log tool callů, spotřeba tokenů.
 5. **Users** — seznam GitHub uživatelů s přístupem do UI, role
    `admin` / `readonly`. Root admin (`PRIMARY_ADMIN_GITHUB_USERNAME`) je vždy
    admin a nelze ho odebrat.
@@ -252,8 +251,8 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
     Members, pokud jsou k dispozici).
   - **Více Members může reviewovat tentýž PR paralelně** — Household
     sleduje výstup každého z nich samostatně.
-- **Vlastní limity** — Member sleduje vlastní spotřebu tokenů a $;
-  po překročení svých env limitů úkol ukončí (`reason=quota_exceeded`)
+- **Vlastní limity** — Member sleduje vlastní spotřebu tokenů; po
+  překročení svých env limitů úkol ukončí (`reason=quota_exceeded`)
   a pošle event Householdu pro audit. Household sám žádné limity
   nevynucuje.
 - **Hard wallclock limit** — Member ukončí úkol po `MAX_TASK_DURATION_MINUTES`
