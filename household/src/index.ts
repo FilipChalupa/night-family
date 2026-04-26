@@ -7,7 +7,7 @@ import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
 import { loadConfig } from './config.ts'
-import { SecretCipher } from './crypto/secrets.ts'
+import { SecretCipher, resolveSecretsKey } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
 import { RepoBindingStore } from './github/bindings.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
@@ -39,12 +39,12 @@ logger.info(
 	'users store ready',
 )
 
-const cipher = new SecretCipher(config.secretsKey)
-if (!config.secretsKey) {
-	logger.warn(
-		'SECRETS_KEY not set — using a static dev key. Set SECRETS_KEY in production (`openssl rand -base64 32`).',
-	)
-}
+const { value: secretsKey } = resolveSecretsKey({
+	envValue: config.secretsKey,
+	configDir: config.configDir,
+	logger: logger.child({ component: 'secrets' }),
+})
+const cipher = new SecretCipher(secretsKey)
 
 const taskStore = new TaskStore(dbHandles.db)
 const eventLog = new TaskEventLog(dbHandles.db)

@@ -1,5 +1,19 @@
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { SecretCipher } from './secrets.ts'
+import { resolveSecretsKey, SecretCipher } from './secrets.ts'
+
+const silentLogger = {
+	info: () => {},
+	warn: () => {},
+	error: () => {},
+	debug: () => {},
+	trace: () => {},
+	fatal: () => {},
+	level: 'silent',
+	child: () => silentLogger,
+} as unknown as Parameters<typeof resolveSecretsKey>[0]['logger']
 
 describe('SecretCipher', () => {
 	it('round-trips plaintext', () => {
@@ -40,5 +54,68 @@ describe('SecretCipher', () => {
 		const c = new SecretCipher(null)
 		const blob = c.encrypt('hi')
 		expect(c.decrypt(blob)).toBe('hi')
+	})
+})
+
+describe('resolveSecretsKey', () => {
+	const mkConfigDir = () => mkdtempSync(join(tmpdir(), 'night-secrets-'))
+
+	it('prefers env value when present', () => {
+		const dir = mkConfigDir()
+		try {
+			const { value, source } = resolveSecretsKey({
+				envValue: 'env-supplied-key',
+				configDir: dir,
+				logger: silentLogger,
+			})
+			expect(value).toBe('env-supplied-key')
+			expect(source.kind).toBe('env')
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('generates and persists a key on first call', () => {
+		const dir = mkConfigDir()
+		try {
+			const r = resolveSecretsKey({ envValue: null, configDir: dir, logger: silentLogger })
+			expect(r.source.kind).toBe('file')
+			if (r.source.kind === 'file') expect(r.source.generated).toBe(true)
+			expect(r.value.length).toBeGreaterThan(40)
+
+			const path = join(dir, '.secrets-key')
+			expect(readFileSync(path, 'utf8').trim()).toBe(r.value)
+			// On POSIX, mode should be 0600. The low 9 bits encode rwxrwxrwx.
+			if (process.platform !== 'win32') {
+				const mode = statSync(path).mode & 0o777
+				expect(mode).toBe(0o600)
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('reuses an existing key file across calls', () => {
+		const dir = mkConfigDir()
+		try {
+			const a = resolveSecretsKey({ envValue: null, configDir: dir, logger: silentLogger })
+			const b = resolveSecretsKey({ envValue: null, configDir: dir, logger: silentLogger })
+			expect(b.value).toBe(a.value)
+			if (b.source.kind === 'file') expect(b.source.generated).toBe(false)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('rejects an empty key file rather than silently regenerating', () => {
+		const dir = mkConfigDir()
+		try {
+			writeFileSync(join(dir, '.secrets-key'), '   \n', 'utf8')
+			expect(() =>
+				resolveSecretsKey({ envValue: null, configDir: dir, logger: silentLogger }),
+			).toThrow(/empty/)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 })

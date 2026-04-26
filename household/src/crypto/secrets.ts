@@ -10,12 +10,16 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { join } from 'node:path'
+import type { Logger } from 'pino'
 
 const VERSION = 'v1'
 const ALGO = 'aes-256-gcm'
 const IV_BYTES = 12
 const TAG_BYTES = 16
 const KEY_BYTES = 32
+const KEY_FILENAME = '.secrets-key'
 
 export class SecretCipher {
 	private readonly key: Buffer
@@ -74,4 +78,55 @@ function deriveKey(masterKey: string | null): Buffer {
 	// (entropy depends on input), but avoids surprising users who pasted a
 	// passphrase.
 	return createHash('sha256').update(masterKey).digest()
+}
+
+export type SecretsKeySource = { kind: 'env' } | { kind: 'file'; path: string; generated: boolean }
+
+/**
+ * Resolve the master key in priority order:
+ *   1. `envValue` (e.g. process.env.SECRETS_KEY) — for deploys with a real
+ *      secrets manager (k8s, 1Password, …).
+ *   2. `<configDir>/.secrets-key` if it exists — auto-generated on previous
+ *      run, kept across restarts.
+ *   3. Generate 32 random bytes (base64), write to `<configDir>/.secrets-key`
+ *      with 0600 perms, return.
+ *
+ * The file lives in `/config` (not `/data`) so the encryption key is on a
+ * different volume than the ciphertext it protects, and so it rides along
+ * with the regularly-backed-up config volume.
+ */
+export function resolveSecretsKey(opts: {
+	envValue: string | null
+	configDir: string
+	logger: Logger
+}): { value: string; source: SecretsKeySource } {
+	if (opts.envValue && opts.envValue.length > 0) {
+		opts.logger.info('using SECRETS_KEY from env')
+		return { value: opts.envValue, source: { kind: 'env' } }
+	}
+
+	const path = join(opts.configDir, KEY_FILENAME)
+
+	if (existsSync(path)) {
+		const value = readFileSync(path, 'utf8').trim()
+		if (value.length === 0) {
+			throw new Error(`secrets key file is empty: ${path}`)
+		}
+		opts.logger.info({ path }, 'loaded secrets key from disk')
+		return { value, source: { kind: 'file', path, generated: false } }
+	}
+
+	mkdirSync(opts.configDir, { recursive: true })
+	const value = randomBytes(KEY_BYTES).toString('base64')
+	writeFileSync(path, value + '\n', { encoding: 'utf8', mode: 0o600 })
+	try {
+		chmodSync(path, 0o600)
+	} catch {
+		/* best-effort; some filesystems (e.g. Windows mounts) ignore mode */
+	}
+	opts.logger.warn(
+		{ path },
+		'generated new secrets key — back up this file alongside /config to avoid losing encrypted PATs',
+	)
+	return { value, source: { kind: 'file', path, generated: true } }
 }
