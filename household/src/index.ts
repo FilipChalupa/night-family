@@ -172,7 +172,7 @@ const webDistCandidates = [
 	process.env['WEB_DIST_DIR'],
 	join(__dirname, '..', 'web', 'dist'),
 ].filter((p): p is string => !!p)
-mountStaticUi(app, webDistCandidates, logger, guard)
+mountStaticUi(app, webDistCandidates, logger)
 
 const server = serve(
 	{

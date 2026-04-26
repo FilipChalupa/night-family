@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MemberSnapshot, TaskRecord, UiEvent } from '../types.ts'
 
-export function useUiStream(): {
+export function useUiStream(enabled: boolean): {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
 	connected: boolean
@@ -14,6 +14,20 @@ export function useUiStream(): {
 	const closedManually = useRef(false)
 
 	useEffect(() => {
+		if (!enabled) {
+			setConnected(false)
+			setMembers([])
+			setTasks([])
+			closedManually.current = true
+			wsRef.current?.close()
+			if (reconnectTimer.current !== null) {
+				window.clearTimeout(reconnectTimer.current)
+				reconnectTimer.current = null
+			}
+			return
+		}
+
+		closedManually.current = false
 		const open = () => {
 			const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 			const url = `${proto}//${window.location.host}/ws/ui`
@@ -76,7 +90,7 @@ export function useUiStream(): {
 			}
 			wsRef.current?.close()
 		}
-	}, [])
+	}, [enabled])
 
 	return { members, tasks, connected }
 }

@@ -3,7 +3,6 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize, relative, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import type { Logger } from 'pino'
-import type { AdminGuard } from './auth/guard.ts'
 
 const MIME: Record<string, string> = {
 	'.html': 'text/html; charset=utf-8',
@@ -39,12 +38,7 @@ function safeJoin(root: string, requested: string): string | null {
  * (so they fall through to their own handlers). Anything else either serves
  * a file from the dist directory or, for SPA routes, returns index.html.
  */
-export function mountStaticUi(
-	app: Hono,
-	candidates: string[],
-	logger: Logger,
-	guard: AdminGuard,
-): void {
+export function mountStaticUi(app: Hono, candidates: string[], logger: Logger): void {
 	const root = candidates.find((p) => existsSync(p))
 	if (!root) {
 		logger.warn(
@@ -70,9 +64,6 @@ export function mountStaticUi(
 		) {
 			return c.notFound()
 		}
-
-		const guardResult = guard.requireAuthenticatedPage(c)
-		if (guardResult) return guardResult
 
 		const candidate = reqPath === '/' ? indexPath : safeJoin(root, reqPath)
 		if (candidate && existsSync(candidate) && statSync(candidate).isFile()) {

@@ -16,7 +16,8 @@ interface Health {
 export function App() {
 	const [health, setHealth] = useState<Health | null>(null)
 	const [me, setMe] = useState<CurrentUser | null>(null)
-	const { members, tasks, connected } = useUiStream()
+	const shouldConnectUiStream = me?.authenticated === true || me?.require_ui_login !== true
+	const { members, tasks, connected } = useUiStream(shouldConnectUiStream)
 
 	useEffect(() => {
 		void fetch('/health')
@@ -32,10 +33,32 @@ export function App() {
 
 	const isAdmin = me?.authenticated === true && me.role === 'admin'
 	const canSeeUsers = me?.authenticated === true
+	const requiresLogin = me?.require_ui_login === true
+	const isLoggedOutWithRequiredLogin = requiresLogin && me?.authenticated === false
 
 	const logout = async () => {
 		await fetch('/auth/logout', { method: 'POST' })
 		window.location.reload()
+	}
+
+	if (!me) {
+		return (
+			<div className="app">
+				<div className="empty">Loading dashboard...</div>
+			</div>
+		)
+	}
+
+	if (isLoggedOutWithRequiredLogin) {
+		return (
+			<div className="app auth-landing">
+				<h1>{health?.household ?? 'Night Agents'}</h1>
+				<p className="meta">Dashboard access requires GitHub sign-in.</p>
+				<a className="auth-link" href="/auth/github?redirect_to=/">
+					Sign in with GitHub
+				</a>
+			</div>
+		)
 	}
 
 	const createTask = async (input: {
