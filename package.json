@@ -1,0 +1,31 @@
+{
+	"name": "night-agents",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Night Agents — self-hosted orchestration of AI coding agents (Household + Members)",
+	"workspaces": [
+		"shared",
+		"household",
+		"household/web",
+		"member"
+	],
+	"scripts": {
+		"typecheck": "npm run typecheck --workspaces --if-present",
+		"lint": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+		"format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+		"test": "npm run test --workspaces --if-present",
+		"dev:household": "npm run dev --workspace @night/household",
+		"dev:member": "npm run dev --workspace @night/member"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.0",
+		"drizzle-orm": "^0.45.0",
+		"prettier": "^3.4.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.7.0",
+		"vitest": "^2.1.0"
+	},
+	"engines": {
+		"node": ">=22"
+	}
+}

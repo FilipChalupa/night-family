@@ -1,0 +1,32 @@
+{
+	"name": "@night/household",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "tsx src/index.ts",
+		"typecheck": "tsc",
+		"test": "vitest run --passWithNoTests",
+		"db:generate": "drizzle-kit generate",
+		"db:check": "drizzle-kit check"
+	},
+	"dependencies": {
+		"@hono/node-server": "^1.13.0",
+		"@hono/node-ws": "^1.0.5",
+		"@night/shared": "*",
+		"better-sqlite3": "^11.7.0",
+		"drizzle-orm": "^0.45.0",
+		"hono": "^4.6.0",
+		"pino": "^9.5.0",
+		"pino-pretty": "^11.3.0",
+		"yaml": "^2.6.0"
+	},
+	"devDependencies": {
+		"@types/better-sqlite3": "^7.6.0",
+		"@types/ws": "^8.5.0",
+		"drizzle-kit": "^0.31.0",
+		"ws": "^8.18.0"
+	}
+}

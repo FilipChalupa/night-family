@@ -1,0 +1,22 @@
+{
+	"name": "@night/member",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "tsx src/index.ts",
+		"typecheck": "tsc",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@night/shared": "*",
+		"pino": "^9.5.0",
+		"pino-pretty": "^11.3.0",
+		"ws": "^8.18.0"
+	},
+	"devDependencies": {
+		"@types/ws": "^8.5.0"
+	}
+}

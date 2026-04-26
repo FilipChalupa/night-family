@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+coverage/
+.vitest-cache/
+.turbo/
+.nx/
+
+# build outputs
+household/dist/
+member/dist/
+shared/dist/
+household/web/dist/
+
+# local data
+data/
+config/
+workspace/
