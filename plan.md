@@ -78,20 +78,32 @@ reviewuje).
   PR statusů, příjem webhooků s HMAC validací.
 - **Dispatch — hybridní pull**:
   1. Member po startu nebo dokončení úkolu pošle `member.ready`.
-  2. Household v reakci pošle `task.assigned` (push), pokud má vhodný úkol.
+  2. Household v reakci pošle `task.assigned` (push), pokud má vhodný
+     úkol. **Filtruje podle skill matche**: úkol typu `implement` jde jen
+     Memberu se `implement` v `MEMBER_SKILLS`, atd. Member bez požadované
+     role je v dispatchu přeskočen.
   3. Member ack-uje. Pokud nepřijde `task.ack` do 30 s, Household úkol
      vrátí do queue a zkusí dalšího `member.ready`.
   4. Atomický přechod stavu úkolu `queued → assigned` v DB transakci.
   Žádné race conditions ani polling — Member je vždy „ready nebo busy".
+- **Webhook idempotency** — GitHub webhooky retryují při selhání;
+  Household deduplikuje přes `X-GitHub-Delivery` header (uložený
+  do tabulky `webhook_deliveries`, primary key).
 - **Audit log** — co Member dělal, jaké tool calls, kolik tokenů spálil.
   Eventy procházejí redaction filtrem v Memberu před odesláním (viz §4).
   Retence raw eventů 90 dní (per-task aggregát zůstává navždy).
 
 ### Tech stack (návrh)
-- Node.js / TypeScript backend (snadná integrace s GitHub Octokit, sdílení
-  typů s Memberem). **Žádné LLM SDK na straně Householdu.**
-- Web UI: jednoduchý SPA (React / SvelteKit) nebo SSR (Next.js).
-- DB: SQLite v containeru pro start (volume), později Postgres.
+- **Backend** — Node.js / TypeScript + **Hono** (HTTP + WS). Octokit
+  pro GitHub. **Žádné LLM SDK na straně Householdu.**
+- **Web UI** — **React SPA + Vite**, statika servována Honem.
+- **DB** — SQLite v containeru pro start (volume), později Postgres.
+  Access přes **Drizzle** (type-safe queries, generated typy ze schema),
+  migrace přes **drizzle-kit**.
+- **Logging** — **Pino** (JSON struktura), v dev `pino-pretty` pro
+  čitelný output.
+- **Testing** — **Vitest** (jednotné pro Household + Member + shared).
+- **Monorepo** — **npm workspaces**: `household/`, `member/`, `shared/`.
 - **Persistence volumes**:
   - `/data` — hlavní SQLite DB (úkoly, audit log, eventy). **Není
     zálohovaná** — pokud Household spadne, postavíme nový. Nic v DB
@@ -208,7 +220,7 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
   První nalezený přiloží jako system prompt addition pro agenta.
 - **Kapacita = 1 úkol v okamžik.** Žádný paralelní task v jedné instanci —
   pro víc paralelní práce stačí spustit víc Member containerů.
-- Posílá heartbeat (online/idle/busy) + `member.ready` po startu /
+- Posílá heartbeat (`idle` / `busy`) + `member.ready` po startu /
   dokončení úkolu (signál pro hybridní pull dispatcher).
 - Typy úkolů:
   - **estimate** — krátký analytický úkol: Member projde issue/popis,
@@ -244,6 +256,12 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
   po překročení svých env limitů úkol ukončí (`reason=quota_exceeded`)
   a pošle event Householdu pro audit. Household sám žádné limity
   nevynucuje.
+- **Hard wallclock limit** — Member ukončí úkol po `MAX_TASK_DURATION_MINUTES`
+  (default 120 min) bez ohledu na stav agent loopu. Reason
+  `timeout_exceeded`. Brání nekonečnému loopu agenta.
+- **Workspace cleanup** — Member smaže `/workspace/<task-id>/` až poté,
+  co Household ack-uje všechny eventy daného úkolu **+ 24 h grace
+  period** (kdyby admin chtěl ručně sáhnout do workspace).
 - **Stale base** — pokud Household pošle `task.rebase_suggested`,
   Member rebasuje větev na čerstvý base. Konflikty řeší sám (přečte
   diff, navrhne řešení, commitne). Household nikdy nesahá do git stavu.
@@ -277,7 +295,9 @@ Member je navržen tak, aby přežil výpadek Householdu bez ztráty práce.
   eventů daného úkolu.
 
 ### Tech stack
-- Stejný jazyk jako Household (sdílení typů přes monorepo).
+- Stejný jazyk (TypeScript) jako Household, sdílení typů přes
+  `shared/` package v npm workspaces. Stejný stack: **Pino** logging,
+  **Vitest** testing.
 - Uvnitř containeru: `git`, `gh` CLI, Node + LLM SDK podle providera.
 - **Provider adapter** — společné rozhraní (`runAgent(task, tools, stream)`),
   implementace pro:
@@ -330,6 +350,8 @@ Householdu.
 Volitelně limity, které si Member vynucuje sám (Household pouze loguje):
 - `MAX_TOKENS_PER_TASK`, `MAX_COST_USD_PER_TASK`
 - `MAX_COST_USD_PER_DAY` (rolling 24 h)
+- `MAX_TASK_DURATION_MINUTES` (default 120) — hard wallclock limit
+  per úkol
 
 Repo URL, GitHub PAT a popis úkolu Member dostává od Householdu po dispatchi.
 
@@ -433,6 +455,29 @@ zpět in-progress      ČLOVĚK provede merge
   scopování — PAT se prostě sdílí). Pokud admin použije GitHub App,
   identita bot accountu je `<app-name>[bot]`; pokud PAT, identita
   commitů je vlastník PATu.
+- **Minimální permissions PAT** — doporučujeme **fine-grained PAT**
+  scoped na konkrétní repos (modernější, expirovatelný); classic PAT
+  alternativa níže.
+
+  *Fine-grained PAT — repository permissions:*
+  - **Contents** — Read and write (clone, push, branch operations)
+  - **Issues** — Read and write (import s labelem `night`, komentáře,
+    label changes)
+  - **Pull requests** — Read and write (open PR, komentáře,
+    approve / request changes přes `gh`)
+  - **Workflows** — Read and write (Member smí editovat
+    `.github/workflows/*.yml`; bez tohoto scope-u GitHub odmítne push,
+    který tyto soubory mění)
+  - **Actions** — Read (status checks v PR; review-Member je promítá
+    do verdiktu)
+  - **Commit statuses** — Read
+  - **Metadata** — Read (povinné, default)
+  - **Webhooks** — Read and write (volitelné — jen pokud chceš,
+    aby Household automaticky registroval webhooky; jinak admin
+    přidá v repo Settings ručně)
+
+  *Classic PAT alternativa* (jednodušší, méně granulární): scope
+  `repo` (full) + `workflow`.
 - **Identita v commitech**: konkrétní Member, který práci udělal,
   se rozlišuje v commit footeru
   (`Co-Authored-By: Night <member-name> <noreply@…>`).
@@ -484,7 +529,9 @@ zpět in-progress      ČLOVĚK provede merge
 - Sdílený `packages/shared` (typy, protokol zpráv, redaction filter) —
   multi-stage build, oba images si ho zkopírují.
 - **Prod**:
-  - Household nasazený samostatně (TLS přes reverse proxy / Caddy).
+  - Household nasazený samostatně. **TLS je out of scope** — řeší
+    externí reverse proxy / load balancer (Caddy, Traefik, nginx,
+    cloud LB), na které Household sedí.
   - Members na **částečně vyhrazené VM/VPS**, oddělené od jiných
     citlivých služeb. Případný únik z kontejneru zasáhne jen tu jednu
     mašinu, ne celý host.
@@ -515,13 +562,16 @@ night-agents/
 ## 10. Fáze (milestones)
 
 1. **M1 — kostra & spojení**
-   - Skeleton Householdu (HTTP server, prázdné UI, `/health`).
-   - Member container (skeleton).
+   - Skeleton Householdu (Hono HTTP + WS, React+Vite UI skeleton, `/health`).
+   - Member container (skeleton, sandbox flags v compose).
    - WS protokol (handshake, ready, ping/pong, heartbeat) — viz §11.
-   - Dashboard zobrazující online Members.
+   - Dashboard zobrazující připojené Members.
    - GitHub OAuth login pro web UI; `PRIMARY_ADMIN_GITHUB_USERNAME` bootstrap.
-   - Persistence: SQLite `/data` + YAML `/config`.
-   - CI pipeline (GitHub Actions) — typecheck, lint, unit testy, build.
+   - Persistence: SQLite `/data` (Drizzle + drizzle-kit migrace) +
+     YAML `/config`.
+   - CI pipeline (GitHub Actions) — typecheck, lint, Vitest, build.
+   - Local dev docs: **smee.io** pro forward GH webhooků na localhost
+     (jinak člověk strávil dlouho debugováním, proč webhook nepřichází).
 
 2. **M2 — manuální úkoly + estimate**
    - CRUD úkolů přes web UI.
@@ -607,6 +657,7 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 { type: "event", task_id, seq, ts, kind, payload }
    // kind: "tool_call" | "file_edited" | "commit" | "usage" | "log" | "rebase"
 { type: "heartbeat", status: "idle" | "busy", current_task: string | null }
+   // status "online" odstraněn jako redundantní — pokud je WS naživu, Member je online
 { type: "pong" }
 ```
 
@@ -636,3 +687,8 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
   pak 1 min loop).
 - Při `handshake.reject` (např. token revoknut, protocol version
   mismatch) Member ukončí proces.
+- **`task.cancel` chování** — Member po přijetí cancel zprávy přejde
+  do **graceful shutdown**: dokončí aktuální tool call, commitne
+  rozdělanou práci, pošle `task.failed` s `reason="cancelled"`. Pokud
+  graceful nestihne 30 s, Household pošle WS close a Member kill-uje
+  agent loop tvrdě.
