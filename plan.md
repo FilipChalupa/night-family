@@ -60,8 +60,8 @@ reviewuje).
   disconnected). Pro každý úkol může existovat **více paralelních review
   jobů** (různí Members + lidé).
 - Správa **join-tokenů**: generování, ruční revoke. **Tokeny nikdy
-  neexpirují automaticky** (zatím; rotace = manuální revoke + vygenerovat
-  nový). Token nereprezentuje konkrétního Membera — jeden token mohou
+  neexpirují automaticky** a **rotation se záměrně neřeší** (viz §5).
+  Token nereprezentuje konkrétního Membera — jeden token mohou
   používat sdíleně desítky Member instancí. Per token Household drží
   audit: kdo a kdy ho vytvořil, kdo zrevoknul, kteří Members se s ním kdy
   připojili. Identita Member instance (`member_id` — perzistentní UUID,
@@ -105,20 +105,30 @@ reviewuje).
 - **Testing** — **Vitest** (jednotné pro Household + Member + shared).
 - **Monorepo** — **npm workspaces**: `household/`, `member/`, `shared/`.
 - **Persistence volumes**:
-  - `/data` — hlavní SQLite DB (úkoly, audit log, eventy). **Není
-    zálohovaná** — pokud Household spadne, postavíme nový. Nic v DB
-    není unikátní/nereprodukovatelné.
+  - `/data` — hlavní SQLite DB (úkoly, audit log, eventy).
+    **Záměrně se nezálohuje.** Pokud Household spadne, postavíme nový;
+    nic v DB není unikátní ani nereprodukovatelné (úkoly se přeimportují
+    z GitHubu, audit log je „nice to have", ne must).
   - `/config` — separátní volume s YAML soubory: `users.yaml` (GitHub
     uživatelé + role admin/readonly) a `tokens.yaml` (join-tokeny + audit
-    kdo/kdy vytvořil, log použití). Tento volume **má smysl zálohovat**
-    nezávisle (rsync, git push do private repa) — jeho obnova šetří admin
-    práci s onboardingem Members.
-- Real-time: WebSocket pro spojení s Members.
+    kdo/kdy vytvořil, log použití). **Tento volume zálohujte** nezávisle
+    (rsync, git push do private repa) — obnova šetří admin práci
+    s onboardingem Members.
+- Real-time: WebSocket. Dva oddělené endpointy:
+  - `WS /ws/member` — Member fleet (auth bearer tokenem).
+  - `WS /ws/ui` — Web UI live updates (přihlášený admin/readonly,
+    auth přes session cookie). Push: změny stavů úkolů, online/offline
+    Members, příchozí eventy, statistiky tokenů. Žádný polling.
 - Auth:
-  - **Web UI** — GitHub OAuth. Při startu vyžadováno
+  - **Web UI** — GitHub OAuth → server-side session cookie
+    (HttpOnly, Secure, SameSite=Lax), TTL 30 dní s rolling refresh.
+    Session storage v SQLite. CSRF přes double-submit cookie pattern
+    pro mutating endpointy. Při startu vyžadováno
     `PRIMARY_ADMIN_GITHUB_USERNAME` (root admin); další uživatelé se přidávají
     přes UI s rolí `admin` / `readonly`. Persistuje se v
-    `/config/users.yaml`.
+    `/config/users.yaml`. **Žádná validace** username proti GitHubu —
+    odpovědnost admina zadat existující login; překlep = nikdo se
+    nepřihlásí.
   - **Members** — bearer tokeny v WS handshaku (jeden token sdílitelný
     mezi N instancemi).
 - Šifrování secrets v DB (libsodium / age) — klíč drží Household z env.
@@ -142,6 +152,7 @@ reviewuje).
 4. **Task detail** — popis, estimace (size + blockers), přiřazený Member,
    history událostí, link na PR, **seznam paralelních review jobů**
    (každý se svým výstupem a verdiktem), log tool callů, spotřeba tokenů.
+   Tlačítko **Cancel** (jen pro admina) — pošle `task.cancel` přes WS.
 5. **Users** — seznam GitHub uživatelů s přístupem do UI, role
    `admin` / `readonly`. Root admin (`PRIMARY_ADMIN_GITHUB_USERNAME`) je vždy
    admin a nelze ho odebrat.
@@ -172,6 +183,12 @@ Eventy, na které se lze přihlásit (per-channel subscription):
 přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
 9:00 weekly digest pro repo X") nebo manuálně z UI.
 
+**Delivery semantics.** Žádný auto-retry, žádný deadletter queue.
+Pokud channel vrátí non-2xx (nebo SMTP selže), Household zaloguje
+do tabulky `notification_deliveries` (channel, event, payload, status,
+error). V UI Settings → Notification channels je seznam failed
+deliveries s tlačítkem **Retry** — admin klikne, Household pošle znovu.
+
 ### API (hrubě)
 - `GET /health` — health check.
 - `GET /auth/github`, `GET /auth/github/callback` — OAuth handshake.
@@ -181,9 +198,12 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
 - `GET /api/tokens/:id/audit` — kdo vytvořil + log použití (Members).
 - `GET /api/members` — seznam aktivně připojených Member instancí.
 - `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`.
+- `POST /api/tasks/:id/cancel` — admin spustí cancel z UI; Household
+  pošle Memberu `task.cancel` přes WS (graceful shutdown viz §11).
 - `GET /api/notification-channels`, `POST /api/notification-channels`,
   `DELETE /api/notification-channels/:id` — správa outbound channelů.
 - `WS /ws/member` — Member auth + handshake (viz §11 WS protokol).
+- `WS /ws/ui` — push live updates do Web UI (auth přes session cookie).
 - `POST /webhooks/github` — příjem GH eventů (issues opened, PR review,
   …). Každý request validován HMAC SHA-256 podpisem
   (`X-Hub-Signature-256`) proti per-repo webhook secretu uloženému
@@ -195,7 +215,8 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
   Memberům, ať si Member loguje, ke které ústředně je připojený.
 - `PRIMARY_ADMIN_GITHUB_USERNAME` — GitHub login root admina (povinné při startu).
   Tento uživatel se zaeviduje v `/config/users.yaml` jako první admin
-  a nelze ho odebrat.
+  a nelze ho odebrat. **Žádná validace proti GitHubu** — odpovědnost
+  uživatele zadat existující login. Překlep = nikdo se nepřihlásí.
 - `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` — credentials
   pro GitHub OAuth login do web UI.
 - `SECRETS_KEY` — encryption key pro secrets v DB.
@@ -236,6 +257,9 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
 - Implement workflow:
   - Workspace v `/workspace/<task-id>/` (git worktree z bare clonu
     cached v `/workspace/.cache/<owner>/<repo>.git`).
+  - **Base branch** = default branch repa, zjištěný přes
+    `git symbolic-ref refs/remotes/origin/HEAD`. Žádná konfigurace
+    per repo / per task, prostě hlavní větev.
   - **Draft PR otevře hned po prvním commitu** — průběžný progress
     je viditelný v PR live.
   - **Commit po každém logickém kroku, push okamžitě.** Žádný „velký
@@ -266,7 +290,9 @@ přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
   diff, navrhne řešení, commitne). Household nikdy nesahá do git stavu.
 - **Repo cache** — Member drží bare clone každého repa, na kterém
   pracoval, v `/workspace/.cache/<owner>/<repo>.git`. Per úkol vytváří
-  worktree, po smazání workspace zůstává cache. GC po N dnech bez použití.
+  worktree, po smazání workspace zůstává cache. GC po **7 dnech** bez
+  použití. Cache je per-container (= per Member instance) — žádný
+  sharing mezi Members, žádné concurrent locky k řešení.
 - **Redaction filtr** — před odesláním eventu Householdu Member maskuje:
   AWS keys, GH PATs (`ghp_*`, `github_pat_*`), JWT, PEM bloky, řádky
   `KEY=value` v `.env*` / `*secret*` / `*credential*` / `*.pem` /
@@ -292,6 +318,10 @@ Member je navržen tak, aby přežil výpadek Householdu bez ztráty práce.
   reconnectu se vrací do `[in-progress]`.
 - Member nemaže `events.ndjson`, dokud nemá od Householdu ack všech
   eventů daného úkolu.
+- **Velikost bufferu je přirozeně bounded.** Bez Householdu Member
+  nedostane další úkol (`member.ready` se nemá kde doručit), takže
+  ndjson roste jen pro aktuální task. Žádný explicit cap ani rotation
+  policy zatím nepotřebujeme.
 
 ### Tech stack
 - Stejný jazyk (TypeScript) jako Household, sdílení typů přes
@@ -346,9 +376,10 @@ Householdu.
 - `AI_MODEL` — např. `claude-opus-4-7`, `gemini-2.x`, `gpt-…`
 - `AI_API_KEY` — klíč k danému provideru
 
-Volitelně limity, které si Member vynucuje sám (Household pouze loguje):
-- `MAX_TOKENS_PER_TASK`, `MAX_COST_USD_PER_TASK`
-- `MAX_COST_USD_PER_DAY` (rolling 24 h)
+Volitelně limity, které si Member vynucuje sám (Household pouze loguje).
+**Žádné $ limity** — ceník per model nikde neřešíme, počítáme čistě tokeny.
+- `MAX_TOKENS_PER_TASK`
+- `MAX_TOKENS_PER_DAY` (rolling 24 h)
 - `MAX_TASK_DURATION_MINUTES` (default 120) — hard wallclock limit
   per úkol
 
@@ -381,6 +412,10 @@ Repo URL, GitHub PAT a popis úkolu Member dostává od Householdu po dispatchi.
    může token kdykoliv revoknout v UI → Household uzavře všechny WS
    relace, které ho používají, a odmítne další reconnect. Zápis revoke
    do audit logu (kdo a kdy zrevoknul).
+6. **Token rotation záměrně neřešíme.** Žádný „vygeneruj nový → nech
+   překrýt → revoke starý" pattern; revoke = okamžitý disconnect celého
+   fleetu, který token používá. Pokud bude potřeba, doplníme později;
+   pro teď je to zbytečná komplikace.
 
 ## 6. Životní cyklus úkolu
 
@@ -471,9 +506,10 @@ zpět in-progress      ČLOVĚK provede merge
     do verdiktu)
   - **Commit statuses** — Read
   - **Metadata** — Read (povinné, default)
-  - **Webhooks** — Read and write (volitelné — jen pokud chceš,
-    aby Household automaticky registroval webhooky; jinak admin
-    přidá v repo Settings ručně)
+  - **Webhooks** — **MVP: nepoužíváme.** Admin webhook přidá ručně
+    v repo Settings → Webhooks (jednorázové klikání, šetří jeden PAT
+    scope a registrační kód v Householdu). Auto-registraci necháme
+    na později, až bude nasazení častější.
 
   *Classic PAT alternativa* (jednodušší, méně granulární): scope
   `repo` (full) + `workflow`.
@@ -498,9 +534,14 @@ zpět in-progress      ČLOVĚK provede merge
   do svého verdiktu.
 - **Branching**: konvence `pr/night/<task-id>-<slug>`.
 - **PR description**: Member generuje strukturovaný popis: shrnutí
-  řešení, použité tools, soubory měněné, statistika tokenů a $,
-  link na task v Householdu. Draft PR založí hned po prvním commitu,
+  řešení, použité tools, soubory měněné, statistika tokenů, link na
+  task v Householdu. Draft PR založí hned po prvním commitu,
   finální popis doplní při převedení do ready for review.
+- **Závislosti mezi úkoly** — Night nemá strukturované `depends_on`.
+  Pokud admin v popisu úkolu zmíní, že práce závisí na jiném issue / PR
+  (např. „blokováno #42"), Member tu poznámku **promítne do PR
+  description** sekce „Depends on". Sekvenční merge si pohlídá člověk
+  při finálním merge.
 - **Project instructions** — Member po cloneu prohledá target repo na
   známé agent config soubory (priorita: `AGENTS.md`, `CLAUDE.md`,
   `.cursor/rules/*.md`, `.github/copilot-instructions.md`) a první
@@ -534,8 +575,8 @@ zpět in-progress      ČLOVĚK provede merge
   - Members na **částečně vyhrazené VM/VPS**, oddělené od jiných
     citlivých služeb. Případný únik z kontejneru zasáhne jen tu jednu
     mašinu, ne celý host.
-  - Volume `/config` doporučeno zálohovat nezávisle (rsync, git push
-    do private repa). Volume `/data` zálohovat netřeba — Household se
+  - Volume `/config` zálohovat nezávisle (rsync, git push do private
+    repa). Volume `/data` **záměrně bez backupu** — Household se
     v případě potřeby postaví znovu.
 
 ## 9. Návrh repo struktury
@@ -688,5 +729,7 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 - **`task.cancel` chování** — Member po přijetí cancel zprávy přejde
   do **graceful shutdown**: dokončí aktuální tool call, commitne
   rozdělanou práci, pošle `task.failed` s `reason="cancelled"`. Pokud
-  graceful nestihne 30 s, Household pošle WS close a Member kill-uje
-  agent loop tvrdě.
+  graceful nestihne 30 s, Member **abortuje agent loop uvnitř procesu**
+  (zruší pending tool call, přeskočí commit, hned pošle `task.failed`).
+  Proces Memberu běží dál a čeká na další úkol — žádný `process.exit`,
+  žádný container restart.
