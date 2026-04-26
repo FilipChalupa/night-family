@@ -135,35 +135,35 @@ reviewuje).
 - `/health` endpoint — `GET /health` → `{ status, db, uptime }`.
 
 ### Web UI obrazovky (MVP)
-1. **Dashboard** — seznam aktivních Member instancí (status, vytížení,
-   provider/model, použitý token), počet úkolů ve frontě, **statistiky
-   tokenů** (za den / týden / měsíc, rozpad per Member, per provider,
-   per úkol). Limity si Members hlídají sami; Dashboard pouze loguje
-   hlášené překročení. Žádné $ účtování — ceník per model neřešíme,
-   plánujeme čistě token counts.
-2. **Members** — seznam aktivně připojených Member instancí (= živých WS
-   spojení). Read-only detail per instance, vše hlášené v handshaku:
-   `member_id` (perzistentní UUID), `member_name` (friendly), skill tagy,
-   provider, model, worker profile, použitý token, aktuální úkol,
-   historie, spotřeba tokenů ze streamu eventů. Historie per Member se
-   klíčuje na `member_id`, takže přejmenování `MEMBER_NAME` ji neztratí.
-3. **Tasks** — kanban (queued / in-progress / in-review / awaiting-merge /
-   done / failed), vytvoření úkolu ručně nebo importem z GH issue.
-4. **Task detail** — popis, estimace (size + blockers), přiřazený Member,
-   history událostí, link na PR, **seznam paralelních review jobů**
-   (každý se svým výstupem a verdiktem), log tool callů, spotřeba tokenů.
-   Tlačítko **Cancel** (jen pro admina) — pošle `task.cancel` přes WS.
-5. **Users** — seznam GitHub uživatelů s přístupem do UI, role
-   `admin` / `readonly`. Root admin (`PRIMARY_ADMIN_GITHUB_USERNAME`) je vždy
-   admin a nelze ho odebrat.
-6. **Settings** — GitHub PAT (event. App credentials) + webhook secret
-   per repo, repo bindings (více rep), default dispatch policy (kolik
-   agentů reviewuje paralelně, preference providerů), správa **join-tokenů**
-   (generování, revoke; jméno tokenu pro orientaci, audit kdo a kdy
-   vytvořil + log použití), **notification channels** (outbound webhook URL
-   + SMTP) a per-event subscription. **Review aggregation a merge
-   requirements jsou na straně GitHubu** (branch protection / required
-   reviews per repo).
+- [ ] **Dashboard** — seznam aktivních Member instancí (status, vytížení,
+  provider/model, použitý token), počet úkolů ve frontě, **statistiky
+  tokenů** (za den / týden / měsíc, rozpad per Member, per provider,
+  per úkol). Limity si Members hlídají sami; Dashboard pouze loguje
+  hlášené překročení. Žádné $ účtování — ceník per model neřešíme,
+  plánujeme čistě token counts.
+- [ ] **Members** — seznam aktivně připojených Member instancí (= živých WS
+  spojení). Read-only detail per instance, vše hlášené v handshaku:
+  `member_id` (perzistentní UUID), `member_name` (friendly), skill tagy,
+  provider, model, worker profile, použitý token, aktuální úkol,
+  historie, spotřeba tokenů ze streamu eventů. Historie per Member se
+  klíčuje na `member_id`, takže přejmenování `MEMBER_NAME` ji neztratí.
+- [ ] **Tasks** — kanban (queued / in-progress / in-review / awaiting-merge /
+  done / failed), vytvoření úkolu ručně nebo importem z GH issue.
+- [ ] **Task detail** — popis, estimace (size + blockers), přiřazený Member,
+  history událostí, link na PR, **seznam paralelních review jobů**
+  (každý se svým výstupem a verdiktem), log tool callů, spotřeba tokenů.
+  Tlačítko **Cancel** (jen pro admina) — pošle `task.cancel` přes WS.
+- [ ] **Users** — seznam GitHub uživatelů s přístupem do UI, role
+  `admin` / `readonly`. Root admin (`PRIMARY_ADMIN_GITHUB_USERNAME`) je vždy
+  admin a nelze ho odebrat.
+- [ ] **Settings** — GitHub PAT (event. App credentials) + webhook secret
+  per repo, repo bindings (více rep), default dispatch policy (kolik
+  agentů reviewuje paralelně, preference providerů), správa **join-tokenů**
+  (generování, revoke; jméno tokenu pro orientaci, audit kdo a kdy
+  vytvořil + log použití), **notification channels** (outbound webhook URL
+  + SMTP) a per-event subscription. **Review aggregation a merge
+  requirements jsou na straně GitHubu** (branch protection / required
+  reviews per repo).
 
 ### Notifikace
 
@@ -190,21 +190,21 @@ error). V UI Settings → Notification channels je seznam failed
 deliveries s tlačítkem **Retry** — admin klikne, Household pošle znovu.
 
 ### API (hrubě)
-- `GET /health` — health check.
-- `GET /auth/github`, `GET /auth/github/callback` — OAuth handshake.
-- `GET /api/users`, `POST /api/users`, `DELETE /api/users/:username` —
+- [ ] `GET /health` — health check.
+- [ ] `GET /auth/github`, `GET /auth/github/callback` — OAuth handshake.
+- [ ] `GET /api/users`, `POST /api/users`, `DELETE /api/users/:username` —
   správa adminů a readonly uživatelů.
-- `POST /api/tokens`, `DELETE /api/tokens/:id` — správa join-tokenů.
-- `GET /api/tokens/:id/audit` — kdo vytvořil + log použití (Members).
-- `GET /api/members` — seznam aktivně připojených Member instancí.
-- `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`.
-- `POST /api/tasks/:id/cancel` — admin spustí cancel z UI; Household
+- [ ] `POST /api/tokens`, `DELETE /api/tokens/:id` — správa join-tokenů.
+- [ ] `GET /api/tokens/:id/audit` — kdo vytvořil + log použití (Members).
+- [ ] `GET /api/members` — seznam aktivně připojených Member instancí.
+- [ ] `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`.
+- [ ] `POST /api/tasks/:id/cancel` — admin spustí cancel z UI; Household
   pošle Memberu `task.cancel` přes WS (graceful shutdown viz §11).
-- `GET /api/notification-channels`, `POST /api/notification-channels`,
+- [ ] `GET /api/notification-channels`, `POST /api/notification-channels`,
   `DELETE /api/notification-channels/:id` — správa outbound channelů.
-- `WS /ws/member` — Member auth + handshake (viz §11 WS protokol).
-- `WS /ws/ui` — push live updates do Web UI (auth přes session cookie).
-- `POST /webhooks/github` — příjem GH eventů (issues opened, PR review,
+- [ ] `WS /ws/member` — Member auth + handshake (viz §11 WS protokol).
+- [ ] `WS /ws/ui` — push live updates do Web UI (auth přes session cookie).
+- [ ] `POST /webhooks/github` — příjem GH eventů (issues opened, PR review,
   …). Každý request validován HMAC SHA-256 podpisem
   (`X-Hub-Signature-256`) proti per-repo webhook secretu uloženému
   v Household DB; neplatný podpis = 401 a žádné zpracování.
@@ -601,75 +601,75 @@ night-agents/
 
 ## 10. Fáze (milestones)
 
-1. **M1 — kostra & spojení**
-   - Skeleton Householdu (Hono HTTP + WS, React+Vite UI skeleton, `/health`).
-   - Member container (skeleton, sandbox flags v compose).
-   - WS protokol (handshake, ready, ping/pong, heartbeat) — viz §11.
-   - Dashboard zobrazující připojené Members.
-   - GitHub OAuth login pro web UI; `PRIMARY_ADMIN_GITHUB_USERNAME` bootstrap.
-   - Persistence: SQLite `/data` (Drizzle + drizzle-kit migrace) +
+1. **M1 — kostra & spojení** — [ ]
+   - [ ] Skeleton Householdu (Hono HTTP + WS, React+Vite UI skeleton, `/health`).
+   - [ ] Member container (skeleton, sandbox flags v compose).
+   - [ ] WS protokol (handshake, ready, ping/pong, heartbeat) — viz §11.
+   - [ ] Dashboard zobrazující připojené Members.
+   - [ ] GitHub OAuth login pro web UI; `PRIMARY_ADMIN_GITHUB_USERNAME` bootstrap.
+   - [ ] Persistence: SQLite `/data` (Drizzle + drizzle-kit migrace) +
      YAML `/config`.
-   - CI pipeline (GitHub Actions) — typecheck, lint, Vitest, build.
-   - Local dev docs: **smee.io** pro forward GH webhooků na localhost
+   - [ ] CI pipeline (GitHub Actions) — typecheck, lint, Vitest, build.
+   - [ ] Local dev docs: **smee.io** pro forward GH webhooků na localhost
      (jinak člověk strávil dlouho debugováním, proč webhook nepřichází).
 
-2. **M2 — manuální úkoly + estimate**
-   - CRUD úkolů přes web UI.
-   - Hybridní dispatch (`member.ready` → `task.assigned`).
-   - **Estimate** task type (Member vrátí `{ size, blockers }`).
-   - Member jen logne, co dostal (žádný agent v této fázi).
+2. **M2 — manuální úkoly + estimate** — [ ]
+   - [ ] CRUD úkolů přes web UI.
+   - [ ] Hybridní dispatch (`member.ready` → `task.assigned`).
+   - [ ] **Estimate** task type (Member vrátí `{ size, blockers }`).
+   - [ ] Member jen logne, co dostal (žádný agent v této fázi).
 
-3. **M3 — agent v Member**
-   - Provider adapter rozhraní + první implementace (Anthropic).
-   - Sandbox container (rootless, read-only fs, no-new-privileges,
+3. **M3 — agent v Member** — [ ]
+   - [ ] Provider adapter rozhraní + první implementace (Anthropic).
+   - [ ] Sandbox container (rootless, read-only fs, no-new-privileges,
      cap-drop ALL).
-   - Repo cache (bare clone + worktree per task).
-   - Streamování událostí + audit log v Householdu.
-   - Redaction filter na straně Memberu.
-   - Práce s git workspace, **commit + push průběžně**, draft PR
+   - [ ] Repo cache (bare clone + worktree per task).
+   - [ ] Streamování událostí + audit log v Householdu.
+   - [ ] Redaction filter na straně Memberu.
+   - [ ] Práce s git workspace, **commit + push průběžně**, draft PR
      od začátku.
-   - Reconnect-tolerantní (events.ndjson buffer, replay po reconnectu).
-   - Tracking spotřeby tokenů.
+   - [ ] Reconnect-tolerantní (events.ndjson buffer, replay po reconnectu).
+   - [ ] Tracking spotřeby tokenů.
 
-4. **M4 — GitHub integrace**
-   - Octokit, repo binding, **issue import s labelem `night`**.
-   - PR open přes `gh`, PR description format (shrnutí, tools, stats).
-   - PAT shared model.
-   - Webhooky (PR, review, issues) s HMAC SHA-256 validací.
-   - Stale base detection a `task.rebase_suggested`.
-   - Načítání standardních agent config souborů z target repa
+4. **M4 — GitHub integrace** — [ ]
+   - [ ] Octokit, repo binding, **issue import s labelem `night`**.
+   - [ ] PR open přes `gh`, PR description format (shrnutí, tools, stats).
+   - [ ] PAT shared model.
+   - [ ] Webhooky (PR, review, issues) s HMAC SHA-256 validací.
+   - [ ] Stale base detection a `task.rebase_suggested`.
+   - [ ] Načítání standardních agent config souborů z target repa
      (`AGENTS.md`, `CLAUDE.md`, …) v Memberu po cloneu.
 
-5. **M5 — paralelní review smyčka**
-   - Dispatch více review jobů na různé Members současně (self-review
+5. **M5 — paralelní review smyčka** — [ ]
+   - [ ] Dispatch více review jobů na různé Members současně (self-review
      povolen, ale primárně dispatchovat na jiné).
-   - Posílání review (approve / request changes / komentáře) přes `gh`.
-   - Sledování `mergeable_state` z GitHub webhooku → přechod do
+   - [ ] Posílání review (approve / request changes / komentáře) přes `gh`.
+   - [ ] Sledování `mergeable_state` z GitHub webhooku → přechod do
      `awaiting-merge` (agregaci řeší GitHub).
-   - Auto-retry failed implement tasks (3× s exp. backoff).
+   - [ ] Auto-retry failed implement tasks (3× s exp. backoff).
 
-6. **M6 — multi-provider**
-   - Adaptéry pro Gemini a OpenAI.
-   - Member nahlašuje provider/model při handshaku, Household ho
+6. **M6 — multi-provider** — [ ]
+   - [ ] Adaptéry pro Gemini a OpenAI.
+   - [ ] Member nahlašuje provider/model při handshaku, Household ho
      ukazuje v UI.
-   - Dispatch policy umožňuje preferovat určitý provider pro review
+   - [ ] Dispatch policy umožňuje preferovat určitý provider pro review
      (volitelné, ne vynucené).
 
-7. **M7 — produkční hardening + rozšířené role**
-   - HTTPS, perzistence (config volume backup workflow přes rsync /
+7. **M7 — produkční hardening + rozšířené role** — [ ]
+   - [ ] HTTPS, perzistence (config volume backup workflow přes rsync /
      git push do private repa).
-   - Šifrování secrets v DB.
-   - **Notification channels** — outbound webhook + SMTP, per-event
+   - [ ] Šifrování secrets v DB.
+   - [ ] **Notification channels** — outbound webhook + SMTP, per-event
      subscription (`task.failed`, `pr.merged`, `quota_exceeded`,
      `summarize.result`, `member.disconnected`, `token.revoked`).
      Slack / Discord / MS Teams atd. přes jejich incoming webhook URL
      bez specifické integrace.
-   - **`respond` task type** — Member odpovídá na PR thread komentáře
+   - [ ] **`respond` task type** — Member odpovídá na PR thread komentáře
      bez nutnosti commitu.
-   - **`summarize` task type** — cron v Householdu nebo manuální trigger
+   - [ ] **`summarize` task type** — cron v Householdu nebo manuální trigger
      z UI; Member generuje markdown digest, Household ho pošle channely.
-   - Auditing spotřeby (alerty na hlášené `quota_exceeded`, weekly digest).
-   - Lepší UI (filtry, search, realtime updaty), grafy útrat.
+   - [ ] Auditing spotřeby (alerty na hlášené `quota_exceeded`, weekly digest).
+   - [ ] Lepší UI (filtry, search, realtime updaty), grafy útrat.
 
 ## 11. WS protokol
 
