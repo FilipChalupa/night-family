@@ -11,12 +11,14 @@ import {
 import type { Logger } from 'pino'
 import type { MemberRegistry } from '../members/registry.ts'
 import type { Dispatcher } from '../tasks/dispatcher.ts'
+import type { TaskEventLog } from '../tasks/eventLog.ts'
 import type { TokenStore } from '../tokens/auth.ts'
 
 export interface MemberWsDeps {
 	registry: MemberRegistry
 	tokens: TokenStore
 	dispatcher: Dispatcher
+	eventLog: TaskEventLog
 	householdName: string
 	logger: Logger
 }
@@ -116,6 +118,26 @@ function handleHandshake(
 
 	const sessionId = randomUUID()
 
+	// Replay protocol: ask Member to resend any events Household hasn't seen.
+	for (const resume of msg.resumes ?? []) {
+		const persistedMax = deps.eventLog.maxSeq(resume.task_id)
+		const fromSeq = persistedMax + 1
+		send(ws, {
+			type: 'events.replay_request',
+			task_id: resume.task_id,
+			from_seq: fromSeq,
+		})
+		deps.logger.info(
+			{
+				taskId: resume.task_id,
+				memberLastSeq: resume.last_seq,
+				householdMaxSeq: persistedMax,
+				fromSeq,
+			},
+			'replay requested',
+		)
+	}
+
 	deps.registry.add({
 		sessionId,
 		memberId: msg.member_id,
@@ -195,10 +217,25 @@ function routeMemberMessage(
 		case 'task.failed':
 			deps.dispatcher.onFailed(msg.task_id, msg.reason)
 			break
-		case 'event':
-			// TODO M3: persist task_events row
-			deps.logger.debug({ taskId: msg.task_id, kind: msg.kind }, 'event (not yet persisted)')
+		case 'event': {
+			const member = deps.registry.get(session.sessionId)
+			const inserted = deps.eventLog.insert({
+				taskId: msg.task_id,
+				seq: msg.seq,
+				tsMs: Date.parse(msg.ts) || Date.now(),
+				sessionId: session.sessionId,
+				memberId: member?.memberId ?? null,
+				kind: msg.kind,
+				payload: msg.payload,
+			})
+			if (!inserted) {
+				deps.logger.debug(
+					{ taskId: msg.task_id, seq: msg.seq },
+					'event dropped (duplicate from replay)',
+				)
+			}
 			break
+		}
 		case 'handshake':
 			deps.logger.warn({ sessionId: session.sessionId }, 'duplicate handshake ignored')
 			break

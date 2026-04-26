@@ -64,7 +64,11 @@ export class Dispatcher {
 		}
 
 		if (!task) {
-			const acceptable = member.skills.filter((s): s is TaskKind => s !== 'estimate')
+			// `claimNextFor` matches against the task's kind. A member with the
+			// `estimate` skill can pick up explicit kind=estimate tasks too
+			// (one-off estimation requests, distinct from the new→estimating
+			// phase that claimNextForEstimate already covered).
+			const acceptable = member.skills as TaskKind[]
 			if (acceptable.length > 0) {
 				task = this.deps.taskStore.claimNextFor(acceptable, assignment)
 			}
@@ -149,6 +153,12 @@ export class Dispatcher {
 			this.deps.taskStore.clearAssignment(taskId)
 			this.deps.logger.info({ taskId, estimate: parsed }, 'estimate completed')
 		} else if (task.status === 'in-progress' || task.status === 'assigned') {
+			if (task.kind === 'estimate') {
+				const parsed = parseEstimateResult(result)
+				if (parsed) {
+					this.deps.taskStore.storeEstimateResult(taskId, parsed.size, parsed.blockers)
+				}
+			}
 			const target: TaskStatus = task.kind === 'implement' ? 'in-review' : 'done'
 			this.deps.taskStore.transition(taskId, ['in-progress', 'assigned'], target, {
 				...(prUrl ? { prUrl } : {}),

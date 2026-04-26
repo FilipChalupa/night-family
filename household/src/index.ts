@@ -13,6 +13,7 @@ import { MemberRegistry } from './members/registry.ts'
 import { mountStaticUi } from './static.ts'
 import { Dispatcher } from './tasks/dispatcher.ts'
 import { mountTasksApi } from './tasks/api.ts'
+import { TaskEventLog } from './tasks/eventLog.ts'
 import { TaskStore } from './tasks/store.ts'
 import { TokenStore } from './tokens/auth.ts'
 import { UserStore } from './users/store.ts'
@@ -35,11 +36,20 @@ logger.info(
 )
 
 const taskStore = new TaskStore(dbHandles.db)
+const eventLog = new TaskEventLog(dbHandles.db)
 const dispatcher = new Dispatcher({
 	taskStore,
 	registry,
 	logger: logger.child({ component: 'dispatcher' }),
 })
+
+// Daily purge of raw event rows older than 90 days (per plan §3).
+const purgeEvents = () => {
+	const removed = eventLog.purgeOlderThan(90)
+	if (removed > 0) logger.info({ removed }, 'purged stale task_events')
+}
+purgeEvents()
+setInterval(purgeEvents, 24 * 60 * 60 * 1000).unref()
 
 const app = new Hono()
 
@@ -68,6 +78,7 @@ const memberHandler = createMemberWsHandler({
 	registry,
 	tokens,
 	dispatcher,
+	eventLog,
 	householdName: config.householdName,
 	logger: logger.child({ component: 'ws.member' }),
 })

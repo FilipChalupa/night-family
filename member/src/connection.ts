@@ -6,13 +6,18 @@ import {
 	PROTOCOL_VERSION,
 	decode,
 	encode,
+	type AssignedTask,
 	type HouseholdToMember,
 	type MemberStatus,
 	type MemberToHousehold,
+	type MsgEvent,
 	type MsgHandshake,
+	type ResumeRef,
 } from '@night/shared'
 import type { Logger } from 'pino'
 import type { MemberConfig } from './config.ts'
+import type { TaskRunner } from './tasks/runner.ts'
+import { EventBuffer, eventFilePath } from './tasks/eventBuffer.ts'
 
 interface State {
 	status: MemberStatus
@@ -21,6 +26,10 @@ interface State {
 }
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
+
+export interface ConnectionDeps {
+	taskRunner: TaskRunner
+}
 
 export class HouseholdConnection {
 	private ws: WebSocket | null = null
@@ -36,6 +45,7 @@ export class HouseholdConnection {
 	constructor(
 		private readonly config: MemberConfig,
 		private readonly logger: Logger,
+		private readonly deps: ConnectionDeps,
 	) {}
 
 	async run(): Promise<void> {
@@ -57,11 +67,24 @@ export class HouseholdConnection {
 
 	stop(): void {
 		this.shuttingDown = true
+		this.deps.taskRunner.cancel('shutdown')
 		this.clearTimers()
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			this.ws.close(1000, 'shutdown')
 		}
 		this.ws = null
+	}
+
+	/**
+	 * Send a wire message. Returns true if the WS is open and the bytes were
+	 * queued (they may still be lost on connection drop, but the EventBuffer
+	 * watermark is updated optimistically and corrected via replay).
+	 */
+	send(msg: MemberToHousehold): boolean {
+		const ws = this.ws
+		if (!ws || ws.readyState !== WebSocket.OPEN) return false
+		ws.send(encode(msg))
+		return true
 	}
 
 	private connectOnce(): Promise<void> {
@@ -78,7 +101,7 @@ export class HouseholdConnection {
 
 			ws.on('open', () => {
 				this.logger.info('ws open, sending handshake')
-				this.sendHandshake()
+				void this.sendHandshake()
 			})
 
 			ws.on('message', (data) => {
@@ -90,7 +113,7 @@ export class HouseholdConnection {
 					this.logger.warn('received non-JSON from household')
 					return
 				}
-				this.handleServerMessage(msg)
+				void this.handleServerMessage(msg)
 			})
 
 			ws.on('close', (code, reason) => {
@@ -102,7 +125,6 @@ export class HouseholdConnection {
 
 			ws.on('error', (err) => {
 				this.logger.warn({ err: err.message }, 'ws error')
-				// 'close' fires next; resolve there.
 				if (ws.readyState === WebSocket.CONNECTING) {
 					reject(err)
 				}
@@ -110,16 +132,16 @@ export class HouseholdConnection {
 		})
 	}
 
-	private send(msg: MemberToHousehold): void {
-		const ws = this.ws
-		if (!ws || ws.readyState !== WebSocket.OPEN) {
-			this.logger.warn({ type: msg.type }, 'cannot send: ws not open')
-			return
-		}
-		ws.send(encode(msg))
+	private async buildResumes(): Promise<ResumeRef[]> {
+		const taskId = this.state.currentTask
+		if (!taskId) return []
+		const buffer = new EventBuffer(taskId, eventFilePath(this.config.workspaceDir, taskId))
+		await buffer.load()
+		return [{ task_id: taskId, last_seq: buffer.watermark }]
 	}
 
-	private sendHandshake(): void {
+	private async sendHandshake(): Promise<void> {
+		const resumes = await this.buildResumes()
 		const handshake: MsgHandshake = {
 			type: 'handshake',
 			protocol_version: PROTOCOL_VERSION,
@@ -129,11 +151,12 @@ export class HouseholdConnection {
 			provider: this.config.provider,
 			model: this.config.model,
 			worker_profile: this.config.workerProfile,
+			...(resumes.length > 0 ? { resumes } : {}),
 		}
 		this.send(handshake)
 	}
 
-	private handleServerMessage(msg: HouseholdToMember): void {
+	private async handleServerMessage(msg: HouseholdToMember): Promise<void> {
 		switch (msg.type) {
 			case 'handshake.ack':
 				this.logger.info(
@@ -141,7 +164,14 @@ export class HouseholdConnection {
 					'handshake accepted',
 				)
 				this.startHeartbeat()
-				this.send({ type: 'member.ready' })
+				if (this.state.currentTask === null) {
+					this.send({ type: 'member.ready' })
+				} else {
+					this.send({
+						type: 'member.busy',
+						task_id: this.state.currentTask,
+					})
+				}
 				break
 			case 'handshake.reject':
 				this.logger.error({ reason: msg.reason }, 'handshake rejected, shutting down')
@@ -152,40 +182,89 @@ export class HouseholdConnection {
 				this.send({ type: 'pong' })
 				break
 			case 'task.assigned':
-				this.logger.info(
-					{ task: msg.task.task_id, kind: msg.task.kind, title: msg.task.title },
-					'task assigned',
-				)
 				this.send({ type: 'task.ack', task_id: msg.task.task_id })
 				this.state.status = 'busy'
 				this.state.currentTask = msg.task.task_id
-				this.runStubTask(msg.task.task_id, msg.task.kind)
+				this.startTaskRun(msg.task, msg.github_token, msg.repo_url)
 				break
 			case 'task.cancel':
-				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel (stub)')
-				this.state.status = 'idle'
-				this.state.currentTask = null
-				this.send({ type: 'task.failed', task_id: msg.task_id, reason: 'cancelled' })
-				this.send({ type: 'member.ready' })
+				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel received')
+				this.deps.taskRunner.cancel(msg.reason)
 				break
 			case 'task.rebase_suggested':
 				this.logger.info(
 					{ task: msg.task_id, behind_by: msg.behind_by },
-					'rebase suggested (stub)',
+					'rebase suggested (M5)',
 				)
 				break
 			case 'events.replay_request':
-				// M3 will read events.ndjson and replay.
-				this.logger.debug(
-					{ task: msg.task_id, from: msg.from_seq },
-					'replay requested (stub)',
-				)
+				await this.replayEvents(msg.task_id, msg.from_seq)
 				break
 			default: {
 				const _exhaustive: never = msg
 				void _exhaustive
 			}
 		}
+	}
+
+	private startTaskRun(task: AssignedTask, githubToken: string, repoUrl: string): void {
+		const runPromise = this.deps.taskRunner
+			.run({
+				taskId: task.task_id,
+				kind: task.kind,
+				title: task.title,
+				description: task.description,
+				repo: task.repo ?? null,
+				githubToken,
+				repoUrl,
+			})
+			.then((outcome) => {
+				if (outcome.type === 'completed') {
+					this.send({
+						type: 'task.completed',
+						task_id: task.task_id,
+						result: outcome.result ?? null,
+						...(outcome.prUrl ? { pr_url: outcome.prUrl } : {}),
+					})
+				} else {
+					this.send({
+						type: 'task.failed',
+						task_id: task.task_id,
+						reason: outcome.reason ?? 'unknown',
+					})
+				}
+			})
+			.catch((err) => {
+				this.logger.error({ err }, 'task runner threw — sending task.failed')
+				this.send({
+					type: 'task.failed',
+					task_id: task.task_id,
+					reason: 'runner_crash:' + (err instanceof Error ? err.message : String(err)),
+				})
+			})
+			.finally(() => {
+				this.state.status = 'idle'
+				this.state.currentTask = null
+				this.send({ type: 'member.ready' })
+			})
+		void runPromise
+	}
+
+	private async replayEvents(taskId: string, fromSeq: number): Promise<void> {
+		this.logger.info({ taskId, fromSeq }, 'replaying events')
+		const buffer = new EventBuffer(taskId, eventFilePath(this.config.workspaceDir, taskId))
+		await buffer.load()
+		let count = 0
+		for await (const ev of buffer.iterFrom(fromSeq)) {
+			const sent = this.send(ev as MsgEvent)
+			if (!sent) {
+				this.logger.warn({ taskId, seq: ev.seq }, 'replay aborted (ws not open)')
+				return
+			}
+			buffer.markSent(ev.seq)
+			count++
+		}
+		this.logger.info({ taskId, count }, 'replay complete')
 	}
 
 	private startHeartbeat(): void {
@@ -219,39 +298,5 @@ export class HouseholdConnection {
 			clearInterval(this.watchdogTimer)
 			this.watchdogTimer = null
 		}
-	}
-
-	/**
-	 * M2 placeholder: no LLM agent runs yet.
-	 *   - estimate → return stub `{ size: 'M', blockers: [] }` after a short delay
-	 *   - everything else → fail with `agent_pending` so the dispatch loop closes
-	 *
-	 * Real provider-backed work lands in M3.
-	 */
-	private runStubTask(taskId: string, kind: string): void {
-		setTimeout(() => {
-			if (this.state.currentTask !== taskId) return // cancelled
-			if (kind === 'estimate') {
-				this.logger.info({ taskId }, 'estimate stub: returning size=M, no blockers')
-				this.send({
-					type: 'task.completed',
-					task_id: taskId,
-					result: { size: 'M', blockers: [] },
-				})
-			} else {
-				this.logger.info(
-					{ taskId, kind },
-					'non-estimate task — agent not implemented yet (M3)',
-				)
-				this.send({
-					type: 'task.failed',
-					task_id: taskId,
-					reason: 'agent_pending_m3',
-				})
-			}
-			this.state.status = 'idle'
-			this.state.currentTask = null
-			this.send({ type: 'member.ready' })
-		}, 300)
 	}
 }

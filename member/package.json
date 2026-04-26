@@ -11,6 +11,7 @@
 		"test": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.91.0",
 		"@night/shared": "*",
 		"pino": "^9.5.0",
 		"pino-pretty": "^11.3.0",

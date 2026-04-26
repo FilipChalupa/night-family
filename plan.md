@@ -633,17 +633,17 @@ night-agents/
     - [x] **Estimate** task type (Member vrátí `{ size, blockers }`).
     - [x] Member jen logne, co dostal (žádný agent v této fázi).
 
-3. **M3 — agent v Member** — [ ]
-    - [ ] Provider adapter rozhraní + první implementace (Anthropic).
-    - [ ] Sandbox container (rootless, read-only fs, no-new-privileges,
+3. **M3 — agent v Member** — [x]
+    - [x] Provider adapter rozhraní + první implementace (Anthropic).
+    - [x] Sandbox container (rootless, read-only fs, no-new-privileges,
           cap-drop ALL).
-    - [ ] Repo cache (bare clone + worktree per task).
-    - [ ] Streamování událostí + audit log v Householdu.
-    - [ ] Redaction filter na straně Memberu.
-    - [ ] Práce s git workspace, **commit + push průběžně**, draft PR
-          od začátku.
-    - [ ] Reconnect-tolerantní (events.ndjson buffer, replay po reconnectu).
-    - [ ] Tracking spotřeby tokenů.
+    - [x] Repo cache (bare clone + worktree per task).
+    - [x] Streamování událostí + audit log v Householdu.
+    - [x] Redaction filter na straně Memberu.
+    - [x] Práce s git workspace, **commit + push průběžně** (draft PR od
+          začátku přes `gh` přijde v M4 spolu se zbytkem GitHub integrace).
+    - [x] Reconnect-tolerantní (events.ndjson buffer, replay po reconnectu).
+    - [x] Tracking spotřeby tokenů.
 
 4. **M4 — GitHub integrace** — [ ]
     - [ ] Octokit, repo binding, **issue import s labelem `night`**.
