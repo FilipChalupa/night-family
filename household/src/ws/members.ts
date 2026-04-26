@@ -10,11 +10,13 @@ import {
 } from '@night/shared'
 import type { Logger } from 'pino'
 import type { MemberRegistry } from '../members/registry.ts'
+import type { Dispatcher } from '../tasks/dispatcher.ts'
 import type { TokenStore } from '../tokens/auth.ts'
 
 export interface MemberWsDeps {
 	registry: MemberRegistry
 	tokens: TokenStore
+	dispatcher: Dispatcher
 	householdName: string
 	logger: Logger
 }
@@ -27,16 +29,12 @@ interface SessionState {
 
 export function createMemberWsHandler(deps: MemberWsDeps) {
 	return (c: { req: { header: (name: string) => string | undefined } }) => {
-		// Auth check happens at upgrade time. We grab the bearer token now.
 		const authHeader = c.req.header('authorization') ?? ''
 		const presented = authHeader.toLowerCase().startsWith('bearer ')
 			? authHeader.slice('bearer '.length).trim()
 			: ''
 
 		const tokenRecord = presented ? deps.tokens.validate(presented) : null
-
-		// We can't reject upgrade ergonomically inside hono/ws — the websocket
-		// will open and we'll send handshake.reject + close. Cleanest path.
 		const tokenId = tokenRecord?.id ?? null
 
 		let session: SessionState | null = null
@@ -88,6 +86,7 @@ export function createMemberWsHandler(deps: MemberWsDeps) {
 						{ sessionId: session.sessionId, memberId: session.memberId },
 						'member disconnected',
 					)
+					deps.dispatcher.onMemberDisconnected(session.sessionId)
 					deps.registry.remove(session.sessionId)
 				}
 			},
@@ -177,20 +176,28 @@ function routeMemberMessage(
 		case 'pong':
 			deps.registry.touch(session.sessionId)
 			break
-		case 'member.ready':
+		case 'member.ready': {
 			deps.registry.updateStatus(session.sessionId, 'idle', null)
 			deps.logger.debug({ sessionId: session.sessionId }, 'member ready')
-			// TODO M2: trigger dispatch
+			const member = deps.registry.list().find((m) => m.sessionId === session.sessionId)
+			if (member) deps.dispatcher.tryDispatchOne(member)
 			break
+		}
 		case 'member.busy':
 			deps.registry.updateStatus(session.sessionId, 'busy', msg.task_id)
 			break
 		case 'task.ack':
+			deps.dispatcher.onAck(msg.task_id)
+			break
 		case 'task.completed':
+			deps.dispatcher.onCompleted(msg.task_id, msg.result, msg.pr_url ?? null)
+			break
 		case 'task.failed':
+			deps.dispatcher.onFailed(msg.task_id, msg.reason)
+			break
 		case 'event':
-			// TODO M2/M3: persist + fan out to UI
-			deps.logger.debug({ msg }, 'member message (not yet handled)')
+			// TODO M3: persist task_events row
+			deps.logger.debug({ taskId: msg.task_id, kind: msg.kind }, 'event (not yet persisted)')
 			break
 		case 'handshake':
 			deps.logger.warn({ sessionId: session.sessionId }, 'duplicate handshake ignored')

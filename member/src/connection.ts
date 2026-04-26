@@ -152,14 +152,14 @@ export class HouseholdConnection {
 				this.send({ type: 'pong' })
 				break
 			case 'task.assigned':
-				// TODO M2/M3: actual handling
 				this.logger.info(
-					{ task: msg.task.task_id, kind: msg.task.kind },
-					'task assigned (stub)',
+					{ task: msg.task.task_id, kind: msg.task.kind, title: msg.task.title },
+					'task assigned',
 				)
 				this.send({ type: 'task.ack', task_id: msg.task.task_id })
 				this.state.status = 'busy'
 				this.state.currentTask = msg.task.task_id
+				this.runStubTask(msg.task.task_id, msg.task.kind)
 				break
 			case 'task.cancel':
 				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel (stub)')
@@ -219,5 +219,39 @@ export class HouseholdConnection {
 			clearInterval(this.watchdogTimer)
 			this.watchdogTimer = null
 		}
+	}
+
+	/**
+	 * M2 placeholder: no LLM agent runs yet.
+	 *   - estimate → return stub `{ size: 'M', blockers: [] }` after a short delay
+	 *   - everything else → fail with `agent_pending` so the dispatch loop closes
+	 *
+	 * Real provider-backed work lands in M3.
+	 */
+	private runStubTask(taskId: string, kind: string): void {
+		setTimeout(() => {
+			if (this.state.currentTask !== taskId) return // cancelled
+			if (kind === 'estimate') {
+				this.logger.info({ taskId }, 'estimate stub: returning size=M, no blockers')
+				this.send({
+					type: 'task.completed',
+					task_id: taskId,
+					result: { size: 'M', blockers: [] },
+				})
+			} else {
+				this.logger.info(
+					{ taskId, kind },
+					'non-estimate task — agent not implemented yet (M3)',
+				)
+				this.send({
+					type: 'task.failed',
+					task_id: taskId,
+					reason: 'agent_pending_m3',
+				})
+			}
+			this.state.status = 'idle'
+			this.state.currentTask = null
+			this.send({ type: 'member.ready' })
+		}, 300)
 	}
 }

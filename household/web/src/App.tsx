@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
-import type { MemberSnapshot } from './types.ts'
-import { useMembersStream } from './hooks/useMembersStream.ts'
+import { TasksPanel } from './components/TasksPanel.tsx'
+import { useUiStream } from './hooks/useUiStream.ts'
+import type { MemberSnapshot, TaskKind } from './types.ts'
 
 interface Health {
 	status: string
@@ -12,7 +13,7 @@ interface Health {
 
 export function App() {
 	const [health, setHealth] = useState<Health | null>(null)
-	const { members, connected } = useMembersStream()
+	const { members, tasks, connected } = useUiStream()
 
 	useEffect(() => {
 		void fetch('/health')
@@ -20,6 +21,27 @@ export function App() {
 			.then((j: Health) => setHealth(j))
 			.catch(() => setHealth(null))
 	}, [])
+
+	const createTask = async (input: {
+		kind: TaskKind
+		title: string
+		description: string
+		repo: string | null
+	}) => {
+		const res = await fetch('/api/tasks', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(input),
+		})
+		if (!res.ok) {
+			const body = (await res.json().catch(() => ({}))) as { error?: string }
+			throw new Error(body.error ?? `HTTP ${res.status}`)
+		}
+	}
+
+	const cancelTask = async (id: string) => {
+		await fetch(`/api/tasks/${id}/cancel`, { method: 'POST' })
+	}
 
 	return (
 		<div className="app">
@@ -38,6 +60,12 @@ export function App() {
 					)}
 				</div>
 			</header>
+
+			<section className="section">
+				<h2>Tasks ({tasks.length})</h2>
+				<TasksPanel tasks={tasks} onCreate={createTask} onCancel={cancelTask} />
+			</section>
+
 			<section className="section">
 				<h2>Members ({members.length})</h2>
 				<MembersList members={members} />

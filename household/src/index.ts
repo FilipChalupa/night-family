@@ -3,6 +3,7 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
 import { loadConfig } from './config.ts'
@@ -10,6 +11,9 @@ import { openDb } from './db/index.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
 import { mountStaticUi } from './static.ts'
+import { Dispatcher } from './tasks/dispatcher.ts'
+import { mountTasksApi } from './tasks/api.ts'
+import { TaskStore } from './tasks/store.ts'
 import { TokenStore } from './tokens/auth.ts'
 import { UserStore } from './users/store.ts'
 import { createMemberWsHandler } from './ws/members.ts'
@@ -29,6 +33,13 @@ logger.info(
 	{ primaryAdmin: config.primaryAdminGithubUsername, total: users.list().length },
 	'users store ready',
 )
+
+const taskStore = new TaskStore(dbHandles.db)
+const dispatcher = new Dispatcher({
+	taskStore,
+	registry,
+	logger: logger.child({ component: 'dispatcher' }),
+})
 
 const app = new Hono()
 
@@ -56,12 +67,14 @@ app.get('/api/members', (c) => c.json({ members: registry.list() }))
 const memberHandler = createMemberWsHandler({
 	registry,
 	tokens,
+	dispatcher,
 	householdName: config.householdName,
 	logger: logger.child({ component: 'ws.member' }),
 })
 
 const uiHandler = createUiWsHandler({
 	registry,
+	taskStore,
 	logger: logger.child({ component: 'ws.ui' }),
 })
 
@@ -72,9 +85,19 @@ const sessionStore = new SessionStore(dbHandles.db)
 sessionStore.purgeExpired()
 setInterval(() => sessionStore.purgeExpired(), 60 * 60 * 1000).unref()
 
+const guard = new AdminGuard(sessionStore, !!config.githubOauth)
+
 mountWhoAmI(app, {
 	sessions: sessionStore,
 	oauthConfigured: !!config.githubOauth,
+})
+
+mountTasksApi(app, {
+	taskStore,
+	dispatcher,
+	registry,
+	guard,
+	logger: logger.child({ component: 'tasks.api' }),
 })
 
 if (config.githubOauth) {

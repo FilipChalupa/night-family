@@ -627,11 +627,11 @@ night-agents/
     - [x] Local dev docs: **smee.io** pro forward GH webhooků na localhost
           (jinak člověk strávil dlouho debugováním, proč webhook nepřichází).
 
-2. **M2 — manuální úkoly + estimate** — [ ]
-    - [ ] CRUD úkolů přes web UI.
-    - [ ] Hybridní dispatch (`member.ready` → `task.assigned`).
-    - [ ] **Estimate** task type (Member vrátí `{ size, blockers }`).
-    - [ ] Member jen logne, co dostal (žádný agent v této fázi).
+2. **M2 — manuální úkoly + estimate** — [x]
+    - [x] CRUD úkolů přes web UI.
+    - [x] Hybridní dispatch (`member.ready` → `task.assigned`).
+    - [x] **Estimate** task type (Member vrátí `{ size, blockers }`).
+    - [x] Member jen logne, co dostal (žádný agent v této fázi).
 
 3. **M3 — agent v Member** — [ ]
     - [ ] Provider adapter rozhraní + první implementace (Anthropic).
