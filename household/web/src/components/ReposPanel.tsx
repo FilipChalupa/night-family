@@ -143,7 +143,7 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 		<form className="task-form" onSubmit={submit}>
 			<div className="row">
 				<div className="field">
-					<label htmlFor="repo-binding-name">Repository</label>
+					<label htmlFor="repo-binding-name">GitHub repository</label>
 					<input
 						id="repo-binding-name"
 						type="text"
