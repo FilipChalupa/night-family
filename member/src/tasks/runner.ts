@@ -159,10 +159,20 @@ export class TaskRunner {
 				systemPromptAddition: projectInstructions,
 			}
 
+			const stats = new RunStats()
 			const onAgentEvent = async (event: AgentEvent): Promise<void> => {
 				if (event.kind === 'usage') {
 					const u = event.payload as TokenUsage
 					this.enforceLimits(u)
+					stats.usage = u
+				}
+				if (event.kind === 'tool_call') {
+					const toolName = (event.payload as { tool?: string }).tool
+					if (toolName) stats.recordToolCall(toolName)
+				}
+				if (event.kind === 'file_edited') {
+					const path = (event.payload as { path?: string }).path
+					if (path) stats.recordFileEdit(path)
 				}
 				await emit(event.kind as EventKind, event.payload)
 			}
@@ -221,8 +231,37 @@ export class TaskRunner {
 							message: (err as Error).message,
 						})
 					}
-					// PR creation lands in M4 — just record what we'd open.
-					prUrl = null
+
+					if (task.githubToken) {
+						const description = buildPrDescription({
+							title: task.title,
+							summary: providerResult.summary,
+							memberName: this.deps.memberName,
+							provider: this.deps.provider.name,
+							model: this.deps.provider.model,
+							taskId: task.taskId,
+							stats,
+						})
+						const opened = await workspace.upsertDraftPr({
+							title: prTitleFor(task.title),
+							body: description,
+						})
+						if (opened) {
+							prUrl = opened.url
+							await emit('log', { message: 'draft PR opened', url: opened.url })
+							if (task.kind !== 'estimate') {
+								await workspace.markPrReady(opened.url)
+								await emit('log', {
+									message: 'PR ready for review',
+									url: opened.url,
+								})
+							}
+						} else {
+							await emit('log', { message: 'PR open skipped (gh failed)' })
+						}
+					} else {
+						await emit('log', { message: 'PR skipped (no GitHub token)' })
+					}
 				} else {
 					await emit('log', { message: 'no changes to commit' })
 				}
@@ -322,6 +361,86 @@ function summarizeForCommit(title: string, summary: string): string {
 	const firstLine = summary.split('\n')[0] ?? ''
 	const subject = firstLine.length > 0 && firstLine.length < 72 ? firstLine : title
 	return subject + '\n\n' + summary
+}
+
+class RunStats {
+	usage: TokenUsage = { input: 0, output: 0 }
+	private readonly toolCounts = new Map<string, number>()
+	private readonly editedFiles = new Set<string>()
+
+	recordToolCall(name: string): void {
+		this.toolCounts.set(name, (this.toolCounts.get(name) ?? 0) + 1)
+	}
+	recordFileEdit(path: string): void {
+		this.editedFiles.add(path)
+	}
+	get toolBreakdown(): Array<{ tool: string; count: number }> {
+		return [...this.toolCounts.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([tool, count]) => ({ tool, count }))
+	}
+	get filesEdited(): string[] {
+		return [...this.editedFiles].sort()
+	}
+}
+
+function prTitleFor(title: string): string {
+	return title.slice(0, 200)
+}
+
+function buildPrDescription(opts: {
+	title: string
+	summary: string
+	memberName: string
+	provider: string
+	model: string
+	taskId: string
+	stats: RunStats
+}): string {
+	const u = opts.stats.usage
+	const totalTokens = u.input + u.output
+	const tools = opts.stats.toolBreakdown
+	const files = opts.stats.filesEdited
+
+	const lines: string[] = []
+	lines.push('## Summary')
+	lines.push('')
+	lines.push(opts.summary.trim())
+	lines.push('')
+
+	if (files.length > 0) {
+		lines.push('## Files changed')
+		lines.push('')
+		for (const f of files.slice(0, 50)) lines.push(`- \`${f}\``)
+		if (files.length > 50) lines.push(`- …and ${files.length - 50} more`)
+		lines.push('')
+	}
+
+	if (tools.length > 0) {
+		lines.push('## Tools used')
+		lines.push('')
+		for (const t of tools) lines.push(`- \`${t.tool}\` × ${t.count}`)
+		lines.push('')
+	}
+
+	lines.push('## Stats')
+	lines.push('')
+	lines.push(`| metric | value |`)
+	lines.push(`| --- | --- |`)
+	lines.push(`| Provider | ${opts.provider} |`)
+	lines.push(`| Model | \`${opts.model}\` |`)
+	lines.push(`| Input tokens | ${u.input.toLocaleString()} |`)
+	lines.push(`| Output tokens | ${u.output.toLocaleString()} |`)
+	lines.push(`| Total tokens | ${totalTokens.toLocaleString()} |`)
+	if (u.cacheRead) lines.push(`| Cache reads | ${u.cacheRead.toLocaleString()} |`)
+	if (u.cacheCreation) lines.push(`| Cache writes | ${u.cacheCreation.toLocaleString()} |`)
+	lines.push('')
+
+	lines.push('---')
+	lines.push(
+		`🤖 Authored by Night Agent \`${opts.memberName}\` · task \`${opts.taskId.slice(0, 8)}\``,
+	)
+	return lines.join('\n')
 }
 
 export function createProvider(opts: {

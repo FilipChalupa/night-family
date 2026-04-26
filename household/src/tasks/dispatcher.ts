@@ -17,11 +17,13 @@
 import type { Logger } from 'pino'
 import { TASK_ACK_TIMEOUT_MS, type TaskKind, type TaskStatus } from '@night/shared'
 import type { ConnectedMember, MemberRegistry, MemberSnapshot } from '../members/registry.ts'
+import type { RepoBindingStore } from '../github/bindings.ts'
 import type { TaskRecord, TaskStore } from './store.ts'
 
 export interface DispatcherDeps {
 	taskStore: TaskStore
 	registry: MemberRegistry
+	bindings: RepoBindingStore | null
 	logger: Logger
 }
 
@@ -82,6 +84,9 @@ export class Dispatcher {
 	private send(conn: ConnectedMember, task: TaskRecord): void {
 		const wireKind: TaskKind = task.status === 'estimating' ? 'estimate' : task.kind
 
+		const githubToken =
+			task.repo && this.deps.bindings ? (this.deps.bindings.getPat(task.repo) ?? '') : ''
+
 		conn.send({
 			type: 'task.assigned',
 			task: {
@@ -92,7 +97,7 @@ export class Dispatcher {
 				...(task.repo ? { repo: task.repo } : {}),
 				...(task.metadata ? { metadata: task.metadata } : {}),
 			},
-			github_token: '', // M4 — Household will inject the PAT
+			github_token: githubToken,
 			repo_url: task.repo ? `https://github.com/${task.repo}` : '',
 		})
 

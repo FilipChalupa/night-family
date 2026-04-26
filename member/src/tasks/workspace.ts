@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm, stat, utimes, writeFile, readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Logger } from 'pino'
-import { authenticatedRemoteUrl, git, GitError } from './git.ts'
+import { authenticatedRemoteUrl, gh, git, GitError } from './git.ts'
 
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -100,6 +100,81 @@ export class Workspace {
 				this.logger.warn({ stderr: err.stderr.slice(0, 400) }, 'push failed')
 			}
 			throw err
+		}
+	}
+
+	/**
+	 * Create / update a draft PR via `gh`. Idempotent: if a PR for this branch
+	 * already exists, edit its body; otherwise open a fresh draft.
+	 */
+	async upsertDraftPr(opts: { title: string; body: string }): Promise<{ url: string } | null> {
+		try {
+			const existing = await gh(
+				['pr', 'list', '--head', this.branch, '--json', 'url,number', '--limit', '1'],
+				{ cwd: this.path, token: this.token },
+			)
+			const parsed = JSON.parse(existing) as Array<{ url: string; number: number }>
+			if (parsed[0]) {
+				await gh(
+					[
+						'pr',
+						'edit',
+						String(parsed[0].number),
+						'--body',
+						opts.body,
+						'--title',
+						opts.title,
+					],
+					{ cwd: this.path, token: this.token },
+				)
+				return { url: parsed[0].url }
+			}
+		} catch (err) {
+			this.logger.warn(
+				{ err: err instanceof Error ? err.message : String(err) },
+				'gh pr list failed (will try create)',
+			)
+		}
+
+		try {
+			const url = (
+				await gh(
+					[
+						'pr',
+						'create',
+						'--draft',
+						'--head',
+						this.branch,
+						'--base',
+						this.baseBranch,
+						'--title',
+						opts.title,
+						'--body',
+						opts.body,
+					],
+					{ cwd: this.path, token: this.token },
+				)
+			).trim()
+			return { url }
+		} catch (err) {
+			if (err instanceof GitError) {
+				this.logger.warn({ stderr: err.stderr.slice(0, 400) }, 'gh pr create failed')
+			}
+			return null
+		}
+	}
+
+	/**
+	 * Mark the draft PR as ready for review.
+	 */
+	async markPrReady(prUrl: string): Promise<void> {
+		try {
+			await gh(['pr', 'ready', prUrl], { cwd: this.path, token: this.token })
+		} catch (err) {
+			this.logger.warn(
+				{ err: err instanceof Error ? err.message : String(err) },
+				'gh pr ready failed',
+			)
 		}
 	}
 

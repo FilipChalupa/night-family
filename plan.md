@@ -645,14 +645,19 @@ night-agents/
     - [x] Reconnect-tolerantní (events.ndjson buffer, replay po reconnectu).
     - [x] Tracking spotřeby tokenů.
 
-4. **M4 — GitHub integrace** — [ ]
-    - [ ] Octokit, repo binding, **issue import s labelem `night`**.
-    - [ ] PR open přes `gh`, PR description format (shrnutí, tools, stats).
-    - [ ] PAT shared model.
-    - [ ] Webhooky (PR, review, issues) s HMAC SHA-256 validací.
-    - [ ] Stale base detection a `task.rebase_suggested`.
-    - [ ] Načítání standardních agent config souborů z target repa
-          (`AGENTS.md`, `CLAUDE.md`, …) v Memberu po cloneu.
+4. **M4 — GitHub integrace** — [x]
+    - [x] Repo binding (DB-backed, šifrované secrets) + issue import s labelem `night`.
+          Octokit zatím není potřeba — webhook payload přímo konzumujeme; lazy-init
+          klienta přidáme až s mergeable_state follow-up callem.
+    - [x] PR open přes `gh` (draft po prvním push, ready for review po dokončení),
+          PR description format (shrnutí, files changed, tools used, token usage).
+    - [x] PAT shared model — Household drží šifrovaný PAT v repo bindingu, dispatcher
+          ho vkládá do `task.assigned`, Member žije s ním v paměti procesu.
+    - [x] Webhooky (PR, review, issues) s HMAC SHA-256 validací + idempotency dedup
+          přes `X-GitHub-Delivery`.
+    - [x] Stale base detection a `task.rebase_suggested` (přes `behind_by` z PR webhooku).
+    - [x] Načítání standardních agent config souborů z target repa
+          (`AGENTS.md`, `CLAUDE.md`, …) v Memberu po cloneu (už v M3).
 
 5. **M5 — paralelní review smyčka** — [ ]
     - [ ] Dispatch více review jobů na různé Members současně (self-review

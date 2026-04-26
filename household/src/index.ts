@@ -7,7 +7,11 @@ import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
 import { loadConfig } from './config.ts'
+import { SecretCipher } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
+import { RepoBindingStore } from './github/bindings.ts'
+import { mountRepoBindingsApi } from './github/api.ts'
+import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
 import { mountStaticUi } from './static.ts'
@@ -35,11 +39,20 @@ logger.info(
 	'users store ready',
 )
 
+const cipher = new SecretCipher(config.secretsKey)
+if (!config.secretsKey) {
+	logger.warn(
+		'SECRETS_KEY not set — using a static dev key. Set SECRETS_KEY in production (`openssl rand -base64 32`).',
+	)
+}
+
 const taskStore = new TaskStore(dbHandles.db)
 const eventLog = new TaskEventLog(dbHandles.db)
+const repoBindings = new RepoBindingStore(dbHandles.db, cipher)
 const dispatcher = new Dispatcher({
 	taskStore,
 	registry,
+	bindings: repoBindings,
 	logger: logger.child({ component: 'dispatcher' }),
 })
 
@@ -109,6 +122,17 @@ mountTasksApi(app, {
 	registry,
 	guard,
 	logger: logger.child({ component: 'tasks.api' }),
+})
+
+mountRepoBindingsApi(app, { bindings: repoBindings, guard })
+
+mountGithubWebhook(app, {
+	db: dbHandles.db,
+	bindings: repoBindings,
+	taskStore,
+	dispatcher,
+	registry,
+	logger: logger.child({ component: 'webhook' }),
 })
 
 if (config.githubOauth) {

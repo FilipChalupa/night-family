@@ -19,7 +19,8 @@
 			"Skill(claude-api)",
 			"Skill(claude-api:*)",
 			"Bash(kill -9 96858)",
-			"Bash(kill -9 6643 6715 7288)"
+			"Bash(kill -9 6643 6715 7288)",
+			"Bash(kill -9 7775 8361)"
 		]
 	}
 }

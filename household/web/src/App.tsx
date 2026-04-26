@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
+import { ReposPanel } from './components/ReposPanel.tsx'
 import { TasksPanel } from './components/TasksPanel.tsx'
 import { useUiStream } from './hooks/useUiStream.ts'
 import type { MemberSnapshot, TaskKind } from './types.ts'
@@ -69,6 +70,11 @@ export function App() {
 			<section className="section">
 				<h2>Members ({members.length})</h2>
 				<MembersList members={members} />
+			</section>
+
+			<section className="section">
+				<h2>Repos</h2>
+				<ReposPanel />
 			</section>
 		</div>
 	)
