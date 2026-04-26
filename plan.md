@@ -138,8 +138,28 @@ reviewuje).
    per repo, repo bindings (více rep), default dispatch policy (kolik
    agentů reviewuje paralelně, preference providerů), správa **join-tokenů**
    (generování, revoke; jméno tokenu pro orientaci, audit kdo a kdy
-   vytvořil + log použití). **Review aggregation a merge requirements
-   jsou na straně GitHubu** (branch protection / required reviews per repo).
+   vytvořil + log použití), **notification channels** (outbound webhook URL
+   + SMTP) a per-event subscription. **Review aggregation a merge
+   requirements jsou na straně GitHubu** (branch protection / required
+   reviews per repo).
+
+### Notifikace
+
+Místo per-service integrací (Slack SDK, Discord SDK, …) má Household
+**generic outbound channels**:
+
+- **Webhook channel** — URL + volitelné headers; Household pošle POST
+  s JSON payloadem. Slack / Discord / MS Teams / n8n / Zapier fungují
+  z krabice přes jejich „incoming webhook" URL bez specifické integrace.
+- **SMTP / email** — host, user, pass nebo API key (SendGrid, Resend, …).
+
+Eventy, na které se lze přihlásit (per-channel subscription):
+`task.failed`, `pr.merged`, `quota_exceeded`, `summarize.result`,
+`member.disconnected`, `token.revoked`.
+
+`summarize` task vrátí markdown / JSON, který Household pošle skrz
+přihlášené channely. Trigger: cron v Householdu (např. „každé pondělí
+9:00 weekly digest pro repo X") nebo manuálně z UI.
 
 ### API (hrubě)
 - `GET /health` — health check.
@@ -150,6 +170,8 @@ reviewuje).
 - `GET /api/tokens/:id/audit` — kdo vytvořil + log použití (Members).
 - `GET /api/members` — seznam aktivně připojených Member instancí.
 - `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`.
+- `GET /api/notification-channels`, `POST /api/notification-channels`,
+  `DELETE /api/notification-channels/:id` — správa outbound channelů.
 - `WS /ws/member` — Member auth + handshake (viz §11 WS protokol).
 - `POST /webhooks/github` — příjem GH eventů (issues opened, PR review,
   …). Každý request validován HMAC SHA-256 podpisem
@@ -194,6 +216,12 @@ reviewuje).
   - **implement** — popis → kód → PR.
   - **review** — PR URL → analýza diffu → komentáře / approve /
     request changes (přes `gh`).
+  - **respond** — PR thread + nový komentář od reviewera → Member
+    odpoví v threadu (přes `gh`), bez nutnosti commitu. Drží konverzaci
+    aktivní, dokud reviewer nepotvrdí změnu nebo neuzavře téma.
+  - **summarize** — vstup: období + seznam repos + cíl (weekly digest /
+    daily standup / status update). Member vrátí markdown / JSON,
+    Household ho pošle skrz nakonfigurované notification channels.
 - Implement workflow:
   - Workspace v `/workspace/<task-id>/` (git worktree z bare clonu
     cached v `/workspace/.cache/<owner>/<repo>.git`).
@@ -289,9 +317,9 @@ a uloží do `/workspace/.member-id`; při dalším startu ho odtud načte.
 Žádný env override — volume reset = nový ID = nový Member z pohledu
 Householdu.
 - `MEMBER_SKILLS` — čárkou oddělené role z enumu (exact match):
-  `implement`, `review`, `estimate`. Default `implement,review,estimate`
-  (Member umí všechno). Pro dedikované workery (např. cheap LLM jen
-  na review) lze omezit.
+  `implement`, `review`, `estimate`, `respond`, `summarize`. Default
+  `implement,review,estimate,respond,summarize` (Member umí všechno).
+  Pro dedikované workery (např. cheap LLM jen na review) lze omezit.
 - `WORKER_PROFILE` — `hard` / `medium` / `lazy` (volitelné, default
   `medium`). Hint pro dispatch i interní agent loop (jak důkladný je
   v thinking, kolik review iterací atd.).
@@ -537,13 +565,21 @@ night-agents/
    - Dispatch policy umožňuje preferovat určitý provider pro review
      (volitelné, ne vynucené).
 
-7. **M7 — produkční hardening**
+7. **M7 — produkční hardening + rozšířené role**
    - HTTPS, perzistence (config volume backup workflow přes rsync /
      git push do private repa).
    - Šifrování secrets v DB.
+   - **Notification channels** — outbound webhook + SMTP, per-event
+     subscription (`task.failed`, `pr.merged`, `quota_exceeded`,
+     `summarize.result`, `member.disconnected`, `token.revoked`).
+     Slack / Discord / MS Teams atd. přes jejich incoming webhook URL
+     bez specifické integrace.
+   - **`respond` task type** — Member odpovídá na PR thread komentáře
+     bez nutnosti commitu.
+   - **`summarize` task type** — cron v Householdu nebo manuální trigger
+     z UI; Member generuje markdown digest, Household ho pošle channely.
    - Auditing spotřeby (alerty na hlášené `quota_exceeded`, weekly digest).
    - Lepší UI (filtry, search, realtime updaty), grafy útrat.
-   - Notifikace (Slack / e-mail) na klíčové eventy.
 
 ## 11. WS protokol
 
@@ -558,7 +594,7 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 { type: "handshake", protocol_version: 1,
   member_id: "550e8400-e29b-41d4-a716-446655440000",   // perzistentní UUID
   member_name: "alice-laptop",                         // friendly, ne nutně unikátní
-  skills: ["implement", "review", "estimate"],
+  skills: ["implement", "review", "estimate", "respond", "summarize"],
   provider: "anthropic", model: "claude-opus-4-7",
   worker_profile: "hard" | "medium" | "lazy",
   resumes: [{ task_id, last_seq }]   // jen při reconnectu
