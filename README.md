@@ -1,6 +1,6 @@
-# Night Agents
+# Night Family
 
-Self-hosted orchestration of AI coding agents. **Household** dispatches issues from GitHub to **Members** that write code, open PRs, and review each other. See [plan.md](plan.md) for the full design.
+Self-hosted orchestration of AI coding agents. A central **Household** dispatches issues from GitHub to a fleet of **Members** that write code, open PRs, and review each other. See [plan.md](plan.md) for the full design.
 
 ## Quick start (local dev)
 

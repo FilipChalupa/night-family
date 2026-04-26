@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Night Family — self-hosted AI coding agents</title>
+		<meta
+			name="description"
+			content="Night Family is a self-hosted orchestrator for AI coding agents. A central Household dispatches GitHub issues to autonomous Members that write code, open PRs, and review each other."
+		/>
+		<meta property="og:title" content="Night Family" />
+		<meta
+			property="og:description"
+			content="Self-hosted orchestration of AI coding agents. Issues in, reviewed PRs out."
+		/>
+		<meta property="og:type" content="website" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0c0d10;
+				--fg: #e6e6e8;
+				--muted: #8a8f99;
+				--border: #25272d;
+				--card: #15171c;
+				--accent: #8ab4ff;
+				--accent-glow: rgba(138, 180, 255, 0.18);
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				background: var(--bg);
+				color: var(--fg);
+				font-family:
+					ui-sans-serif,
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					'Segoe UI',
+					sans-serif;
+				line-height: 1.55;
+			}
+			a {
+				color: var(--accent);
+				text-decoration: none;
+			}
+			a:hover {
+				text-decoration: underline;
+			}
+			.wrap {
+				max-width: 720px;
+				margin: 0 auto;
+				padding: 64px 24px 96px;
+			}
+			header {
+				display: flex;
+				align-items: center;
+				gap: 14px;
+				margin-bottom: 28px;
+			}
+			.logo {
+				width: 44px;
+				height: 44px;
+				border-radius: 12px;
+				background: radial-gradient(circle at 30% 30%, #2c5cdc 0%, #14193a 70%);
+				box-shadow: 0 0 0 4px var(--accent-glow);
+				display: grid;
+				place-items: center;
+				font-size: 22px;
+			}
+			h1 {
+				margin: 0;
+				font-size: 28px;
+				font-weight: 600;
+				letter-spacing: -0.01em;
+			}
+			h1 .sub {
+				display: block;
+				font-size: 13px;
+				font-weight: 400;
+				color: var(--muted);
+				margin-top: 2px;
+				letter-spacing: 0.02em;
+			}
+			h2 {
+				font-size: 14px;
+				color: var(--muted);
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin: 36px 0 12px;
+				font-weight: 600;
+			}
+			p {
+				margin: 0 0 14px;
+			}
+			ul {
+				margin: 0;
+				padding: 0 0 0 18px;
+			}
+			ul li {
+				margin-bottom: 6px;
+			}
+			code {
+				font-family:
+					ui-monospace,
+					SFMono-Regular,
+					Menlo,
+					monospace;
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 4px;
+				padding: 1px 6px;
+				font-size: 0.92em;
+			}
+			.lede {
+				font-size: 17px;
+				color: #cdd1d8;
+				margin-bottom: 24px;
+			}
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+				gap: 12px;
+				margin-top: 8px;
+			}
+			.card {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 10px;
+				padding: 16px 18px;
+			}
+			.card strong {
+				display: block;
+				margin-bottom: 4px;
+			}
+			.card span {
+				color: var(--muted);
+				font-size: 14px;
+			}
+			.cta {
+				margin-top: 28px;
+				display: inline-block;
+				background: #2c5cdc;
+				color: white;
+				padding: 10px 18px;
+				border-radius: 8px;
+				font-weight: 500;
+			}
+			.cta:hover {
+				background: #3a6cee;
+				text-decoration: none;
+			}
+			footer {
+				margin-top: 56px;
+				padding-top: 18px;
+				border-top: 1px solid var(--border);
+				color: var(--muted);
+				font-size: 13px;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="wrap">
+			<header>
+				<div class="logo" aria-hidden="true">🌙</div>
+				<h1>
+					Night Family
+					<span class="sub">Self-hosted orchestration for AI coding agents</span>
+				</h1>
+			</header>
+
+			<p class="lede">
+				While you sleep, your Night Family ships code. A self-hosted system that
+				turns labeled GitHub issues into reviewed pull requests, run by a fleet of
+				autonomous AI workers you control end-to-end.
+			</p>
+
+			<p>
+				A central <strong>Household</strong> orchestrates everything: it imports
+				issues, dispatches work, holds GitHub credentials, and serves a live
+				dashboard. Around it, any number of <strong>Members</strong> connect over
+				WebSocket, each running its own LLM (Anthropic, Gemini, or OpenAI) inside
+				a sandboxed container. Members clone the repo, write code, open draft PRs,
+				and review each other. The final merge is always a human's call.
+			</p>
+
+			<h2>What it does</h2>
+			<div class="grid">
+				<div class="card">
+					<strong>Issue → PR pipeline</strong>
+					<span>Label an issue <code>night</code>; a Member picks it up, branches, commits, and opens a draft PR.</span>
+				</div>
+				<div class="card">
+					<strong>Parallel review</strong>
+					<span>Multiple Members (and humans) review the same PR. Branch protection decides when it can merge.</span>
+				</div>
+				<div class="card">
+					<strong>Multi-provider</strong>
+					<span>Each Member runs one of Anthropic, Gemini, or OpenAI. Mix and match per role or budget.</span>
+				</div>
+				<div class="card">
+					<strong>You hold the keys</strong>
+					<span>Self-hosted. Encrypted PATs in your DB. Members in sandboxed containers on your VMs.</span>
+				</div>
+			</div>
+
+			<h2>How it's built</h2>
+			<ul>
+				<li>TypeScript monorepo (<code>shared</code> · <code>household</code> · <code>member</code>)</li>
+				<li>Hono + Drizzle (SQLite) on the server, React + Vite for the dashboard</li>
+				<li>WebSocket protocol with reconnect-tolerant event replay</li>
+				<li>GitHub OAuth login, HMAC-validated webhooks, idempotent delivery dedup</li>
+			</ul>
+
+			<a class="cta" href="https://github.com/FilipChalupa/night-family">View on GitHub →</a>
+
+			<footer>
+				This page exists primarily as the homepage URL for the GitHub OAuth app
+				that powers Night Family's web UI login. The project itself is open
+				source — follow the link above for source, design notes, and milestones.
+			</footer>
+		</main>
+	</body>
+</html>
