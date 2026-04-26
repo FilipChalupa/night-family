@@ -59,16 +59,15 @@ reviewuje).
   done / failed). Pro každý úkol může existovat **více paralelních review jobů**
   (různí Members + lidé).
 - Správa **auth tokenů Members**: generování, revoke, scope per-member.
-- Centrální držení **secrets**:
-  - GitHub credentials (PAT / GitHub App) — Household je jediný, kdo je
-    skutečně zná, Memberům posílá pouze per-task **krátkodobé tokeny**.
-  - LLM API klíče per Member (Anthropic / Gemini / OpenAI) — uloženy
-    šifrovaně, posílány Memberovi po WS handshaku jako součást konfigurace.
+- Centrální držení **GitHub credentials** (PAT / GitHub App) — Household je
+  jediný, kdo je skutečně zná, Memberům posílá pouze per-task **krátkodobé
+  tokeny**. **LLM API klíče Household nedrží** — každý Member si svůj klíč
+  spravuje sám (env / secret manager u sebe).
 - Napojení na **GitHub repo**: import issues jako úkolů, sledování PR statusů,
   webhook příjem.
 - Dispatch logika: kdo dostane implementaci, kdo review (round-robin / podle
-  skill tagů / podle providera / manuálně). Review se schválně dispatchuje na
-  jiný provider než implementace (diverzita názorů).
+  skill tagů / podle providera / manuálně). Diverzita providerů u review
+  není vynucovaná; lze ji použít jako preferenci v dispatch policy.
 - Audit log — co Member dělal, jaké tool calls, kolik tokenů spálil, kolik
   to stálo.
 
@@ -87,17 +86,19 @@ reviewuje).
    rozpad per Member, per provider, per úkol), aktivní cost-cap alerty.
 2. **Members** — detail, generování/revoke tokenu, nastavení:
    - jméno, skill tagy
-   - **provider** (Anthropic / Gemini / OpenAI)
-   - **model** (např. `claude-opus-4-7`, `gemini-2.x`, `gpt-…`)
-   - **API key** (uložen šifrovaně, posílá se Memberovi přes WS)
-   - hard limit na útratu / token count
+   - **provider / model** — Member je nahlásí při handshaku (read-only
+     zobrazení; konfiguruje se v env Memberu)
+   - hard limit na útratu / token count (Household ho vynucuje na základě
+     usage eventů, které Member streamuje)
 3. **Tasks** — kanban (queued / in-progress / in-review / approved / done),
    vytvoření úkolu ručně nebo importem z GH issue.
 4. **Task detail** — popis, přiřazený Member, history událostí, link na PR,
    **seznam paralelních review jobů** (každý se svým výstupem a verdiktem),
    log tool callů, spotřeba tokenů a $.
-5. **Settings** — GitHub PAT / App credentials, repo binding(y), default
-   review policy (kolik agentů paralelně, vyžadovat lidský review, …).
+5. **Settings** — GitHub PAT / App credentials, repo bindings (více rep),
+   default dispatch policy (kolik agentů reviewuje paralelně, preference
+   providerů, …). **Review aggregation a merge requirements jsou na straně
+   GitHubu** (branch protection / required reviews per repo).
 
 ### API (hrubě)
 - `POST /api/members/:id/token` — vygeneruje token.
@@ -109,10 +110,11 @@ reviewuje).
 ## 4. Member (klient)
 
 ### Odpovědnosti
-- Po startu načte minimální config (URL Householdu, vlastní token) z env.
-- Otevře WS spojení s Household, autentizuje se. **Po handshaku dostane od
-  Householdu** kompletní konfiguraci: provider, model, API key,
-  per-task GitHub token, repo URL.
+- Po startu načte konfiguraci z env: URL Householdu, vlastní token,
+  **provider, model, LLM API key**.
+- Otevře WS spojení s Household, autentizuje se a nahlásí svůj
+  provider/model. **Per-task** dostává od Householdu pouze: krátkodobý
+  GitHub token, repo URL, popis úkolu.
 - Posílá heartbeat (online/idle/busy + kapacita).
 - Čeká na přiřazení úkolu. Typy úkolů:
   - **implement** — popis → kód → PR
@@ -144,18 +146,21 @@ reviewuje).
   jednotné nad ním.
 - Workspace = volume `/workspace` (per úkol vlastní podadresář, po dokončení
   smazán).
-- **Žádné secrets v env Memberu** kromě `MEMBER_TOKEN`. Vše ostatní
-  (LLM API key, GitHub token) přijde přes WS po autentizaci a žije pouze
-  v paměti procesu.
+- V env Memberu žije pouze to, co Member potřebuje pro připojení a vlastní
+  LLM (`MEMBER_TOKEN`, `AI_API_KEY`). **GitHub token Member v env nedrží** —
+  přijde per-task přes WS a žije pouze v paměti procesu, dokud běží úkol.
 - Plná síť (Docker default) — uživatel akceptuje, že Member má volný internet.
 
 ### Konfigurace (env)
 - `HOUSEHOLD_URL` — např. `wss://household.local:8080`
 - `MEMBER_TOKEN` — vydaný Householdem
 - `MEMBER_NAME` — lidský identifikátor (volitelné, jinak default z Householdu)
+- `AI_PROVIDER` — `anthropic` / `gemini` / `openai`
+- `AI_MODEL` — např. `claude-opus-4-7`, `gemini-2.x`, `gpt-…`
+- `AI_API_KEY` — klíč k danému provideru
 
-Vše ostatní — provider, model, API key, repo, GitHub token — Member dostává
-od Householdu po připojení.
+Repo URL, per-task GitHub token a popis úkolu Member dostává od Householdu
+po připojení.
 
 ## 5. Auth flow
 
@@ -189,17 +194,15 @@ GH issue / ruční vytvoření
                 │                 │             │                   │
                 └────────┬────────┴─────────────┴───────────────────┘
                          │
-                  agregace verdiktů (policy v Settings: např. „≥1 approve
-                  od agenta + lidský approve" nebo „všichni approve")
+                  GitHub vyhodnotí podle nastavení repa
+                  (branch protection / required reviews)
                          │
             ┌────────────┴────────────┐
             ▼                         ▼
-   [changes-requested]            [approved]
+   [changes-requested]         [awaiting-merge]
             │                         │
    (zpět in-progress,                 ▼
-    nový PR push)             [awaiting-merge]
-                                      │
-                            ČLOVĚK provede merge
+    nový PR push)              ČLOVĚK provede merge
                                       │
                                       ▼
                                    [done]
@@ -208,8 +211,12 @@ GH issue / ruční vytvoření
 - **Finální merge dělá vždy člověk** — Members nikdy nemergují do `main`.
 - Více review jobů běží **paralelně** na stejném PR; každý má vlastní
   záznam v DB (Member, provider, model, verdikt, komentáře, cost).
-- Lidé můžou reviewovat přímo v GitHub UI; webhook `pull_request_review`
-  doplní jejich verdikt do agregace.
+- **Agregaci review verdiktů řeší GitHub** podle nastavení repa (branch
+  protection / required approving reviews). Household pouze sleduje
+  `mergeable_state` přes webhook a podle něj přepíná `in-review` →
+  `awaiting-merge` / `changes-requested`.
+- Lidské reviews chodí přirozeně přes GitHub UI a započítávají se stejně
+  jako agentské.
 - Při selhání (timeout, error) review job → `[failed]`, ostatní jobs běží dál.
 - Při selhání implement → celý úkol `[failed]`, admin může restartnout.
 - Každý přechod stavu i každý review job = záznam v audit logu.
@@ -221,10 +228,13 @@ GH issue / ruční vytvoření
   scope-nutý na konkrétní repo a větev.
 - **Identita v commitech**: jeden bot GitHub account (např. `night-bot`).
   Konkrétní Member, který práci udělal, se rozlišuje v commit footeru.
-- **Repo binding**: v Settings se zadá repo (`org/name`) a credentials.
+- **Repo bindings**: v Settings se zadá libovolný počet rep (`org/name`).
+  Každý úkol má pole `repo`. Web UI umožňuje filtrování podle repa,
+  per-repo dispatch policy a per-repo metriky.
 - **Issue import**: tlačítko / webhook „issue opened“ → vytvoří úkol s odkazem.
 - **PR tracking**: webhook na `pull_request` a `pull_request_review` aktualizuje
-  stav úkolu (včetně human reviews).
+  stav úkolu (včetně human reviews); `mergeable_state` rozhoduje o přechodu
+  do `awaiting-merge`.
 - **Branching**: konvence `pr/night/<task-id>-<slug>`.
 - **Commit messages**: každý Member podepisuje
   `Co-Authored-By: Night <member-name> <noreply@…>`.
@@ -282,14 +292,16 @@ night-agents/
 
 5. **M5 — paralelní review smyčka**
    - Dispatch více review jobů na různé Members současně.
-   - Agregace verdiktů + zápočet lidských reviews z GitHub webhooku.
+   - Posílání review (approve / request changes / komentáře) přes `gh`.
+   - Sledování `mergeable_state` z GitHub webhooku → přechod do
+     `awaiting-merge` (agregaci řeší GitHub).
    - Stavový stroj kompletní (`awaiting-merge` → člověk merguje).
-   - Approve / request changes přes `gh`.
 
 6. **M6 — multi-provider**
    - Adaptéry pro Gemini a OpenAI.
-   - UI pro výběr providera/modelu per Member.
-   - Review-policy: vynutit diverzitu providerů.
+   - Member nahlašuje provider/model při handshaku, Household ho ukazuje v UI.
+   - Dispatch policy umožňuje preferovat určitý provider pro review
+     (volitelné, ne vynucené).
 
 7. **M7 — produkční hardening**
    - HTTPS, perzistence, backup DB.
@@ -297,23 +309,3 @@ night-agents/
    - Cost-cap hard limity (per Member, per úkol, globálně), alerty.
    - Lepší UI (filtry, search, realtime updaty), grafy útrat.
 
-## 11. Otevřené otázky
-
-- **Multi-repo support** — má jedna instance Householdu obsluhovat více
-  GitHub repozitářů (každý úkol má pole `repo`, web UI umí filtrovat podle
-  repa, nastavení per-repo policy), **nebo** je každá instance Householdu
-  vázaná pevně na jeden repo (jednodušší model, méně oprávnění)? MVP zvládne
-  obojí, jen je to o tom, jak postavit datový model a UI hned od začátku.
-- **Branch konvence úvodní `/`** — `pr/night/<task-id>-<slug>` (předpoklad,
-  git branch nesmí začínat `/`). Potvrď, jestli to bylo myšleno takto, nebo
-  jinak.
-- **Review policy default** — jaká agregace verdiktů spouští stav
-  `awaiting-merge`? Návrhy:
-  - „aspoň 1 agent approve + 0 změn requested",
-  - „všichni dispatchnutí agenti approve",
-  - „aspoň N approve z M agentů",
-  - „vždy vyžadovat aspoň 1 lidský approve".
-  Asi konfigurovatelné per repo / per úkol, ale potřebujeme rozumný default.
-- **Diverzita providerů u review** — vynucovat, že review job musí běžet na
-  jiném providerovi než implementace? (Hodí se proti slepým skvrnám jednoho
-  modelu, ale vyžaduje aspoň 2 providery online.)
