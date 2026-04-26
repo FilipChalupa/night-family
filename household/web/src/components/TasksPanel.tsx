@@ -63,34 +63,53 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 	return (
 		<form className="task-form" onSubmit={submit}>
 			<div className="row">
-				<select value={kind} onChange={(e) => setKind(e.target.value as TaskKind)}>
-					{KINDS.map((k) => (
-						<option key={k} value={k}>
-							{k}
-						</option>
-					))}
-				</select>
-				<input
-					type="text"
-					placeholder="title"
-					value={title}
-					onChange={(e) => setTitle(e.target.value)}
-					required
-					maxLength={200}
-				/>
-				<input
-					type="text"
-					placeholder="repo (org/name, optional)"
-					value={repo}
-					onChange={(e) => setRepo(e.target.value)}
+				<div className="field">
+					<label htmlFor="task-kind">Task type</label>
+					<select
+						id="task-kind"
+						value={kind}
+						onChange={(e) => setKind(e.target.value as TaskKind)}
+					>
+						{KINDS.map((k) => (
+							<option key={k} value={k}>
+								{k}
+							</option>
+						))}
+					</select>
+				</div>
+				<div className="field">
+					<label htmlFor="task-title">Title</label>
+					<input
+						id="task-title"
+						type="text"
+						placeholder="Short task title"
+						value={title}
+						onChange={(e) => setTitle(e.target.value)}
+						required
+						maxLength={200}
+					/>
+				</div>
+				<div className="field">
+					<label htmlFor="task-repo">Repository (optional)</label>
+					<input
+						id="task-repo"
+						type="text"
+						placeholder="org/name"
+						value={repo}
+						onChange={(e) => setRepo(e.target.value)}
+					/>
+				</div>
+			</div>
+			<div className="field block">
+				<label htmlFor="task-description">Description</label>
+				<textarea
+					id="task-description"
+					placeholder="What should the agent do?"
+					value={description}
+					onChange={(e) => setDescription(e.target.value)}
+					rows={3}
 				/>
 			</div>
-			<textarea
-				placeholder="description — what should the agent do?"
-				value={description}
-				onChange={(e) => setDescription(e.target.value)}
-				rows={3}
-			/>
 			<div className="row end">
 				{error ? <span className="error">{error}</span> : null}
 				<button type="submit" disabled={submitting || !title.trim()}>

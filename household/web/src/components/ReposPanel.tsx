@@ -142,27 +142,39 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 	return (
 		<form className="task-form" onSubmit={submit}>
 			<div className="row">
-				<input
-					type="text"
-					placeholder="org/name"
-					value={repo}
-					onChange={(e) => setRepo(e.target.value)}
-					required
-					pattern="[^/]+/[^/]+"
-				/>
-				<input
-					type="password"
-					placeholder="webhook secret"
-					value={secret}
-					onChange={(e) => setSecret(e.target.value)}
-					required
-				/>
-				<input
-					type="password"
-					placeholder="GitHub PAT (fine-grained)"
-					value={pat}
-					onChange={(e) => setPat(e.target.value)}
-				/>
+				<div className="field">
+					<label htmlFor="repo-binding-name">Repository</label>
+					<input
+						id="repo-binding-name"
+						type="text"
+						placeholder="org/name"
+						value={repo}
+						onChange={(e) => setRepo(e.target.value)}
+						required
+						pattern="[^/]+/[^/]+"
+					/>
+				</div>
+				<div className="field">
+					<label htmlFor="repo-binding-secret">Webhook secret</label>
+					<input
+						id="repo-binding-secret"
+						type="password"
+						placeholder="Secret from GitHub webhook settings"
+						value={secret}
+						onChange={(e) => setSecret(e.target.value)}
+						required
+					/>
+				</div>
+				<div className="field">
+					<label htmlFor="repo-binding-pat">GitHub PAT (optional)</label>
+					<input
+						id="repo-binding-pat"
+						type="password"
+						placeholder="Fine-grained personal access token"
+						value={pat}
+						onChange={(e) => setPat(e.target.value)}
+					/>
+				</div>
 			</div>
 			<div className="row end">
 				{error ? <span className="error">{error}</span> : null}

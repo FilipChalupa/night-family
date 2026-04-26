@@ -228,6 +228,23 @@ td.dim {
 	flex: 1 1 auto;
 }
 
+.task-form .field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.task-form .field label {
+	font-size: 12px;
+	font-weight: 500;
+	color: #b8bcc4;
+	letter-spacing: 0.02em;
+}
+
+.task-form .field.block {
+	width: 100%;
+}
+
 .task-form .row.end {
 	justify-content: flex-end;
 	align-items: center;
