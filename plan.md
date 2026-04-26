@@ -1,6 +1,6 @@
 # Night Agents — plán
 
-Inspirováno *Night Family* z Rick and Morty: zatímco denní "ty" pracuješ na svém,
+Inspirováno *Night Family* z Rick and Morty: zatímco denní „ty“ pracuješ na svém,
 noční agenti převezmou rutinní úkoly. Dvě role: **Household** (ústředna,
 zadávání úkolů, dohled) a **Member** (autonomní pracovník, který kód píše a
 reviewuje).
@@ -111,7 +111,7 @@ reviewuje).
 ## 5. Auth flow
 
 1. Admin se přihlásí do web UI Householdu.
-2. V sekci Members klikne **„Add member"** → zadá jméno → Household vygeneruje
+2. V sekci Members klikne **„Add member“** → zadá jméno → Household vygeneruje
    token (zobrazí se jednou, uloží se hash).
 3. Admin token vloží do env nového Member containeru a spustí ho.
 4. Member se připojí na WS, pošle token, Household ověří hash, naváže relaci.
@@ -145,7 +145,7 @@ GH issue / ruční vytvoření
 ## 7. GitHub integrace
 
 - **Repo binding**: v Settings se zadá repo (`org/name`) a credentials.
-- **Issue import**: tlačítko / webhook „issue opened" → vytvoří úkol s odkazem.
+- **Issue import**: tlačítko / webhook „issue opened“ → vytvoří úkol s odkazem.
 - **PR tracking**: webhook na `pull_request` a `pull_request_review` aktualizuje
   stav úkolu.
 - **Branching**: konvence `night/<task-id>-<slug>`.
