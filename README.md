@@ -81,8 +81,8 @@ Without this, you would spend an unreasonable amount of time wondering why webho
 ## Docker
 
 ```bash
-cp .env.example .env.household
-cp .env.example .env.member
+cp .env.household.example .env.household
+cp .env.member.example   .env.member
 # edit both to taste
 docker compose up --build
 ```

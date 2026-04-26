@@ -4,6 +4,9 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.household
+.env.member
+!.env.*.example
 .DS_Store
 coverage/
 .vitest-cache/
