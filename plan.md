@@ -119,6 +119,11 @@ reviewuje).
   proti per-repo webhook secretu uloženému v Household DB; neplatný podpis
   = 401 a žádné zpracování.
 
+### Konfigurace (env)
+- `HOUSEHOLD_NAME` — pojmenování instance Householdu (default
+  `Somnambulator`). Zobrazuje se v hlavičce web UI a v handshake response
+  Memberům, ať si Member loguje, ke které ústředně je připojený.
+
 ## 4. Member (klient)
 
 ### Odpovědnosti
@@ -164,7 +169,7 @@ reviewuje).
   jednotné nad ním.
 - Workspace = volume `/workspace` (per úkol vlastní podadresář, po dokončení
   smazán).
-- V env Memberu žije vše, co potřebuje pro připojení (`HOUSEHOLD_TOKEN`),
+- V env Memberu žije vše, co potřebuje pro připojení (`HOUSEHOLD_ACCESS_TOKEN`),
   vlastní LLM (`AI_API_KEY`) a svou identitu/limity. **GitHub token Member
   v env nedrží** — přijde per-task přes WS a žije pouze v paměti procesu,
   dokud běží úkol.
@@ -172,7 +177,7 @@ reviewuje).
 
 ### Konfigurace (env)
 - `HOUSEHOLD_URL` — např. `wss://household.local:8080`
-- `HOUSEHOLD_TOKEN` — join-token vydaný Householdem (klidně sdílený mezi
+- `HOUSEHOLD_ACCESS_TOKEN` — join-token vydaný Householdem (klidně sdílený mezi
   více instancemi Memberu)
 - `MEMBER_NAME` — lidský identifikátor (volitelné, jinak default z Householdu)
 - `MEMBER_SKILLS` — čárkou oddělené skill tagy (volitelné)
