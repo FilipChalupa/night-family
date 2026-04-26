@@ -657,7 +657,6 @@ v upgrade requestu. JSON line-delimited messages. Verzování přes
 { type: "event", task_id, seq, ts, kind, payload }
    // kind: "tool_call" | "file_edited" | "commit" | "usage" | "log" | "rebase"
 { type: "heartbeat", status: "idle" | "busy", current_task: string | null }
-   // status "online" odstraněn jako redundantní — pokud je WS naživu, Member je online
 { type: "pong" }
 ```
 
