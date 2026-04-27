@@ -25,7 +25,9 @@ interface GitHubUser {
 
 function buildRedirectUri(c: Context): string {
 	const url = new URL(c.req.url)
-	return `${url.protocol}//${url.host}/auth/github/callback`
+	const proto = c.req.header('x-forwarded-proto') ?? url.protocol.replace(':', '')
+	const host = c.req.header('x-forwarded-host') ?? url.host
+	return `${proto}://${host}/auth/github/callback`
 }
 
 function setSessionCookie(c: Context, sessionId: string): void {
