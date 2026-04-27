@@ -149,6 +149,16 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 
 	return (
 		<form className="task-form" onSubmit={submit}>
+			<div className="note" style={{ marginBottom: 16 }}>
+				<strong>Webhook secret:</strong> V GitHub repu jdi do <em>Settings → Webhooks → Add webhook</em>.
+				Jako Payload URL zadej <code>{`${window.location.origin}/webhooks/github`}</code>, Content type nastav na{' '}
+				<em>application/json</em> a vyplň libovolný secret — ten pak vlož sem.
+				<br />
+				<br />
+				<strong>GitHub PAT:</strong> V GitHub jdi do <em>Settings → Developer settings → Fine-grained tokens → Generate new token</em>.
+				Vyber toto repository a udělej mu read-only přístup k <em>Issues</em> a <em>Pull requests</em>.
+				PAT je volitelný — potřebuješ ho jen pro import issues a sledování PR statusů.
+			</div>
 			<div className="row">
 				<div className="field">
 					<label htmlFor="repo-binding-name">GitHub repository</label>
