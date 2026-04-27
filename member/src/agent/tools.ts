@@ -17,12 +17,15 @@ interface CreateOpts {
 	root: string
 	bashTimeoutMs?: number
 	maxFileBytes?: number
+	/** If set, injected as GH_TOKEN env var so `gh` commands work without login. */
+	githubToken?: string | undefined
 }
 
 export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 	const root = resolve(opts.root)
 	const bashTimeoutMs = opts.bashTimeoutMs ?? 60_000
 	const maxFileBytes = opts.maxFileBytes ?? 5 * 1024 * 1024
+	const ghEnv = opts.githubToken ? { GH_TOKEN: opts.githubToken } : {}
 
 	const safePath = (p: unknown): string | { error: string } => {
 		if (typeof p !== 'string' || p.length === 0)
@@ -115,6 +118,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			try {
 				const { stdout, stderr } = await execFileP('/bin/sh', ['-c', command], {
 					cwd: root,
+					env: { ...process.env, ...ghEnv },
 					timeout: bashTimeoutMs,
 					maxBuffer: 5 * 1024 * 1024,
 				})

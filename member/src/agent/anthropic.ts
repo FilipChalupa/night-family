@@ -48,7 +48,7 @@ export class AnthropicProvider implements Provider {
 				content: [
 					{
 						type: 'text',
-						text: buildKickoffPrompt(task.title, task.description, task.kind),
+						text: buildKickoffPrompt(task.title, task.description, task.kind, task.prUrl),
 					},
 				],
 			},
@@ -178,7 +178,41 @@ export class AnthropicProvider implements Provider {
 	}
 }
 
-function buildKickoffPrompt(title: string, description: string, kind: string): string {
+function buildKickoffPrompt(
+	title: string,
+	description: string,
+	kind: string,
+	prUrl: string | null,
+): string {
+	if (kind === 'review' && prUrl) {
+		return [
+			`# Code Review: ${title}`,
+			``,
+			`PR URL: ${prUrl}`,
+			``,
+			`## Task description`,
+			description.trim(),
+			``,
+			`## Instructions`,
+			`Review the pull request at the URL above. Use the bash tool to:`,
+			`1. Run \`gh pr diff ${prUrl}\` to read the changes.`,
+			`2. Run \`gh pr view ${prUrl}\` to read the PR description.`,
+			`3. Analyse the diff for correctness, style, security, and test coverage.`,
+			`4. Post your review with one of:`,
+			`   - \`gh pr review ${prUrl} --approve -b "<comment>"\``,
+			`   - \`gh pr review ${prUrl} --request-changes -b "<comment>"\``,
+			`   - \`gh pr review ${prUrl} --comment -b "<comment>"\``,
+			``,
+			`When done, write a brief summary of your findings and end with a JSON block`,
+			`on its own line — for example:`,
+			`{"verdict":"approved"}`,
+			`or`,
+			`{"verdict":"changes_requested"}`,
+			`or`,
+			`{"verdict":"commented"}`,
+		].join('\n')
+	}
+
 	return [
 		`# Task: ${title}`,
 		``,

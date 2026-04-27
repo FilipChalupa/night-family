@@ -12,6 +12,7 @@ export interface AgentTask {
 	title: string
 	description: string
 	repo: string | null
+	prUrl: string | null
 	systemPromptAddition: string | null
 }
 

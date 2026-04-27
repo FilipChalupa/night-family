@@ -659,13 +659,13 @@ night-agents/
     - [x] Načítání standardních agent config souborů z target repa
           (`AGENTS.md`, `CLAUDE.md`, …) v Memberu po cloneu (už v M3).
 
-5. **M5 — paralelní review smyčka** — [ ]
-    - [ ] Dispatch více review jobů na různé Members současně (self-review
+5. **M5 — paralelní review smyčka** — [x]
+    - [x] Dispatch více review jobů na různé Members současně (self-review
           povolen, ale primárně dispatchovat na jiné).
-    - [ ] Posílání review (approve / request changes / komentáře) přes `gh`.
-    - [ ] Sledování `mergeable_state` z GitHub webhooku → přechod do
+    - [x] Posílání review (approve / request changes / komentáře) přes `gh`.
+    - [x] Sledování `mergeable_state` z GitHub webhooku → přechod do
           `awaiting-merge` (agregaci řeší GitHub).
-    - [ ] Auto-retry failed implement tasks (3× s exp. backoff).
+    - [x] Auto-retry failed implement tasks (3× s exp. backoff).
 
 6. **M6 — multi-provider** — [ ]
     - [ ] Adaptéry pro Gemini a OpenAI.

@@ -38,6 +38,7 @@ export interface AssignedTaskInput {
 	title: string
 	description: string
 	repo: string | null
+	prUrl: string | null
 	githubToken: string
 	repoUrl: string
 }
@@ -120,8 +121,12 @@ export class TaskRunner {
 				stub: this.deps.stubMode,
 			})
 
+			// Review tasks don't need a git worktree — agent uses `gh pr` commands
+			// in a scratch dir. All other repo tasks get a full worktree.
+			const isReview = task.kind === 'review'
+
 			let workspace: Workspace | null = null
-			if (task.repo && task.kind !== 'estimate' && task.kind !== 'summarize') {
+			if (task.repo && !isReview && task.kind !== 'estimate' && task.kind !== 'summarize') {
 				workspace = await Workspace.create({
 					taskId: task.taskId,
 					repo: task.repo,
@@ -131,8 +136,7 @@ export class TaskRunner {
 				})
 				await emit('log', { message: 'workspace ready', branch: workspace.branch })
 			} else {
-				// Tasks without a repo (estimate, summarize) still need a scratch dir
-				// for any file ops the agent might do.
+				// estimate, summarize, review — just need a scratch dir for any file ops.
 				const scratch = join(this.deps.workspaceDir, task.taskId, 'scratch')
 				await mkdir(scratch, { recursive: true })
 			}
@@ -142,6 +146,8 @@ export class TaskRunner {
 
 			const tools: ToolDefinition[] = createDefaultTools({
 				root: workspace?.path ?? join(this.deps.workspaceDir, task.taskId, 'scratch'),
+				// Pass token so `gh pr review` / `gh pr diff` work inside bash tool.
+				githubToken: task.githubToken || undefined,
 			})
 
 			const systemPrompt = buildSystemPrompt({
@@ -156,6 +162,7 @@ export class TaskRunner {
 				title: task.title,
 				description: task.description,
 				repo: task.repo,
+				prUrl: task.prUrl,
 				systemPromptAddition: projectInstructions,
 			}
 
@@ -210,6 +217,15 @@ export class TaskRunner {
 			}
 
 			this.deps.dailyUsage.record(providerResult.usage)
+
+			// Review tasks: no commit/push/PR — agent posted review via `gh pr review`.
+			if (isReview) {
+				await emit('log', { message: 'review complete', summary: providerResult.summary })
+				return {
+					type: 'completed',
+					result: this.shapeResult(task.kind, providerResult.summary),
+				}
+			}
 
 			let prUrl: string | null = null
 			if (workspace) {
@@ -325,6 +341,9 @@ export class TaskRunner {
 		if (kind === 'estimate') {
 			return parseEstimateOutput(summary)
 		}
+		if (kind === 'review') {
+			return parseReviewOutput(summary)
+		}
 		return { summary }
 	}
 }
@@ -355,6 +374,32 @@ function parseEstimateOutput(summary: string): {
 		}
 	}
 	return { size: 'M', blockers: [] }
+}
+
+/**
+ * Extract `{verdict, summary}` from a review summary. Agent is instructed to
+ * end with a JSON block; falls back to `commented` if not parseable.
+ */
+function parseReviewOutput(summary: string): {
+	verdict: 'approved' | 'changes_requested' | 'commented'
+	summary: string
+} {
+	const match = summary.match(/\{[\s\S]*"verdict"[\s\S]*\}/)
+	if (match) {
+		try {
+			const obj = JSON.parse(match[0]) as { verdict?: string }
+			if (
+				obj.verdict === 'approved' ||
+				obj.verdict === 'changes_requested' ||
+				obj.verdict === 'commented'
+			) {
+				return { verdict: obj.verdict, summary }
+			}
+		} catch {
+			/* fall through */
+		}
+	}
+	return { verdict: 'commented', summary }
 }
 
 function summarizeForCommit(title: string, summary: string): string {

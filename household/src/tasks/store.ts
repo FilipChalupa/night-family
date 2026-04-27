@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { EventEmitter } from 'node:events'
 import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Db } from '../db/index.ts'
@@ -161,11 +161,18 @@ export class TaskStore {
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
 
-		// Find candidate.
+		// Find candidate — skip tasks whose retry delay hasn't elapsed yet.
+		const now = new Date()
 		const candidates = this.db
 			.select({ id: tasks.id })
 			.from(tasks)
-			.where(and(eq(tasks.status, 'queued'), inArray(tasks.kind, acceptableKinds)))
+			.where(
+				and(
+					eq(tasks.status, 'queued'),
+					inArray(tasks.kind, acceptableKinds),
+					or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
+				),
+			)
 			.orderBy(tasks.createdAt)
 			.limit(1)
 			.all()
@@ -301,6 +308,16 @@ export class TaskStore {
 		const record = this.get(id)
 		if (record) this.emit({ type: 'task.updated', task: record })
 		return record
+	}
+
+	clearRetryAt(id: string): void {
+		this.db
+			.update(tasks)
+			.set({ nextRetryAt: null, updatedAt: new Date() })
+			.where(eq(tasks.id, id))
+			.run()
+		const record = this.get(id)
+		if (record) this.emit({ type: 'task.updated', task: record })
 	}
 
 	on(listener: (event: TaskEvent) => void): () => void {

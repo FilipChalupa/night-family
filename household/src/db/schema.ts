@@ -102,6 +102,36 @@ export const oauthStates = sqliteTable('oauth_states', {
 })
 
 /**
+ * Task jobs — parallel review (or future job types) dispatched for a single
+ * parent task. One implement task → N concurrent review jobs per plan §6.
+ */
+export const taskJobs = sqliteTable(
+	'task_jobs',
+	{
+		id: text('id').primaryKey(),
+		taskId: text('task_id').notNull(),
+		kind: text('kind').notNull().default('review'),
+		status: text('status').notNull(), // pending | assigned | in-progress | completed | failed
+		assignedSessionId: text('assigned_session_id'),
+		assignedMemberId: text('assigned_member_id'),
+		assignedMemberName: text('assigned_member_name'),
+		verdict: text('verdict'), // approved | changes_requested | commented
+		result: text('result'), // JSON
+		failureReason: text('failure_reason'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.default(sql`(unixepoch() * 1000)`),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.default(sql`(unixepoch() * 1000)`),
+	},
+	(table) => ({
+		taskIdx: index('task_jobs_task_idx').on(table.taskId),
+		statusIdx: index('task_jobs_status_idx').on(table.status),
+	}),
+)
+
+/**
  * Notification delivery log — failed sends sit here with a Retry button
  * in the UI (per plan §3 notifications).
  */

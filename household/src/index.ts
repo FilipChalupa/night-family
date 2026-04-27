@@ -18,6 +18,7 @@ import { mountStaticUi } from './static.ts'
 import { mountTasksApi } from './tasks/api.ts'
 import { Dispatcher } from './tasks/dispatcher.ts'
 import { TaskEventLog } from './tasks/eventLog.ts'
+import { TaskJobStore } from './tasks/jobStore.ts'
 import { TaskStore } from './tasks/store.ts'
 import { TokenStore } from './tokens/auth.ts'
 import { mountUsersApi } from './users/api.ts'
@@ -52,10 +53,12 @@ const { value: secretsKey } = resolveSecretsKey({
 const cipher = new SecretCipher(secretsKey)
 
 const taskStore = new TaskStore(dbHandles.db)
+const jobStore = new TaskJobStore(dbHandles.db)
 const eventLog = new TaskEventLog(dbHandles.db)
 const repoBindings = new RepoBindingStore(dbHandles.db, cipher)
 const dispatcher = new Dispatcher({
 	taskStore,
+	jobStore,
 	registry,
 	bindings: repoBindings,
 	logger: logger.child({ component: 'dispatcher' }),

@@ -215,6 +215,7 @@ export class HouseholdConnection {
 				title: task.title,
 				description: task.description,
 				repo: task.repo ?? null,
+				prUrl: task.pr_url ?? null,
 				githubToken,
 				repoUrl,
 			})
