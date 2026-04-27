@@ -1,0 +1,9 @@
+include:
+    - docker-compose.household.yml
+    - docker-compose.member.yml
+
+services:
+    member:
+        depends_on:
+            household:
+                condition: service_healthy

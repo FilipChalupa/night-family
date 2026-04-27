@@ -86,11 +86,33 @@ Without this, you would spend an unreasonable amount of time wondering why webho
 
 ## Docker
 
+Compose je rozdělený podle toho, kde co běží. V produkci pojede Household a Member každý na jiném stroji, takže každý dostal svůj soubor:
+
+- `docker-compose.household.yml` — jen Household.
+- `docker-compose.member.yml` — jen Member (bez `depends_on`, čte si vzdálený `HOUSEHOLD_URL` z `.env.member`).
+- `docker-compose.dev.yml` — `include:` obou + `depends_on: household healthy`. Pro lokální dev, kdy oboje pojede na jednom stroji.
+
+Lokální dev (oboje najednou):
+
 ```bash
 cp .env.household.example .env.household
 cp .env.member.example   .env.member
 # edit both to taste
-docker compose up --build
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Jen Household (na serveru):
+
+```bash
+cp .env.household.example .env.household
+docker compose -f docker-compose.household.yml up -d --build
+```
+
+Jen Member (na worker stroji, `HOUSEHOLD_URL` v `.env.member` ukazuje na vzdálený Household):
+
+```bash
+cp .env.member.example .env.member
+docker compose -f docker-compose.member.yml up -d --build
 ```
 
 To require GitHub login in Docker, set `REQUIRE_UI_LOGIN=true` in `.env.household`
@@ -108,7 +130,9 @@ household/   server, web UI, GitHub integration
   web/       React + Vite SPA
 member/      autonomous worker, runs git/gh/agent loop
 .github/     CI workflow
-docker-compose.yml
+docker-compose.household.yml
+docker-compose.member.yml
+docker-compose.dev.yml
 plan.md      design doc — single source of truth
 ```
 

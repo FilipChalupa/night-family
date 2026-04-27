@@ -1,0 +1,26 @@
+services:
+    household:
+        build:
+            context: .
+            dockerfile: household/Dockerfile
+        ports:
+            - '8080:8080'
+        env_file:
+            - .env.household
+        environment:
+            DATA_DIR: /data
+            CONFIG_DIR: /config
+            LOG_LEVEL: info
+        volumes:
+            - household-data:/data
+            - household-config:/config
+        restart: unless-stopped
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -q -O- http://127.0.0.1:8080/health || exit 1']
+            interval: 15s
+            timeout: 3s
+            retries: 4
+
+volumes:
+    household-data:
+    household-config:

@@ -1,0 +1,24 @@
+services:
+    member:
+        build:
+            context: .
+            dockerfile: member/Dockerfile
+        env_file:
+            - .env.member
+        environment:
+            WORKSPACE_DIR: /workspace
+            LOG_LEVEL: info
+        volumes:
+            - member-workspace:/workspace
+        restart: unless-stopped
+        user: '1000:1000'
+        read_only: true
+        tmpfs:
+            - /tmp
+        cap_drop:
+            - ALL
+        security_opt:
+            - 'no-new-privileges:true'
+
+volumes:
+    member-workspace:

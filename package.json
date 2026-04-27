@@ -16,8 +16,8 @@
 		"test": "npm run test --workspaces --if-present",
 		"dev:household": "npm run dev --workspace @night/household",
 		"dev:member": "npm run dev --workspace @night/member",
-		"build:household": "docker compose build household",
-		"build:member": "docker compose build member"
+		"build:household": "docker compose -f docker-compose.household.yml build",
+		"build:member": "docker compose -f docker-compose.member.yml build"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",
