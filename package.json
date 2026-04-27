@@ -17,7 +17,9 @@
 		"dev:household": "npm run dev --workspace @night/household",
 		"dev:member": "npm run dev --workspace @night/member",
 		"build:household": "docker compose -f docker-compose.household.yml build",
-		"build:member": "docker compose -f docker-compose.member.yml build"
+		"build:member": "docker compose -f docker-compose.member.yml build",
+		"up:household": "docker compose -f docker-compose.household.yml up -d",
+		"up:member": "docker compose -f docker-compose.member.yml up -d"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",
