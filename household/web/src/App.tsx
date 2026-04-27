@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
+import { NotificationsPanel } from './components/NotificationsPanel.tsx'
 import { ReposPanel } from './components/ReposPanel.tsx'
 import { TasksPanel } from './components/TasksPanel.tsx'
+import { TokensPanel } from './components/TokensPanel.tsx'
 import { UsersPanel } from './components/UsersPanel.tsx'
 import { useUiStream } from './hooks/useUiStream.ts'
 import type { CurrentUser, MemberSnapshot, TaskKind } from './types.ts'
@@ -143,6 +145,20 @@ export function App() {
 					<h2>Users</h2>
 					<UsersPanel canManage={isAdmin} currentUsername={me?.username ?? null} />
 				</section>
+			) : null}
+
+			{isAdmin ? (
+				<>
+					<section className="section">
+						<h2>Join Tokens</h2>
+						<TokensPanel canManage={isAdmin} />
+					</section>
+
+					<section className="section">
+						<h2>Notification Channels</h2>
+						<NotificationsPanel canManage={isAdmin} />
+					</section>
+				</>
 			) : null}
 		</div>
 	)

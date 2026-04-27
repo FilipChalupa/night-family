@@ -123,12 +123,12 @@ export class TaskRunner {
 				stub: this.deps.stubMode,
 			})
 
-			// Review tasks don't need a git worktree — agent uses `gh pr` commands
-			// in a scratch dir. All other repo tasks get a full worktree.
+			// Tasks that don't need a git worktree — agent works in a scratch dir.
 			const isReview = task.kind === 'review'
+			const isNoWorkspace = isReview || task.kind === 'respond' || task.kind === 'estimate' || task.kind === 'summarize'
 
 			let workspace: Workspace | null = null
-			if (task.repo && !isReview && task.kind !== 'estimate' && task.kind !== 'summarize') {
+			if (task.repo && !isNoWorkspace) {
 				workspace = await Workspace.create({
 					taskId: task.taskId,
 					repo: task.repo,
@@ -220,9 +220,9 @@ export class TaskRunner {
 
 			this.deps.dailyUsage.record(providerResult.usage)
 
-			// Review tasks: no commit/push/PR — agent posted review via `gh pr review`.
-			if (isReview) {
-				await emit('log', { message: 'review complete', summary: providerResult.summary })
+			// Review / respond / summarize — no commit/push/PR, return immediately.
+			if (isNoWorkspace) {
+				await emit('log', { message: 'task complete', summary: providerResult.summary })
 				return {
 					type: 'completed',
 					result: this.shapeResult(task.kind, providerResult.summary),

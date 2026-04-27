@@ -213,6 +213,46 @@ function buildKickoffPrompt(
 		].join('\n')
 	}
 
+	if (kind === 'respond' && prUrl) {
+		return [
+			`# PR Thread Response: ${title}`,
+			``,
+			`PR URL: ${prUrl}`,
+			``,
+			`## Context`,
+			description.trim(),
+			``,
+			`## Instructions`,
+			`A reviewer left comments on the pull request. Use the bash tool to:`,
+			`1. Run \`gh pr view ${prUrl} --comments\` to read the PR thread.`,
+			`2. Run \`gh pr diff ${prUrl}\` if you need to see the code context.`,
+			`3. Respond to the reviewer's comments using:`,
+			`   \`gh pr comment ${prUrl} --body "<your response>"\``,
+			``,
+			`Address each outstanding comment. If changes are needed, describe what`,
+			`you plan to do (a separate implement task will handle the code changes).`,
+			`When done, summarize the responses you posted.`,
+		].join('\n')
+	}
+
+	if (kind === 'summarize') {
+		return [
+			`# Summary Task: ${title}`,
+			``,
+			`## Description`,
+			description.trim(),
+			``,
+			`## Instructions`,
+			`Generate the requested summary or digest. You may use the bash tool to`,
+			`query GitHub (e.g. \`gh pr list\`, \`gh issue list\`, \`gh run list\`) or`,
+			`inspect files as needed.`,
+			``,
+			`Return your summary as a well-formatted Markdown document. Include`,
+			`relevant statistics, highlights, and action items where appropriate.`,
+			`When done, output the final Markdown — that is your result.`,
+		].join('\n')
+	}
+
 	return [
 		`# Task: ${title}`,
 		``,

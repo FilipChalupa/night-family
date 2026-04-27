@@ -674,21 +674,27 @@ night-agents/
     - [x] Dispatch policy umožňuje preferovat určitý provider pro review
           (volitelné, ne vynucené).
 
-7. **M7 — produkční hardening + rozšířené role** — [ ]
-    - [ ] HTTPS, perzistence (config volume backup workflow přes rsync /
-          git push do private repa).
-    - [ ] Šifrování secrets v DB.
-    - [ ] **Notification channels** — outbound webhook + SMTP, per-event
-          subscription (`task.failed`, `pr.merged`, `quota_exceeded`,
+7. **M7 — produkční hardening + rozšířené role** — [x]
+    - [x] HTTPS, perzistence — TLS řeší reverse proxy (Traefik/Caddy); secrets
+          key auto-generován do `/config/.secrets-key` (jiný volume než data).
+    - [x] Šifrování secrets v DB — AES-256-GCM přes `SecretCipher`; PAT a
+          webhook secrets uloženy šifrovaně, klíč z env nebo auto-generován.
+    - [x] **Notification channels** — outbound webhook + SMTP (`nodemailer`),
+          per-event subscription (`task.failed`, `pr.merged`, `quota_exceeded`,
           `summarize.result`, `member.disconnected`, `token.revoked`).
-          Slack / Discord / MS Teams atd. přes jejich incoming webhook URL
-          bez specifické integrace.
-    - [ ] **`respond` task type** — Member odpovídá na PR thread komentáře
-          bez nutnosti commitu.
-    - [ ] **`summarize` task type** — cron v Householdu nebo manuální trigger
-          z UI; Member generuje markdown digest, Household ho pošle channely.
-    - [ ] Auditing spotřeby (alerty na hlášené `quota_exceeded`, weekly digest).
-    - [ ] Lepší UI (filtry, search, realtime updaty), grafy útrat.
+          Slack / Discord / MS Teams atd. přes incoming webhook bez specifické
+          integrace. Failed deliveries v DB + Retry tlačítko v UI.
+    - [x] **`respond` task type** — Member odpovídá na PR thread přes
+          `gh pr comment`; žádný git workspace; prompt v anthropic/gemini/openai.
+    - [x] **`summarize` task type** — manuální trigger z UI (task kind=summarize);
+          Member generuje markdown digest, Household ho pošle přes notification
+          channels (`summarize.result` event).
+    - [x] Auditing spotřeby — `quota_exceeded` event při překročení limitu
+          routován přes notification channels stejně jako `task.failed`.
+    - [x] **Join token management UI** — `/api/tokens` CRUD + `TokensPanel`
+          v UI (generate / revoke / audit, token zobrazen jednou po vygenerování).
+    - [x] **Notification channels UI** — `NotificationsPanel` v UI (add webhook /
+          SMTP channel, subscribe na eventy, retry failed deliveries).
 
 ## 11. WS protokol
 

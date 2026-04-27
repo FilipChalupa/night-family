@@ -21,6 +21,7 @@ import type { Logger } from 'pino'
 import { TASK_ACK_TIMEOUT_MS, type TaskKind, type TaskStatus } from '@night/shared'
 import type { ConnectedMember, MemberRegistry, MemberSnapshot } from '../members/registry.ts'
 import type { RepoBindingStore } from '../github/bindings.ts'
+import type { NotificationSender } from '../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from './store.ts'
 import type { TaskJobRecord, TaskJobStore, ReviewVerdict } from './jobStore.ts'
 
@@ -32,6 +33,7 @@ export interface DispatcherDeps {
 	jobStore: TaskJobStore
 	registry: MemberRegistry
 	bindings: RepoBindingStore | null
+	notifSender?: NotificationSender
 	logger: Logger
 	/** Optional: prefer members with this provider when dispatching review jobs. */
 	reviewProviderPreference?: string | null
@@ -213,7 +215,12 @@ export class Dispatcher {
 			}
 		}
 
-		if (ownedTasks.length > 0 || ownedJobs.length > 0) this.tryDispatchAll()
+		if (ownedTasks.length > 0 || ownedJobs.length > 0) {
+			this.deps.notifSender
+				?.fire('member.disconnected', { sessionId })
+				.catch(() => undefined)
+			this.tryDispatchAll()
+		}
 	}
 
 	// ─── Private task helpers ─────────────────────────────────────────────────
@@ -294,6 +301,14 @@ export class Dispatcher {
 			if (target === 'in-review' && updated) {
 				this.dispatchReviewJobsFor(updated)
 			}
+
+			// Fire summarize.result notification when a summarize task finishes.
+			if (task.kind === 'summarize') {
+				const summary = (result as Record<string, unknown>)?.['summary'] ?? ''
+				this.deps.notifSender
+					?.fire('summarize.result', { taskId, title: task.title, summary })
+					.catch(() => undefined)
+			}
 		} else {
 			this.deps.logger.warn({ taskId, status: task.status }, 'task.completed in unexpected status')
 		}
@@ -329,6 +344,10 @@ export class Dispatcher {
 		this.deps.taskStore.transition(taskId, [task.status], 'failed', { failureReason: reason })
 		this.deps.taskStore.clearAssignment(taskId)
 		this.deps.logger.warn({ taskId, reason }, 'task failed')
+		const eventName = reason === 'quota_exceeded' ? 'quota_exceeded' : 'task.failed'
+		this.deps.notifSender
+			?.fire(eventName, { taskId, reason, title: task.title })
+			.catch(() => undefined)
 		this.tryDispatchAll()
 	}
 

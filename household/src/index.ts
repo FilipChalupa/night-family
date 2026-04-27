@@ -14,12 +14,16 @@ import { RepoBindingStore } from './github/bindings.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
+import { mountNotificationsApi } from './notifications/api.ts'
+import { NotificationSender } from './notifications/sender.ts'
+import { NotificationStore } from './notifications/store.ts'
 import { mountStaticUi } from './static.ts'
 import { mountTasksApi } from './tasks/api.ts'
 import { Dispatcher } from './tasks/dispatcher.ts'
 import { TaskEventLog } from './tasks/eventLog.ts'
 import { TaskJobStore } from './tasks/jobStore.ts'
 import { TaskStore } from './tasks/store.ts'
+import { mountTokensApi } from './tokens/api.ts'
 import { TokenStore } from './tokens/auth.ts'
 import { mountUsersApi } from './users/api.ts'
 import { UserStore } from './users/store.ts'
@@ -56,11 +60,17 @@ const taskStore = new TaskStore(dbHandles.db)
 const jobStore = new TaskJobStore(dbHandles.db)
 const eventLog = new TaskEventLog(dbHandles.db)
 const repoBindings = new RepoBindingStore(dbHandles.db, cipher)
+const notifStore = new NotificationStore(dbHandles.db, cipher)
+const notifSender = new NotificationSender(
+	notifStore,
+	logger.child({ component: 'notifications' }),
+)
 const dispatcher = new Dispatcher({
 	taskStore,
 	jobStore,
 	registry,
 	bindings: repoBindings,
+	notifSender,
 	logger: logger.child({ component: 'dispatcher' }),
 })
 
@@ -140,6 +150,8 @@ mountTasksApi(app, {
 })
 
 mountRepoBindingsApi(app, { bindings: repoBindings, guard })
+mountTokensApi(app, { tokens, guard, notifSender })
+mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })
 if (users) {
 	mountUsersApi(app, { users, guard })
 }
@@ -150,6 +162,7 @@ mountGithubWebhook(app, {
 	taskStore,
 	dispatcher,
 	registry,
+	notifSender,
 	logger: logger.child({ component: 'webhook' }),
 })
 

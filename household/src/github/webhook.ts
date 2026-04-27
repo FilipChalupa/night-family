@@ -21,6 +21,7 @@ import type { RepoBindingStore } from './bindings.ts'
 import { handleIssuesEvent } from './handlers/issues.ts'
 import { handlePullRequestEvent, handlePullRequestReviewEvent } from './handlers/pulls.ts'
 import type { ConnectedMember, MemberRegistry } from '../members/registry.ts'
+import type { NotificationSender } from '../notifications/sender.ts'
 
 export interface WebhookDeps {
 	db: Db
@@ -28,6 +29,7 @@ export interface WebhookDeps {
 	taskStore: TaskStore
 	dispatcher: Dispatcher
 	registry: MemberRegistry
+	notifSender?: NotificationSender
 	logger: Logger
 }
 
@@ -110,7 +112,13 @@ async function routeEvent(
 			await handleIssuesEvent({ ...deps, repo, body })
 			break
 		case 'pull_request':
-			await handlePullRequestEvent({ ...deps, repo, body, sendCancel: makeSendCancel(deps) })
+			await handlePullRequestEvent({
+				...deps,
+				repo,
+				body,
+				sendCancel: makeSendCancel(deps),
+				notifSender: deps.notifSender,
+			})
 			break
 		case 'pull_request_review':
 			await handlePullRequestReviewEvent({
@@ -118,6 +126,7 @@ async function routeEvent(
 				repo,
 				body,
 				sendCancel: makeSendCancel(deps),
+				notifSender: deps.notifSender,
 			})
 			break
 		case 'ping':

@@ -15,6 +15,7 @@
 import type { Logger } from 'pino'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { ConnectedMember, MemberRegistry } from '../../members/registry.ts'
+import type { NotificationSender } from '../../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
 
 interface PullsEventCtx {
@@ -23,6 +24,7 @@ interface PullsEventCtx {
 	taskStore: TaskStore
 	dispatcher: Dispatcher
 	registry: MemberRegistry
+	notifSender?: NotificationSender | undefined
 	logger: Logger
 	sendCancel: (sessionId: string, taskId: string, reason: string) => void
 }
@@ -89,6 +91,9 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 					'done',
 				)
 				ctx.logger.info({ taskId: task.id }, 'PR merged → task done')
+				ctx.notifSender
+					?.fire('pr.merged', { taskId: task.id, prUrl: pr.html_url, title: task.title })
+					.catch(() => undefined)
 			} else {
 				ctx.taskStore.transition(
 					task.id,
