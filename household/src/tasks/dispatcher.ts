@@ -33,6 +33,8 @@ export interface DispatcherDeps {
 	registry: MemberRegistry
 	bindings: RepoBindingStore | null
 	logger: Logger
+	/** Optional: prefer members with this provider when dispatching review jobs. */
+	reviewProviderPreference?: string | null
 }
 
 interface PendingTask {
@@ -119,11 +121,15 @@ export class Dispatcher {
 			.list()
 			.filter((m) => m.status === 'idle' && m.skills.includes('review'))
 
-		// Prefer non-implementors; implementor is allowed as fallback per plan §4.
-		const sorted = [
-			...idleReviewers.filter((m) => m.memberId !== task.assignedMemberId),
-			...idleReviewers.filter((m) => m.memberId === task.assignedMemberId),
-		]
+		// Sort priority: preferred provider > non-implementor > implementor.
+		const pref = this.deps.reviewProviderPreference ?? null
+		const sorted = idleReviewers.slice().sort((a, b) => {
+			const aScore =
+				(pref && a.provider === pref ? 2 : 0) + (a.memberId !== task.assignedMemberId ? 1 : 0)
+			const bScore =
+				(pref && b.provider === pref ? 2 : 0) + (b.memberId !== task.assignedMemberId ? 1 : 0)
+			return bScore - aScore
+		})
 
 		const toDispatch = sorted.slice(0, MAX_REVIEW_JOBS)
 

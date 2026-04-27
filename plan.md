@@ -667,11 +667,11 @@ night-agents/
           `awaiting-merge` (agregaci řeší GitHub).
     - [x] Auto-retry failed implement tasks (3× s exp. backoff).
 
-6. **M6 — multi-provider** — [ ]
-    - [ ] Adaptéry pro Gemini a OpenAI.
-    - [ ] Member nahlašuje provider/model při handshaku, Household ho
+6. **M6 — multi-provider** — [x]
+    - [x] Adaptéry pro Gemini a OpenAI.
+    - [x] Member nahlašuje provider/model při handshaku, Household ho
           ukazuje v UI.
-    - [ ] Dispatch policy umožňuje preferovat určitý provider pro review
+    - [x] Dispatch policy umožňuje preferovat určitý provider pro review
           (volitelné, ne vynucené).
 
 7. **M7 — produkční hardening + rozšířené role** — [ ]

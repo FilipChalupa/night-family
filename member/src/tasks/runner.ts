@@ -17,6 +17,8 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Logger } from 'pino'
 import { AnthropicProvider, buildSystemPrompt } from '../agent/anthropic.ts'
+import { GeminiProvider } from '../agent/gemini.ts'
+import { OpenAIProvider } from '../agent/openai.ts'
 import { StubProvider } from '../agent/stub.ts'
 import {
 	QuotaExceededError,
@@ -500,7 +502,13 @@ export function createProvider(opts: {
 	if (opts.provider === 'anthropic') {
 		return new AnthropicProvider({ apiKey: opts.apiKey, model: opts.model })
 	}
-	throw new Error(`Provider ${opts.provider} is not yet implemented (M6).`)
+	if (opts.provider === 'gemini') {
+		return new GeminiProvider({ apiKey: opts.apiKey, model: opts.model })
+	}
+	if (opts.provider === 'openai') {
+		return new OpenAIProvider({ apiKey: opts.apiKey, model: opts.model })
+	}
+	throw new Error(`Unknown provider: ${opts.provider}`)
 }
 
 /**

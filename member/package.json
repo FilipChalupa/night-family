@@ -12,7 +12,9 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.91.0",
+		"@google/genai": "^1.50.1",
 		"@night/shared": "*",
+		"openai": "^6.34.0",
 		"pino": "^9.5.0",
 		"pino-pretty": "^11.3.0",
 		"ws": "^8.18.0"
