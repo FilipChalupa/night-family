@@ -150,7 +150,7 @@ export function App() {
 			{isAdmin ? (
 				<>
 					<section className="section">
-						<h2>Join Tokens</h2>
+						<h2>Join Member Tokens</h2>
 						<TokensPanel canManage={isAdmin} />
 					</section>
 
