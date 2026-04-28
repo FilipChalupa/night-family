@@ -172,10 +172,6 @@ export function App() {
 				/>
 			</Section>
 
-			<Section title={`Members (${members.length})`}>
-				<MembersList members={members} />
-			</Section>
-
 			<Section title="Repos">
 				<ReposPanel canManage={isAdmin} />
 			</Section>
@@ -185,6 +181,10 @@ export function App() {
 					<UsersPanel canManage={isAdmin} currentUsername={me?.username ?? null} />
 				</Section>
 			) : null}
+
+			<Section title={`Members (${members.length})`}>
+				<MembersList members={members} />
+			</Section>
 
 			{isAdmin ? (
 				<>
