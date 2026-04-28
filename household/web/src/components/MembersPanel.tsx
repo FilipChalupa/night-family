@@ -21,6 +21,7 @@ export function MembersPanel({ members }: Props) {
 				{members.map((m) => (
 					<tr key={m.sessionId}>
 						<td>
+							<span className="dim">Night </span>
 							<strong>{m.memberName}</strong>
 							<div className="dim" style={{ fontSize: 11 }}>
 								{m.memberId.slice(0, 8)}…
