@@ -232,14 +232,20 @@ function TasksTable({
 							</TableCell>
 							<TableCell>
 								{t.estimateSize ? (
-									<>
-										<Typography variant="body2">{t.estimateSize}</Typography>
+									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+										<Chip
+											label={t.estimateSize}
+											size="small"
+											color={estimateColor(t.estimateSize)}
+											variant="filled"
+											sx={{ fontWeight: 600, minWidth: 36 }}
+										/>
 										{t.estimateBlockers && t.estimateBlockers.length > 0 ? (
 											<Typography variant="caption" color="text.secondary">
 												blockers: {t.estimateBlockers.length}
 											</Typography>
 										) : null}
-									</>
+									</Stack>
 								) : (
 									<Typography variant="body2" color="text.secondary">
 										—
@@ -272,6 +278,19 @@ function TasksTable({
 			</Table>
 		</TableContainer>
 	)
+}
+
+function estimateColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warning' | 'error' {
+	switch (size) {
+		case 'S':
+			return 'success'
+		case 'M':
+			return 'info'
+		case 'L':
+			return 'warning'
+		case 'XL':
+			return 'error'
+	}
 }
 
 function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'success' | 'error' {
