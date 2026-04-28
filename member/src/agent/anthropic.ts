@@ -266,9 +266,16 @@ function buildKickoffPrompt(
 		`## Description`,
 		description.trim(),
 		``,
-		`Use the available tools to inspect the workspace, make the changes, and run`,
-		`whatever verification (tests, build) you can. When you are done, summarize`,
-		`what you changed and stop calling tools.`,
+		`## How to do this task`,
+		`This is a code-editing task. You MUST modify files using the provided tools — answering with prose alone counts as failure (your changes are detected by \`git status\`; if no files changed, the task fails as \`no_changes\`).`,
+		``,
+		`Required workflow — call tools, do not just describe:`,
+		`1. Use \`bash\` (e.g. \`ls -la\`, \`cat README.md\`, \`rg <pattern>\`) and \`read_file\` to understand the relevant files.`,
+		`2. Use \`write_file\` to apply every change. One \`write_file\` per file you want to change; provide the full new contents.`,
+		`3. Use \`bash\` to run any tests, builds, or linters available in the repo. Fix what you broke before stopping.`,
+		`4. Only after the files actually look right on disk, stop calling tools and summarize what you changed.`,
+		``,
+		`If the task is genuinely impossible (missing context, request out of scope), still call no further tools and explicitly say so in your final summary — but only after at least exploring the repo.`,
 	].join('\n')
 }
 
