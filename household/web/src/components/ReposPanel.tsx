@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
+import { useConfirm } from './ConfirmDialog.tsx'
 
 interface RepoBinding {
 	repo: string
@@ -29,6 +30,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [showForm, setShowForm] = useState(false)
+	const confirm = useConfirm()
 
 	const refresh = () => {
 		setLoading(true)
@@ -47,7 +49,18 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	useEffect(refresh, [])
 
 	const remove = async (repo: string) => {
-		if (!confirm(`Remove repo binding for ${repo}?`)) return
+		const ok = await confirm({
+			title: 'Remove repo binding',
+			description: (
+				<>
+					Remove the binding for <strong>{repo}</strong>? Tasks for this repo can no
+					longer dispatch until you re-add it.
+				</>
+			),
+			confirmLabel: 'Remove',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		await fetch(`/api/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' })
 		refresh()
 	}

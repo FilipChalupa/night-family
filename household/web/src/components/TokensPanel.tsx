@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
+import { useConfirm } from './ConfirmDialog.tsx'
 
 interface TokenRecord {
 	id: string
@@ -41,6 +42,7 @@ export function TokensPanel({ canManage }: Props) {
 	const [error, setError] = useState<string | null>(null)
 	const [showForm, setShowForm] = useState(false)
 	const [newToken, setNewToken] = useState<string | null>(null)
+	const confirm = useConfirm()
 
 	const refresh = () => {
 		setLoading(true)
@@ -66,7 +68,18 @@ export function TokensPanel({ canManage }: Props) {
 	useEffect(refresh, [])
 
 	const revoke = async (id: string, name: string) => {
-		if (!confirm(`Revoke token "${name}"? All members using it will be disconnected.`)) return
+		const ok = await confirm({
+			title: 'Revoke token',
+			description: (
+				<>
+					Revoke token <strong>{name}</strong>? All members using it will be
+					disconnected immediately.
+				</>
+			),
+			confirmLabel: 'Revoke',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		const r = await fetch(`/api/tokens/${id}`, { method: 'DELETE' })
 		if (!r.ok) {
 			const b = (await r.json().catch(() => ({}))) as { error?: string }

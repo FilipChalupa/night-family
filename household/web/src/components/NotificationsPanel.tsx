@@ -22,6 +22,7 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import SendIcon from '@mui/icons-material/Send'
 import { useEffect, useState } from 'react'
+import { useConfirm } from './ConfirmDialog.tsx'
 
 type ChannelKind = 'webhook' | 'smtp'
 type NotificationEvent =
@@ -74,6 +75,7 @@ export function NotificationsPanel({ canManage }: Props) {
 		message: string
 	} | null>(null)
 	const [testingId, setTestingId] = useState<string | null>(null)
+	const confirm = useConfirm()
 
 	const refresh = async () => {
 		setLoading(true)
@@ -100,7 +102,18 @@ export function NotificationsPanel({ canManage }: Props) {
 	}, [])
 
 	const deleteChannel = async (id: string, name: string) => {
-		if (!confirm(`Delete channel "${name}"?`)) return
+		const ok = await confirm({
+			title: 'Delete notification channel',
+			description: (
+				<>
+					Delete channel <strong>{name}</strong>? Pending and future notifications for
+					this channel will stop being sent.
+				</>
+			),
+			confirmLabel: 'Delete',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		await fetch(`/api/notifications/channels/${id}`, { method: 'DELETE' })
 		void refresh()
 	}

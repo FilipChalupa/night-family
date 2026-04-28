@@ -2,6 +2,7 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App.tsx'
+import { ConfirmDialogProvider } from './components/ConfirmDialog.tsx'
 
 const theme = createTheme({
 	palette: {
@@ -22,7 +23,9 @@ createRoot(root).render(
 	<React.StrictMode>
 		<ThemeProvider theme={theme}>
 			<CssBaseline enableColorScheme />
-			<App />
+			<ConfirmDialogProvider>
+				<App />
+			</ConfirmDialogProvider>
 		</ThemeProvider>
 	</React.StrictMode>,
 )

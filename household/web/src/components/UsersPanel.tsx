@@ -18,6 +18,7 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
 import type { UserRecord, UserRole } from '../types.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
 
 interface Props {
 	canManage: boolean
@@ -34,6 +35,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [showForm, setShowForm] = useState(false)
+	const confirm = useConfirm()
 
 	const refresh = () => {
 		setLoading(true)
@@ -72,7 +74,17 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 	}
 
 	const remove = async (username: string) => {
-		if (!confirm(`Remove ${username} from dashboard access?`)) return
+		const ok = await confirm({
+			title: 'Remove user',
+			description: (
+				<>
+					Remove <strong>{username}</strong> from dashboard access?
+				</>
+			),
+			confirmLabel: 'Remove',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
 			method: 'DELETE',
 		})
