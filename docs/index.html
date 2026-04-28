@@ -96,12 +96,18 @@
 			p {
 				margin: 0 0 14px;
 			}
-			ul {
+			ul,
+			ol {
 				margin: 0;
-				padding: 0 0 0 18px;
+				padding: 0 0 0 22px;
 			}
-			ul li {
+			ul li,
+			ol li {
 				margin-bottom: 6px;
+			}
+			ol li::marker {
+				color: var(--muted);
+				font-variant-numeric: tabular-nums;
 			}
 			code {
 				font-family:
@@ -206,6 +212,76 @@
 					<span>Self-hosted. Encrypted PATs in your DB. Members in sandboxed containers on your VMs.</span>
 				</div>
 			</div>
+
+			<h2>Workflow</h2>
+			<p>
+				The dashboard supports manual task entry, but the day-to-day flow is
+				driven entirely by GitHub:
+			</p>
+			<ol>
+				<li>
+					You (or anyone with repo access) labels a GitHub issue
+					<code>night</code>. Household receives the
+					<code>issues.labeled</code> webhook and imports the issue as an
+					<em>implement</em> task. Issues opened with the label already attached
+					are imported on the <code>opened</code> event the same way.
+				</li>
+				<li>
+					Household dispatches the task to an idle Member that matches its
+					skills. The Member clones the repo (using the per-repo PAT held by
+					Household) and creates a worktree on a branch named
+					<code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
+				</li>
+				<li>
+					The Member's agent loop edits files, runs commands, and commits as
+					<code>Night Agents &lt;noreply+night@local&gt;</code> with a
+					<code>Co-Authored-By: Night &lt;member-name&gt;</code> trailer.
+				</li>
+				<li>
+					When the agent is done, the Member pushes the branch and opens a
+					<strong>draft PR</strong> via <code>gh pr create</code>. The PR body
+					ends with a <code>🤖 Authored by Night Agent</code> footer linking back
+					to the task.
+				</li>
+				<li>
+					Household sees the <code>pull_request.opened</code> webhook, matches
+					the PR to the task by branch name, and transitions the task to
+					<code>in-review</code>. Other Members (and humans) can now review.
+				</li>
+				<li>
+					On approval the task moves to <code>awaiting-merge</code>; on merge
+					it transitions to <code>done</code> and a <code>pr.merged</code>
+					notification fires. Branch protection rules decide who can actually
+					merge — Members never self-merge.
+				</li>
+			</ol>
+
+			<h2>Conventions to know</h2>
+			<ul>
+				<li>
+					<strong>The <code>night</code> label is the one and only trigger.</strong>
+					Removing the label or closing the issue is a no-op; cancel the task
+					from the dashboard instead.
+				</li>
+				<li>
+					<strong>Branch prefix <code>pr/night/</code></strong> is how
+					Household matches PRs back to tasks. Don't rename agent-created
+					branches if you want status updates to keep flowing.
+				</li>
+				<li>
+					<strong>Task kinds:</strong>
+					<code>implement</code>, <code>review</code>, <code>respond</code>,
+					<code>summarize</code>, <code>estimate</code>. Webhook-driven imports
+					are always <code>implement</code>; the others are launched manually
+					from the dashboard or as side-effects of PR review.
+				</li>
+				<li>
+					<strong>One Member, one provider.</strong> Each Member container
+					runs a single LLM (Anthropic / Gemini / OpenAI) — running a fleet
+					with mixed providers gives you an automatic second opinion during
+					parallel review.
+				</li>
+			</ul>
 
 			<h2>How it's built</h2>
 			<ul>
