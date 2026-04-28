@@ -79,6 +79,15 @@ export class AnthropicProvider implements Provider {
 		// benefit from adaptive reasoning.
 		const useThinking = task.kind !== 'estimate'
 
+		// Force a tool call on the first turn of file-editing tasks. Without
+		// this, Sonnet sometimes produces a long markdown summary describing
+		// the edits and ends with `stop_reason: end_turn` having never invoked
+		// a tool — a hallucinated completion. `tool_choice: { type: 'any' }`
+		// makes the model pick at least one tool (typically `read_file` or
+		// `bash`); from the second iteration onward we revert to `auto` so the
+		// agent can stop calling tools when it's actually finished.
+		const forceFirstToolUse = task.kind === 'implement'
+
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
 
@@ -103,6 +112,9 @@ export class AnthropicProvider implements Provider {
 				tools: sdkTools,
 				messages,
 				...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
+				...(forceFirstToolUse && iteration === 0
+					? { tool_choice: { type: 'any' as const } }
+					: {}),
 			})
 
 			const message = await stream.finalMessage()
