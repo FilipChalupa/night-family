@@ -51,9 +51,13 @@ export class Workspace {
 		await rm(taskPath, { recursive: true, force: true })
 		await mkdir(dirname(taskPath), { recursive: true })
 
-		// Create branch from latest base, attached to a worktree.
-		await git(['fetch', 'origin', baseBranch], { cwd: cachePath })
-		await git(['worktree', 'add', '-b', branch, taskPath, `origin/${baseBranch}`], {
+		// Create branch from latest base, attached to a worktree. We can't use
+		// `origin/<baseBranch>` here: `git clone --bare` defaults to refspec
+		// `+refs/heads/*:refs/heads/*`, so the bare cache has no
+		// `refs/remotes/origin/*` — only `refs/heads/*`. The fetch above also
+		// lands on `refs/heads/<baseBranch>`.
+		await git(['fetch', 'origin', `+${baseBranch}:${baseBranch}`], { cwd: cachePath })
+		await git(['worktree', 'add', '-b', branch, taskPath, baseBranch], {
 			cwd: cachePath,
 		})
 
