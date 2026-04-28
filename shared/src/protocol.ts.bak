@@ -73,8 +73,6 @@ export interface MsgMemberReady {
 export interface MsgMemberBusy {
 	type: 'member.busy'
 	task_id: string
-	/** Human-readable title of the task the member is working on. */
-	task_title?: string | null
 }
 
 export interface MsgTaskAck {
@@ -108,8 +106,6 @@ export interface MsgHeartbeat {
 	type: 'heartbeat'
 	status: MemberStatus
 	current_task: string | null
-	/** Human-readable title of the task the member is currently working on. */
-	current_task_title?: string | null
 }
 
 export interface MsgPong {

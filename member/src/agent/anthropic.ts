@@ -68,6 +68,11 @@ export class AnthropicProvider implements Provider {
 
 		let summary: string | null = null
 
+		// Estimate is a cheap sizing pass — skip extended thinking to keep token
+		// spend proportional to the task. Implement/review/respond/summarize
+		// benefit from adaptive reasoning.
+		const useThinking = task.kind !== 'estimate'
+
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
 
@@ -83,7 +88,7 @@ export class AnthropicProvider implements Provider {
 				],
 				tools: sdkTools,
 				messages,
-				thinking: { type: 'adaptive' },
+				...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
 			})
 
 			const message = await stream.finalMessage()
@@ -237,6 +242,28 @@ function buildKickoffPrompt(
 			`Address each outstanding comment. If changes are needed, describe what`,
 			`you plan to do (a separate implement task will handle the code changes).`,
 			`When done, summarize the responses you posted.`,
+		].join('\n')
+	}
+
+	if (kind === 'estimate') {
+		return [
+			`# Estimate: ${title}`,
+			``,
+			`## Task description`,
+			description.trim(),
+			``,
+			`## Instructions`,
+			`Estimate the size of this task. **Do not modify any files** — this is a sizing pass only; an `,
+			`\`implement\` task will run afterwards to do the actual work.`,
+			``,
+			`Use \`bash\` (e.g. \`ls\`, \`rg\`, \`cat\`) and \`read_file\` only as needed to understand the scope. Stop calling tools as soon as you have enough signal — extensive exploration burns tokens for no benefit on a short estimate.`,
+			``,
+			`Sizing scale: S (≲1h focused work, single small file), M (a few files, straightforward), L (multi-file refactor or non-trivial logic), XL (cross-cutting changes or significant new functionality).`,
+			``,
+			`Return your answer as a final message ending with **a single JSON line** on its own (no code fence):`,
+			`{"size":"S|M|L|XL","blockers":["short reason a human must unblock", "..."]}`,
+			``,
+			`\`blockers\` is an array of strings; use \`[]\` if you have no blockers. Examples of legitimate blockers: missing credentials, ambiguous spec, breaking change requiring approval. **Do not add blockers for things you can simply do yourself in the implement task.**`,
 		].join('\n')
 	}
 
