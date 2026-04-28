@@ -1,5 +1,23 @@
+import {
+	Alert,
+	Box,
+	Button,
+	Chip,
+	MenuItem,
+	Paper,
+	Stack,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	TextField,
+	Tooltip,
+	Typography,
+} from '@mui/material'
 import { useState } from 'react'
-import type { TaskKind, TaskRecord } from '../types.ts'
+import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
 
 interface Props {
 	tasks: TaskRecord[]
@@ -14,7 +32,7 @@ interface Props {
 }
 
 const KINDS: TaskKind[] = ['implement', 'review', 'respond', 'summarize', 'estimate']
-const ACTIVE: ReadonlyArray<TaskRecord['status']> = [
+const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'new',
 	'estimating',
 	'queued',
@@ -26,16 +44,16 @@ const ACTIVE: ReadonlyArray<TaskRecord['status']> = [
 
 export function TasksPanel({ tasks, canManage, onCreate, onCancel }: Props) {
 	return (
-		<>
+		<Stack spacing={2}>
 			{canManage ? (
 				<NewTaskForm onCreate={onCreate} />
 			) : (
-				<div className="note">
+				<Alert severity="info" variant="outlined">
 					You can view tasks, but creating or cancelling tasks is admin-only.
-				</div>
+				</Alert>
 			)}
 			<TasksTable tasks={tasks} canManage={canManage} onCancel={onCancel} />
-		</>
+		</Stack>
 	)
 }
 
@@ -68,62 +86,64 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 	}
 
 	return (
-		<form className="task-form" onSubmit={submit}>
-			<div className="row">
-				<div className="field">
-					<label htmlFor="task-kind">Task type</label>
-					<select
-						id="task-kind"
+		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+			<Stack spacing={2}>
+				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+					<TextField
+						select
+						label="Task type"
 						value={kind}
 						onChange={(e) => setKind(e.target.value as TaskKind)}
+						size="small"
+						sx={{ minWidth: 160 }}
 					>
 						{KINDS.map((k) => (
-							<option key={k} value={k}>
+							<MenuItem key={k} value={k}>
 								{k}
-							</option>
+							</MenuItem>
 						))}
-					</select>
-				</div>
-				<div className="field">
-					<label htmlFor="task-title">Title</label>
-					<input
-						id="task-title"
-						type="text"
+					</TextField>
+					<TextField
+						label="Title"
 						placeholder="Short task title"
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
 						required
-						maxLength={200}
+						slotProps={{ htmlInput: { maxLength: 200 } }}
+						size="small"
+						fullWidth
 					/>
-				</div>
-				<div className="field">
-					<label htmlFor="task-repo">Repository (optional)</label>
-					<input
-						id="task-repo"
-						type="text"
+					<TextField
+						label="Repository (optional)"
 						placeholder="org/name"
 						value={repo}
 						onChange={(e) => setRepo(e.target.value)}
+						size="small"
+						fullWidth
 					/>
-				</div>
-			</div>
-			<div className="field block">
-				<label htmlFor="task-description">Description</label>
-				<textarea
-					id="task-description"
+				</Stack>
+				<TextField
+					label="Description"
 					placeholder="What should the agent do?"
 					value={description}
 					onChange={(e) => setDescription(e.target.value)}
+					multiline
 					rows={3}
+					size="small"
+					fullWidth
 				/>
-			</div>
-			<div className="row end">
-				{error ? <span className="error">{error}</span> : null}
-				<button type="submit" disabled={submitting || !title.trim()}>
-					{submitting ? 'Creating…' : 'Create task'}
-				</button>
-			</div>
-		</form>
+				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+					{error ? (
+						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+							{error}
+						</Typography>
+					) : null}
+					<Button type="submit" variant="contained" disabled={submitting || !title.trim()}>
+						{submitting ? 'Creating…' : 'Create task'}
+					</Button>
+				</Stack>
+			</Stack>
+		</Paper>
 	)
 }
 
@@ -137,74 +157,136 @@ function TasksTable({
 	onCancel: Props['onCancel']
 }) {
 	if (tasks.length === 0) {
-		return <div className="empty">No tasks yet.</div>
+		return (
+			<Box
+				sx={{
+					p: 3,
+					border: 1,
+					borderStyle: 'dashed',
+					borderColor: 'divider',
+					borderRadius: 2,
+					color: 'text.secondary',
+					textAlign: 'center',
+				}}
+			>
+				No tasks yet.
+			</Box>
+		)
 	}
 	return (
-		<table>
-			<thead>
-				<tr>
-					<th>Title</th>
-					<th>Kind</th>
-					<th>Status</th>
-					<th>Assigned</th>
-					<th>Repo</th>
-					<th>Estimate</th>
-					<th>Created</th>
-					<th />
-				</tr>
-			</thead>
-			<tbody>
-				{tasks.map((t) => (
-					<tr key={t.id}>
-						<td>
-							<strong>{t.title}</strong>
-							{t.failureReason ? (
-								<div className="dim" style={{ fontSize: 11 }}>
-									✗ {t.failureReason}
-								</div>
-							) : null}
-						</td>
-						<td className="dim">{t.kind}</td>
-						<td>
-							<span className={`badge status-${t.status}`}>{t.status}</span>
-						</td>
-						<td className="dim">{t.assignedMemberName ?? '—'}</td>
-						<td className="dim">{t.repo ?? '—'}</td>
-						<td className="dim">
-							{t.estimateSize ? (
-								<>
-									{t.estimateSize}
-									{t.estimateBlockers && t.estimateBlockers.length > 0 ? (
-										<div style={{ fontSize: 11 }}>
-											blockers: {t.estimateBlockers.length}
-										</div>
-									) : null}
-								</>
-							) : (
-								'—'
-							)}
-						</td>
-						<td className="dim" title={t.createdAt}>
-							{relativeTime(t.createdAt)}
-						</td>
-						<td>
-							{canManage && ACTIVE.includes(t.status) ? (
-								<button
-									type="button"
-									className="ghost"
-									onClick={() => {
-										void onCancel(t.id)
-									}}
-								>
-									Cancel
-								</button>
-							) : null}
-						</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
+		<TableContainer component={Paper} variant="outlined">
+			<Table size="small">
+				<TableHead>
+					<TableRow>
+						<TableCell>Title</TableCell>
+						<TableCell>Kind</TableCell>
+						<TableCell>Status</TableCell>
+						<TableCell>Assigned</TableCell>
+						<TableCell>Repo</TableCell>
+						<TableCell>Estimate</TableCell>
+						<TableCell>Created</TableCell>
+						<TableCell />
+					</TableRow>
+				</TableHead>
+				<TableBody>
+					{tasks.map((t) => (
+						<TableRow key={t.id} hover>
+							<TableCell>
+								<Typography sx={{ fontWeight: 600 }}>{t.title}</Typography>
+								{t.failureReason ? (
+									<Typography variant="caption" color="error">
+										✗ {t.failureReason}
+									</Typography>
+								) : null}
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2" color="text.secondary">
+									{t.kind}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Chip
+									label={t.status}
+									size="small"
+									color={statusColor(t.status)}
+									variant="outlined"
+								/>
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2" color="text.secondary">
+									{t.assignedMemberName ?? '—'}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2" color="text.secondary">
+									{t.repo ?? '—'}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								{t.estimateSize ? (
+									<>
+										<Typography variant="body2">{t.estimateSize}</Typography>
+										{t.estimateBlockers && t.estimateBlockers.length > 0 ? (
+											<Typography variant="caption" color="text.secondary">
+												blockers: {t.estimateBlockers.length}
+											</Typography>
+										) : null}
+									</>
+								) : (
+									<Typography variant="body2" color="text.secondary">
+										—
+									</Typography>
+								)}
+							</TableCell>
+							<TableCell>
+								<Tooltip title={t.createdAt}>
+									<Typography variant="body2" color="text.secondary">
+										{relativeTime(t.createdAt)}
+									</Typography>
+								</Tooltip>
+							</TableCell>
+							<TableCell align="right">
+								{canManage && ACTIVE.includes(t.status) ? (
+									<Button
+										size="small"
+										variant="outlined"
+										onClick={() => {
+											void onCancel(t.id)
+										}}
+									>
+										Cancel
+									</Button>
+								) : null}
+							</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</TableContainer>
 	)
+}
+
+function statusColor(
+	status: TaskStatus,
+): 'default' | 'info' | 'warning' | 'success' | 'error' {
+	switch (status) {
+		case 'new':
+		case 'queued':
+			return 'info'
+		case 'estimating':
+		case 'assigned':
+		case 'in-progress':
+		case 'in-review':
+		case 'awaiting-merge':
+			return 'warning'
+		case 'done':
+			return 'success'
+		case 'failed':
+		case 'disconnected':
+			return 'error'
+		default:
+			return 'default'
+	}
 }
 
 function relativeTime(iso: string): string {

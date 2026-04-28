@@ -1,3 +1,20 @@
+import {
+	Alert,
+	Box,
+	Button,
+	Paper,
+	Stack,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	TextField,
+	Tooltip,
+	Typography,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
 
 interface RepoBinding {
@@ -35,11 +52,11 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 		refresh()
 	}
 
-	if (loading) return <div className="empty">Loading repos…</div>
-	if (error) return <div className="empty">Error: {error}</div>
+	if (loading) return <EmptyBox>Loading repos…</EmptyBox>
+	if (error) return <Alert severity="error">{error}</Alert>
 
 	return (
-		<>
+		<Stack spacing={2}>
 			{canManage ? (
 				showForm ? (
 					<RepoForm
@@ -50,67 +67,88 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 						onCancel={() => setShowForm(false)}
 					/>
 				) : (
-					<div className="panel-actions">
-						<button type="button" className="ghost" onClick={() => setShowForm(true)}>
-							+ Add repo binding
-						</button>
-					</div>
+					<Box>
+						<Button
+							variant="outlined"
+							size="small"
+							startIcon={<AddIcon />}
+							onClick={() => setShowForm(true)}
+						>
+							Add repo binding
+						</Button>
+					</Box>
 				)
 			) : (
-				<div className="note">
+				<Alert severity="info" variant="outlined">
 					Repository bindings are visible here, but changing them is admin-only.
-				</div>
+				</Alert>
 			)}
 
 			{repos.length === 0 ? (
-				<div className="empty">
+				<EmptyBox>
 					No repo bindings yet. Add one to enable issue import + PR tracking.
-				</div>
+				</EmptyBox>
 			) : (
-				<table>
-					<thead>
-						<tr>
-							<th>Repo</th>
-							<th>PAT</th>
-							<th>Webhook URL</th>
-							<th>Created</th>
-							<th />
-						</tr>
-					</thead>
-					<tbody>
-						{repos.map((r) => (
-							<tr key={r.repo}>
-								<td>
-									<code>{r.repo}</code>
-								</td>
-								<td className={r.hasPat ? '' : 'dim'}>
-									{r.hasPat ? '✓ stored' : 'missing'}
-								</td>
-								<td className="dim" style={{ fontSize: 11 }}>
-									{`${window.location.origin}/webhooks/github`}
-								</td>
-								<td className="dim" title={r.createdAt}>
-									{new Date(r.createdAt).toLocaleDateString()}
-								</td>
-								<td>
-									{canManage ? (
-										<button
-											type="button"
-											className="ghost"
-											onClick={() => {
-												void remove(r.repo)
-											}}
+				<TableContainer component={Paper} variant="outlined">
+					<Table size="small">
+						<TableHead>
+							<TableRow>
+								<TableCell>Repo</TableCell>
+								<TableCell>PAT</TableCell>
+								<TableCell>Webhook URL</TableCell>
+								<TableCell>Created</TableCell>
+								<TableCell />
+							</TableRow>
+						</TableHead>
+						<TableBody>
+							{repos.map((r) => (
+								<TableRow key={r.repo} hover>
+									<TableCell>
+										<Typography component="code" sx={{ fontFamily: 'monospace' }}>
+											{r.repo}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Typography
+											variant="body2"
+											color={r.hasPat ? 'text.primary' : 'text.secondary'}
 										>
-											Remove
-										</button>
-									) : null}
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+											{r.hasPat ? '✓ stored' : 'missing'}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Typography variant="caption" color="text.secondary">
+											{`${window.location.origin}/webhooks/github`}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Tooltip title={r.createdAt}>
+											<Typography variant="body2" color="text.secondary">
+												{new Date(r.createdAt).toLocaleDateString()}
+											</Typography>
+										</Tooltip>
+									</TableCell>
+									<TableCell align="right">
+										{canManage ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												onClick={() => {
+													void remove(r.repo)
+												}}
+											>
+												Remove
+											</Button>
+										) : null}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</TableContainer>
 			)}
-		</>
+		</Stack>
 	)
 }
 
@@ -148,61 +186,89 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 	}
 
 	return (
-		<form className="task-form" onSubmit={submit}>
-			<div className="note" style={{ marginBottom: 16 }}>
-				<strong>Webhook secret:</strong> V GitHub repu jdi do <em>Settings → Webhooks → Add webhook</em>.
-				Jako Payload URL zadej <code>{`${window.location.origin}/webhooks/github`}</code>, Content type nastav na{' '}
-				<em>application/json</em> a vyplň libovolný secret — ten pak vlož sem.
-				<br />
-				<br />
-				<strong>GitHub PAT:</strong> V GitHub jdi do <em>Settings → Developer settings → Fine-grained tokens → Generate new token</em>.
-				Vyber toto repository a udělej mu read-only přístup k <em>Issues</em> a <em>Pull requests</em>.
-				PAT je volitelný — potřebuješ ho jen pro import issues a sledování PR statusů.
-			</div>
-			<div className="row">
-				<div className="field">
-					<label htmlFor="repo-binding-name">GitHub repository</label>
-					<input
-						id="repo-binding-name"
-						type="text"
+		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+			<Stack spacing={2}>
+				<Alert severity="info" variant="outlined">
+					<Typography variant="body2" gutterBottom>
+						<strong>Webhook secret:</strong> In the GitHub repo, go to{' '}
+						<em>Settings → Webhooks → Add webhook</em>. Set Payload URL to{' '}
+						<Typography component="code" sx={{ fontFamily: 'monospace' }}>
+							{`${window.location.origin}/webhooks/github`}
+						</Typography>
+						, content type to <em>application/json</em>, and choose any secret — paste it
+						here.
+					</Typography>
+					<Typography variant="body2">
+						<strong>GitHub PAT:</strong> In GitHub, go to{' '}
+						<em>Settings → Developer settings → Fine-grained tokens → Generate new token</em>
+						. Pick this repository and grant read-only access to <em>Issues</em> and{' '}
+						<em>Pull requests</em>. The PAT is optional — needed only for issue import and
+						PR status tracking.
+					</Typography>
+				</Alert>
+				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+					<TextField
+						label="GitHub repository"
 						placeholder="org/name"
 						value={repo}
 						onChange={(e) => setRepo(e.target.value)}
 						required
-						pattern="[^/]+/[^/]+"
+						slotProps={{ htmlInput: { pattern: '[^/]+/[^/]+' } }}
+						size="small"
+						fullWidth
 					/>
-				</div>
-				<div className="field">
-					<label htmlFor="repo-binding-secret">Webhook secret</label>
-					<input
-						id="repo-binding-secret"
+					<TextField
+						label="Webhook secret"
 						type="password"
 						placeholder="Secret from GitHub webhook settings"
 						value={secret}
 						onChange={(e) => setSecret(e.target.value)}
 						required
+						size="small"
+						fullWidth
 					/>
-				</div>
-				<div className="field">
-					<label htmlFor="repo-binding-pat">GitHub PAT (optional)</label>
-					<input
-						id="repo-binding-pat"
+					<TextField
+						label="GitHub PAT (optional)"
 						type="password"
 						placeholder="Fine-grained personal access token"
 						value={pat}
 						onChange={(e) => setPat(e.target.value)}
+						size="small"
+						fullWidth
 					/>
-				</div>
-			</div>
-			<div className="row end">
-				{error ? <span className="error">{error}</span> : null}
-				<button type="button" className="ghost" onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="submit" disabled={submitting}>
-					{submitting ? 'Saving…' : 'Save'}
-				</button>
-			</div>
-		</form>
+				</Stack>
+				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+					{error ? (
+						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+							{error}
+						</Typography>
+					) : null}
+					<Button variant="outlined" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button type="submit" variant="contained" disabled={submitting}>
+						{submitting ? 'Saving…' : 'Save'}
+					</Button>
+				</Stack>
+			</Stack>
+		</Paper>
+	)
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
 	)
 }

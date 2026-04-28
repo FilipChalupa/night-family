@@ -1,3 +1,20 @@
+import {
+	Alert,
+	Box,
+	Button,
+	Paper,
+	Stack,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	TextField,
+	Tooltip,
+	Typography,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
 
 interface TokenRecord {
@@ -59,30 +76,52 @@ export function TokensPanel({ canManage }: Props) {
 		refresh()
 	}
 
-	if (loading) return <div className="empty">Loading tokens…</div>
-	if (error) return <div className="empty">Error: {error}</div>
-	if (!data) return <div className="empty">No data.</div>
+	if (loading) return <EmptyBox>Loading tokens…</EmptyBox>
+	if (error) return <Alert severity="error">{error}</Alert>
+	if (!data) return <EmptyBox>No data.</EmptyBox>
 
 	const active = data.tokens.filter((t) => !t.revoked_at)
 	const revoked = data.tokens.filter((t) => t.revoked_at)
 
 	return (
-		<>
+		<Stack spacing={2}>
 			{newToken ? (
-				<div className="token-reveal">
-					<strong>New token generated — copy it now, it will not be shown again:</strong>
-					<pre className="token-value">{newToken}</pre>
-					<button
-						type="button"
-						className="ghost"
-						onClick={() => {
-							setNewToken(null)
-							refresh()
+				<Alert
+					severity="success"
+					variant="outlined"
+					action={
+						<Button
+							size="small"
+							onClick={() => {
+								setNewToken(null)
+								refresh()
+							}}
+						>
+							Done
+						</Button>
+					}
+				>
+					<Typography sx={{ fontWeight: 600 }} gutterBottom>
+						New token generated — copy it now, it will not be shown again:
+					</Typography>
+					<Box
+						component="pre"
+						sx={{
+							fontFamily: 'monospace',
+							fontSize: '0.85rem',
+							p: 1.5,
+							borderRadius: 1,
+							border: 1,
+							borderColor: 'divider',
+							backgroundColor: 'background.default',
+							wordBreak: 'break-all',
+							whiteSpace: 'pre-wrap',
+							m: 0,
 						}}
 					>
-						Done
-					</button>
-				</div>
+						{newToken}
+					</Box>
+				</Alert>
 			) : null}
 
 			{canManage ? (
@@ -95,88 +134,120 @@ export function TokensPanel({ canManage }: Props) {
 						onCancel={() => setShowForm(false)}
 					/>
 				) : (
-					<div className="panel-actions">
-						<button type="button" className="ghost" onClick={() => setShowForm(true)}>
-							+ Generate token
-						</button>
-					</div>
+					<Box>
+						<Button
+							variant="outlined"
+							size="small"
+							startIcon={<AddIcon />}
+							onClick={() => setShowForm(true)}
+						>
+							Generate token
+						</Button>
+					</Box>
 				)
 			) : null}
 
 			{active.length > 0 ? (
-				<table>
-					<thead>
-						<tr>
-							<th>Name</th>
-							<th>Created</th>
-							<th>Created by</th>
-							<th>Members connected</th>
-							<th />
-						</tr>
-					</thead>
-					<tbody>
-						{active.map((t) => (
-							<tr key={t.id}>
-								<td>
-									<strong>{t.name}</strong>
-									<div className="dim" style={{ fontSize: 11 }}>
-										id: {t.id}
-									</div>
-								</td>
-								<td className="dim" title={t.created_at}>
-									{new Date(t.created_at).toLocaleDateString()}
-								</td>
-								<td className="dim">{t.created_by}</td>
-								<td className="dim">{t.usage_count}</td>
-								<td>
-									{canManage ? (
-										<button
-											type="button"
-											className="ghost"
-											onClick={() => void revoke(t.id, t.name)}
-										>
-											Revoke
-										</button>
-									) : null}
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+				<TableContainer component={Paper} variant="outlined">
+					<Table size="small">
+						<TableHead>
+							<TableRow>
+								<TableCell>Name</TableCell>
+								<TableCell>Created</TableCell>
+								<TableCell>Created by</TableCell>
+								<TableCell>Members connected</TableCell>
+								<TableCell />
+							</TableRow>
+						</TableHead>
+						<TableBody>
+							{active.map((t) => (
+								<TableRow key={t.id} hover>
+									<TableCell>
+										<Typography sx={{ fontWeight: 600 }}>{t.name}</Typography>
+										<Typography variant="caption" color="text.secondary">
+											id: {t.id}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Tooltip title={t.created_at}>
+											<Typography variant="body2" color="text.secondary">
+												{new Date(t.created_at).toLocaleDateString()}
+											</Typography>
+										</Tooltip>
+									</TableCell>
+									<TableCell>
+										<Typography variant="body2" color="text.secondary">
+											{t.created_by}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Typography variant="body2" color="text.secondary">
+											{t.usage_count}
+										</Typography>
+									</TableCell>
+									<TableCell align="right">
+										{canManage ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												onClick={() => void revoke(t.id, t.name)}
+											>
+												Revoke
+											</Button>
+										) : null}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</TableContainer>
 			) : (
-				<div className="empty">No active tokens. Generate one to connect Members.</div>
+				<EmptyBox>No active tokens. Generate one to connect Members.</EmptyBox>
 			)}
 
 			{revoked.length > 0 ? (
-				<>
-					<h3 style={{ marginTop: '1rem', fontSize: '0.85rem', opacity: 0.6 }}>
+				<Stack spacing={1}>
+					<Typography
+						variant="overline"
+						color="text.secondary"
+						sx={{ letterSpacing: '0.08em' }}
+					>
 						Revoked tokens
-					</h3>
-					<table>
-						<thead>
-							<tr>
-								<th>Name</th>
-								<th>Revoked</th>
-								<th>Revoked by</th>
-							</tr>
-						</thead>
-						<tbody>
-							{revoked.map((t) => (
-								<tr key={t.id} style={{ opacity: 0.5 }}>
-									<td>{t.name}</td>
-									<td className="dim">
-										{t.revoked_at
-											? new Date(t.revoked_at).toLocaleDateString()
-											: '—'}
-									</td>
-									<td className="dim">{t.revoked_by ?? '—'}</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</>
+					</Typography>
+					<TableContainer component={Paper} variant="outlined" sx={{ opacity: 0.6 }}>
+						<Table size="small">
+							<TableHead>
+								<TableRow>
+									<TableCell>Name</TableCell>
+									<TableCell>Revoked</TableCell>
+									<TableCell>Revoked by</TableCell>
+								</TableRow>
+							</TableHead>
+							<TableBody>
+								{revoked.map((t) => (
+									<TableRow key={t.id}>
+										<TableCell>{t.name}</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{t.revoked_at
+													? new Date(t.revoked_at).toLocaleDateString()
+													: '—'}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{t.revoked_by ?? '—'}
+											</Typography>
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</TableContainer>
+				</Stack>
 			) : null}
-		</>
+		</Stack>
 	)
 }
 
@@ -215,29 +286,49 @@ function TokenForm({
 	}
 
 	return (
-		<form className="task-form" onSubmit={submit}>
-			<div className="row">
-				<div className="field">
-					<label htmlFor="token-name">Token name</label>
-					<input
-						id="token-name"
-						type="text"
-						placeholder="e.g. laptop-fleet"
-						value={name}
-						onChange={(e) => setName(e.target.value)}
-						required
-					/>
-				</div>
-			</div>
-			<div className="row end">
-				{error ? <span className="error">{error}</span> : null}
-				<button type="button" className="ghost" onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="submit" disabled={submitting || !name.trim()}>
-					{submitting ? 'Generating…' : 'Generate'}
-				</button>
-			</div>
-		</form>
+		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+			<Stack spacing={2}>
+				<TextField
+					label="Token name"
+					placeholder="e.g. laptop-fleet"
+					value={name}
+					onChange={(e) => setName(e.target.value)}
+					required
+					size="small"
+					fullWidth
+				/>
+				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+					{error ? (
+						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+							{error}
+						</Typography>
+					) : null}
+					<Button variant="outlined" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button type="submit" variant="contained" disabled={submitting || !name.trim()}>
+						{submitting ? 'Generating…' : 'Generate'}
+					</Button>
+				</Stack>
+			</Stack>
+		</Paper>
+	)
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
 	)
 }

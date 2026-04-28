@@ -1,3 +1,24 @@
+import {
+	Alert,
+	Box,
+	Button,
+	Checkbox,
+	FormControlLabel,
+	FormGroup,
+	MenuItem,
+	Paper,
+	Stack,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	TextField,
+	Tooltip,
+	Typography,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
 
 type ChannelKind = 'webhook' | 'smtp'
@@ -82,13 +103,13 @@ export function NotificationsPanel({ canManage }: Props) {
 		void refresh()
 	}
 
-	if (loading) return <div className="empty">Loading notification channels…</div>
-	if (error) return <div className="empty">Error: {error}</div>
+	if (loading) return <EmptyBox>Loading notification channels…</EmptyBox>
+	if (error) return <Alert severity="error">{error}</Alert>
 
 	const failedDeliveries = deliveries.filter((d) => d.status === 'failed')
 
 	return (
-		<>
+		<Stack spacing={2}>
 			{canManage ? (
 				showForm ? (
 					<ChannelForm
@@ -99,103 +120,137 @@ export function NotificationsPanel({ canManage }: Props) {
 						onCancel={() => setShowForm(false)}
 					/>
 				) : (
-					<div className="panel-actions">
-						<button type="button" className="ghost" onClick={() => setShowForm(true)}>
-							+ Add channel
-						</button>
-					</div>
+					<Box>
+						<Button
+							variant="outlined"
+							size="small"
+							startIcon={<AddIcon />}
+							onClick={() => setShowForm(true)}
+						>
+							Add channel
+						</Button>
+					</Box>
 				)
 			) : null}
 
 			{channels.length === 0 ? (
-				<div className="empty">
-					No notification channels configured. Add a webhook or SMTP channel to get
-					notified on events.
-				</div>
+				<EmptyBox>
+					No notification channels configured. Add a webhook or SMTP channel to get notified
+					on events.
+				</EmptyBox>
 			) : (
-				<table>
-					<thead>
-						<tr>
-							<th>Name</th>
-							<th>Type</th>
-							<th>Events</th>
-							<th>Created</th>
-							<th />
-						</tr>
-					</thead>
-					<tbody>
-						{channels.map((ch) => (
-							<tr key={ch.id}>
-								<td>
-									<strong>{ch.name}</strong>
-								</td>
-								<td className="dim">{ch.kind}</td>
-								<td className="dim" style={{ fontSize: 11 }}>
-									{ch.subscribedEvents.join(', ') || '—'}
-								</td>
-								<td className="dim">{new Date(ch.createdAt).toLocaleDateString()}</td>
-								<td>
-									{canManage ? (
-										<button
-											type="button"
-											className="ghost"
-											onClick={() => void deleteChannel(ch.id, ch.name)}
-										>
-											Delete
-										</button>
-									) : null}
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
+				<TableContainer component={Paper} variant="outlined">
+					<Table size="small">
+						<TableHead>
+							<TableRow>
+								<TableCell>Name</TableCell>
+								<TableCell>Type</TableCell>
+								<TableCell>Events</TableCell>
+								<TableCell>Created</TableCell>
+								<TableCell />
+							</TableRow>
+						</TableHead>
+						<TableBody>
+							{channels.map((ch) => (
+								<TableRow key={ch.id} hover>
+									<TableCell>
+										<Typography sx={{ fontWeight: 600 }}>{ch.name}</Typography>
+									</TableCell>
+									<TableCell>
+										<Typography variant="body2" color="text.secondary">
+											{ch.kind}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Typography variant="caption" color="text.secondary">
+											{ch.subscribedEvents.join(', ') || '—'}
+										</Typography>
+									</TableCell>
+									<TableCell>
+										<Tooltip title={ch.createdAt}>
+											<Typography variant="body2" color="text.secondary">
+												{new Date(ch.createdAt).toLocaleDateString()}
+											</Typography>
+										</Tooltip>
+									</TableCell>
+									<TableCell align="right">
+										{canManage ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												onClick={() => void deleteChannel(ch.id, ch.name)}
+											>
+												Delete
+											</Button>
+										) : null}
+									</TableCell>
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</TableContainer>
 			)}
 
 			{failedDeliveries.length > 0 ? (
-				<>
-					<h3 style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--red, #c00)' }}>
+				<Stack spacing={1}>
+					<Typography variant="overline" color="error" sx={{ letterSpacing: '0.08em' }}>
 						Failed deliveries ({failedDeliveries.length})
-					</h3>
-					<table>
-						<thead>
-							<tr>
-								<th>Event</th>
-								<th>Channel</th>
-								<th>Error</th>
-								<th>Time</th>
-								<th />
-							</tr>
-						</thead>
-						<tbody>
-							{failedDeliveries.map((d) => (
-								<tr key={d.id}>
-									<td className="dim">{d.event}</td>
-									<td className="dim">
-										{channels.find((ch) => ch.id === d.channelId)?.name ??
-											d.channelId}
-									</td>
-									<td className="dim" style={{ fontSize: 11 }}>
-										{d.error ?? '—'}
-									</td>
-									<td className="dim">{new Date(d.createdAt).toLocaleDateString()}</td>
-									<td>
-										{canManage ? (
-											<button
-												type="button"
-												className="ghost"
-												onClick={() => void retryDelivery(d.id)}
-											>
-												Retry
-											</button>
-										) : null}
-									</td>
-								</tr>
-							))}
-						</tbody>
-					</table>
-				</>
+					</Typography>
+					<TableContainer component={Paper} variant="outlined">
+						<Table size="small">
+							<TableHead>
+								<TableRow>
+									<TableCell>Event</TableCell>
+									<TableCell>Channel</TableCell>
+									<TableCell>Error</TableCell>
+									<TableCell>Time</TableCell>
+									<TableCell />
+								</TableRow>
+							</TableHead>
+							<TableBody>
+								{failedDeliveries.map((d) => (
+									<TableRow key={d.id} hover>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{d.event}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{channels.find((ch) => ch.id === d.channelId)?.name ??
+													d.channelId}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<Typography variant="caption" color="text.secondary">
+												{d.error ?? '—'}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{new Date(d.createdAt).toLocaleDateString()}
+											</Typography>
+										</TableCell>
+										<TableCell align="right">
+											{canManage ? (
+												<Button
+													size="small"
+													variant="outlined"
+													onClick={() => void retryDelivery(d.id)}
+												>
+													Retry
+												</Button>
+											) : null}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</TableContainer>
+				</Stack>
 			) : null}
-		</>
+		</Stack>
 	)
 }
 
@@ -263,148 +318,161 @@ function ChannelForm({
 	}
 
 	return (
-		<form className="task-form" onSubmit={submit}>
-			<div className="row">
-				<div className="field">
-					<label htmlFor="ch-name">Channel name</label>
-					<input
-						id="ch-name"
-						type="text"
+		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+			<Stack spacing={2}>
+				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+					<TextField
+						label="Channel name"
 						placeholder="e.g. Slack alerts"
 						value={name}
 						onChange={(e) => setName(e.target.value)}
 						required
+						size="small"
+						fullWidth
 					/>
-				</div>
-				<div className="field">
-					<label htmlFor="ch-kind">Type</label>
-					<select
-						id="ch-kind"
+					<TextField
+						select
+						label="Type"
 						value={kind}
 						onChange={(e) => setKind(e.target.value as ChannelKind)}
+						size="small"
+						sx={{ minWidth: 200 }}
 					>
-						<option value="webhook">Webhook</option>
-						<option value="smtp">SMTP / Email</option>
-					</select>
-				</div>
-			</div>
+						<MenuItem value="webhook">Webhook</MenuItem>
+						<MenuItem value="smtp">SMTP / Email</MenuItem>
+					</TextField>
+				</Stack>
 
-			{kind === 'webhook' ? (
-				<div className="row">
-					<div className="field" style={{ flex: 1 }}>
-						<label htmlFor="ch-url">Webhook URL</label>
-						<input
-							id="ch-url"
-							type="url"
-							placeholder="https://hooks.slack.com/…"
-							value={webhookUrl}
-							onChange={(e) => setWebhookUrl(e.target.value)}
-							required
-						/>
-					</div>
-				</div>
-			) : (
-				<>
-					<div className="row">
-						<div className="field">
-							<label htmlFor="ch-host">SMTP host</label>
-							<input
-								id="ch-host"
-								type="text"
+				{kind === 'webhook' ? (
+					<TextField
+						label="Webhook URL"
+						type="url"
+						placeholder="https://hooks.slack.com/…"
+						value={webhookUrl}
+						onChange={(e) => setWebhookUrl(e.target.value)}
+						required
+						size="small"
+						fullWidth
+					/>
+				) : (
+					<>
+						<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+							<TextField
+								label="SMTP host"
 								placeholder="smtp.sendgrid.net"
 								value={smtpHost}
 								onChange={(e) => setSmtpHost(e.target.value)}
 								required
+								size="small"
+								fullWidth
 							/>
-						</div>
-						<div className="field" style={{ maxWidth: 100 }}>
-							<label htmlFor="ch-port">Port</label>
-							<input
-								id="ch-port"
+							<TextField
+								label="Port"
 								type="number"
 								value={smtpPort}
 								onChange={(e) => setSmtpPort(e.target.value)}
 								required
+								size="small"
+								sx={{ maxWidth: 140 }}
 							/>
-						</div>
-					</div>
-					<div className="row">
-						<div className="field">
-							<label htmlFor="ch-user">Username</label>
-							<input
-								id="ch-user"
-								type="text"
+						</Stack>
+						<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+							<TextField
+								label="Username"
 								value={smtpUser}
 								onChange={(e) => setSmtpUser(e.target.value)}
 								required
+								size="small"
+								fullWidth
 							/>
-						</div>
-						<div className="field">
-							<label htmlFor="ch-pass">Password / API key</label>
-							<input
-								id="ch-pass"
+							<TextField
+								label="Password / API key"
 								type="password"
 								value={smtpPass}
 								onChange={(e) => setSmtpPass(e.target.value)}
 								required
+								size="small"
+								fullWidth
 							/>
-						</div>
-					</div>
-					<div className="row">
-						<div className="field">
-							<label htmlFor="ch-from">From</label>
-							<input
-								id="ch-from"
+						</Stack>
+						<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+							<TextField
+								label="From"
 								type="email"
 								placeholder="agent@example.com"
 								value={smtpFrom}
 								onChange={(e) => setSmtpFrom(e.target.value)}
 								required
+								size="small"
+								fullWidth
 							/>
-						</div>
-						<div className="field">
-							<label htmlFor="ch-to">To</label>
-							<input
-								id="ch-to"
+							<TextField
+								label="To"
 								type="email"
 								placeholder="you@example.com"
 								value={smtpTo}
 								onChange={(e) => setSmtpTo(e.target.value)}
 								required
+								size="small"
+								fullWidth
 							/>
-						</div>
-					</div>
-				</>
-			)}
+						</Stack>
+					</>
+				)}
 
-			<div className="field">
-				<label>Subscribe to events</label>
-				<div className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
-					{ALL_EVENTS.map((ev) => (
-						<label
-							key={ev}
-							style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}
-						>
-							<input
-								type="checkbox"
-								checked={subscribedEvents.includes(ev)}
-								onChange={() => toggleEvent(ev)}
+				<Box>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Subscribe to events
+					</Typography>
+					<FormGroup row>
+						{ALL_EVENTS.map((ev) => (
+							<FormControlLabel
+								key={ev}
+								control={
+									<Checkbox
+										size="small"
+										checked={subscribedEvents.includes(ev)}
+										onChange={() => toggleEvent(ev)}
+									/>
+								}
+								label={ev}
 							/>
-							{ev}
-						</label>
-					))}
-				</div>
-			</div>
+						))}
+					</FormGroup>
+				</Box>
 
-			<div className="row end">
-				{error ? <span className="error">{error}</span> : null}
-				<button type="button" className="ghost" onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="submit" disabled={submitting || !name.trim()}>
-					{submitting ? 'Saving…' : 'Add channel'}
-				</button>
-			</div>
-		</form>
+				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+					{error ? (
+						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+							{error}
+						</Typography>
+					) : null}
+					<Button variant="outlined" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button type="submit" variant="contained" disabled={submitting || !name.trim()}>
+						{submitting ? 'Saving…' : 'Add channel'}
+					</Button>
+				</Stack>
+			</Stack>
+		</Paper>
+	)
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
 	)
 }

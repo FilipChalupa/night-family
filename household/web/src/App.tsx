@@ -1,3 +1,11 @@
+import {
+	Box,
+	Button,
+	Container,
+	Stack,
+	Typography,
+} from '@mui/material'
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
 import { NotificationsPanel } from './components/NotificationsPanel.tsx'
@@ -49,21 +57,27 @@ export function App() {
 
 	if (!me) {
 		return (
-			<div className="app">
-				<div className="empty">Loading dashboard...</div>
-			</div>
+			<Container maxWidth="lg" sx={{ py: 3 }}>
+				<EmptyState>Loading dashboard…</EmptyState>
+			</Container>
 		)
 	}
 
 	if (isLoggedOutWithRequiredLogin) {
 		return (
-			<div className="app auth-landing">
-				<h1>{health?.household ?? 'Night Agents'}</h1>
-				<p className="meta">Dashboard access requires GitHub sign-in.</p>
-				<a className="auth-link" href="/auth/github?redirect_to=/">
-					Sign in with GitHub
-				</a>
-			</div>
+			<Container maxWidth="sm" sx={{ minHeight: '60vh', display: 'flex', alignItems: 'center' }}>
+				<Stack spacing={2} sx={{ width: '100%' }}>
+					<Typography variant="h4" component="h1">
+						{health?.household ?? 'Night Agents'}
+					</Typography>
+					<Typography color="text.secondary">
+						Dashboard access requires GitHub sign-in.
+					</Typography>
+					<Button variant="contained" component="a" href="/auth/github?redirect_to=/" sx={{ alignSelf: 'flex-start' }}>
+						Sign in with GitHub
+					</Button>
+				</Stack>
+			</Container>
 		)
 	}
 
@@ -89,91 +103,127 @@ export function App() {
 	}
 
 	return (
-		<div className="app">
-			<header className="top">
-				<div>
-					<h1>
-						<span className={`dot ${connected ? 'live' : 'dead'}`} />
+		<Container maxWidth="lg" sx={{ py: 3 }}>
+			<Stack
+				direction={{ xs: 'column', md: 'row' }}
+				spacing={1.5}
+				sx={{
+					justifyContent: 'space-between',
+					alignItems: { xs: 'flex-start', md: 'baseline' },
+					pb: 1.5,
+					mb: 3,
+					borderBottom: 1,
+					borderColor: 'divider',
+				}}
+			>
+				<Box>
+					<Typography variant="h6" component="h1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+						<FiberManualRecordIcon
+							fontSize="inherit"
+							sx={{ fontSize: 12, color: connected ? 'success.main' : 'error.main' }}
+						/>
 						{health?.household ?? 'Night Agents'}
-					</h1>
-					<div className="meta">
-						{health ? (
-							<>
-								uptime {formatUptime(health.uptimeSec)} · status {health.status}
-							</>
-						) : (
-							'connecting…'
-						)}
-					</div>
-				</div>
-				<div className="top-actions">
+					</Typography>
+					<Typography variant="body2" color="text.secondary">
+						{health
+							? `uptime ${formatUptime(health.uptimeSec)} · status ${health.status}`
+							: 'connecting…'}
+					</Typography>
+				</Box>
+				<Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
 					{me?.authenticated ? (
 						<>
-							<div className="meta">
+							<Typography variant="body2" color="text.secondary">
 								signed in as <strong>{me.username}</strong> · role {me.role}
-							</div>
-							<button type="button" className="ghost" onClick={() => void logout()}>
+							</Typography>
+							<Button variant="outlined" size="small" onClick={() => void logout()}>
 								Sign out
-							</button>
+							</Button>
 						</>
 					) : me?.oauth_configured ? (
-						<a className="auth-link" href="/auth/github?redirect_to=/">
+						<Button variant="contained" size="small" component="a" href="/auth/github?redirect_to=/">
 							Sign in with GitHub
-						</a>
+						</Button>
 					) : null}
-				</div>
-			</header>
+				</Stack>
+			</Stack>
 
-			<section className="section">
-				<h2>Tasks ({tasks.length})</h2>
+			<Section title={`Tasks (${tasks.length})`}>
 				<TasksPanel
 					tasks={tasks}
 					canManage={isAdmin}
 					onCreate={createTask}
 					onCancel={cancelTask}
 				/>
-			</section>
+			</Section>
 
-			<section className="section">
-				<h2>Members ({members.length})</h2>
+			<Section title={`Members (${members.length})`}>
 				<MembersList members={members} />
-			</section>
+			</Section>
 
-			<section className="section">
-				<h2>Repos</h2>
+			<Section title="Repos">
 				<ReposPanel canManage={isAdmin} />
-			</section>
+			</Section>
 
 			{canSeeUsers ? (
-				<section className="section">
-					<h2>Users</h2>
+				<Section title="Users">
 					<UsersPanel canManage={isAdmin} currentUsername={me?.username ?? null} />
-				</section>
+				</Section>
 			) : null}
 
 			{isAdmin ? (
 				<>
-					<section className="section">
-						<h2>Join Member Tokens</h2>
+					<Section title="Join Member Tokens">
 						<TokensPanel canManage={isAdmin} />
-					</section>
-
-					<section className="section">
-						<h2>Notification Channels</h2>
+					</Section>
+					<Section title="Notification Channels">
 						<NotificationsPanel canManage={isAdmin} />
-					</section>
+					</Section>
 				</>
 			) : null}
-		</div>
+		</Container>
+	)
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+	return (
+		<Box sx={{ mb: 4 }}>
+			<Typography
+				variant="overline"
+				component="h2"
+				sx={{ display: 'block', mb: 1.5, color: 'text.secondary', letterSpacing: '0.08em' }}
+			>
+				{title}
+			</Typography>
+			{children}
+		</Box>
+	)
+}
+
+export function EmptyState({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
 	)
 }
 
 function MembersList({ members }: { members: MemberSnapshot[] }) {
 	if (members.length === 0) {
 		return (
-			<div className="empty">
+			<EmptyState>
 				No connected members yet. Spin up a Member container to see it here.
-			</div>
+			</EmptyState>
 		)
 	}
 	return <MembersPanel members={members} />

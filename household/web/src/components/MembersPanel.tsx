@@ -1,3 +1,16 @@
+import {
+	Box,
+	Chip,
+	Paper,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	Tooltip,
+	Typography,
+} from '@mui/material'
 import type { MemberSnapshot } from '../types.ts'
 
 interface Props {
@@ -6,50 +19,75 @@ interface Props {
 
 export function MembersPanel({ members }: Props) {
 	return (
-		<table>
-			<thead>
-				<tr>
-					<th>Name</th>
-					<th>Status</th>
-					<th>Provider · Model</th>
-					<th>Skills</th>
-					<th>Profile</th>
-					<th>Connected</th>
-				</tr>
-			</thead>
-			<tbody>
-				{members.map((m) => (
-					<tr key={m.sessionId}>
-						<td>
-							<span className="dim">Night </span>
-							<strong>{m.memberName}</strong>
-							<div className="dim" style={{ fontSize: 11 }}>
-								{m.memberId.slice(0, 8)}…
-							</div>
-						</td>
-						<td>
-							<span className={`badge ${m.status}`}>{m.status}</span>
-							{m.currentTask ? (
-								<div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
-									task {m.currentTask}
-								</div>
-							) : null}
-						</td>
-						<td>
-							{m.provider}
-							<div className="dim" style={{ fontSize: 11 }}>
-								{m.model}
-							</div>
-						</td>
-						<td className="dim">{m.skills.join(', ')}</td>
-						<td className="dim">{m.workerProfile}</td>
-						<td className="dim" title={m.connectedAt}>
-							{relativeTime(m.connectedAt)}
-						</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
+		<TableContainer component={Paper} variant="outlined">
+			<Table size="small">
+				<TableHead>
+					<TableRow>
+						<TableCell>Name</TableCell>
+						<TableCell>Status</TableCell>
+						<TableCell>Provider · Model</TableCell>
+						<TableCell>Skills</TableCell>
+						<TableCell>Profile</TableCell>
+						<TableCell>Connected</TableCell>
+					</TableRow>
+				</TableHead>
+				<TableBody>
+					{members.map((m) => (
+						<TableRow key={m.sessionId} hover>
+							<TableCell>
+								<Box>
+									<Typography component="span" color="text.secondary" variant="body2">
+										Night{' '}
+									</Typography>
+									<Typography component="span" sx={{ fontWeight: 600 }}>
+										{m.memberName}
+									</Typography>
+								</Box>
+								<Typography variant="caption" color="text.secondary">
+									{m.memberId.slice(0, 8)}…
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Chip
+									label={m.status}
+									size="small"
+									color={m.status === 'idle' ? 'success' : 'warning'}
+									variant="outlined"
+								/>
+								{m.currentTask ? (
+									<Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+										task {m.currentTask}
+									</Typography>
+								) : null}
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2">{m.provider}</Typography>
+								<Typography variant="caption" color="text.secondary">
+									{m.model}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2" color="text.secondary">
+									{m.skills.join(', ')}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Typography variant="body2" color="text.secondary">
+									{m.workerProfile}
+								</Typography>
+							</TableCell>
+							<TableCell>
+								<Tooltip title={m.connectedAt}>
+									<Typography variant="body2" color="text.secondary">
+										{relativeTime(m.connectedAt)}
+									</Typography>
+								</Tooltip>
+							</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</TableContainer>
 	)
 }
 

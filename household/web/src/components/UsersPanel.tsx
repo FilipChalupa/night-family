@@ -1,3 +1,21 @@
+import {
+	Alert,
+	Box,
+	Button,
+	MenuItem,
+	Paper,
+	Stack,
+	Table,
+	TableBody,
+	TableCell,
+	TableContainer,
+	TableHead,
+	TableRow,
+	TextField,
+	Tooltip,
+	Typography,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 import { useEffect, useState } from 'react'
 import type { UserRecord, UserRole } from '../types.ts'
 
@@ -65,12 +83,12 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 		refresh()
 	}
 
-	if (loading) return <div className="empty">Loading users…</div>
-	if (error) return <div className="empty">Error: {error}</div>
-	if (!data) return <div className="empty">No users loaded.</div>
+	if (loading) return <EmptyBox>Loading users…</EmptyBox>
+	if (error) return <Alert severity="error">{error}</Alert>
+	if (!data) return <EmptyBox>No users loaded.</EmptyBox>
 
 	return (
-		<>
+		<Stack spacing={2}>
 			{canManage ? (
 				showForm ? (
 					<UserForm
@@ -81,84 +99,106 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 						onCancel={() => setShowForm(false)}
 					/>
 				) : (
-					<div className="panel-actions">
-						<button type="button" className="ghost" onClick={() => setShowForm(true)}>
-							+ Add user
-						</button>
-					</div>
+					<Box>
+						<Button
+							variant="outlined"
+							size="small"
+							startIcon={<AddIcon />}
+							onClick={() => setShowForm(true)}
+						>
+							Add user
+						</Button>
+					</Box>
 				)
 			) : (
-				<div className="note">
+				<Alert severity="info" variant="outlined">
 					You are signed in as readonly. User management is admin-only.
-				</div>
+				</Alert>
 			)}
-			<table>
-				<thead>
-					<tr>
-						<th>GitHub User</th>
-						<th>Role</th>
-						<th>Added</th>
-						<th>Added By</th>
-						<th />
-					</tr>
-				</thead>
-				<tbody>
-					{data.users.map((user) => {
-						const isPrimaryAdmin =
-							user.username.toLowerCase() === data.primaryAdmin.toLowerCase()
-						return (
-							<tr key={user.username}>
-								<td>
-									<strong>{user.username}</strong>
-									{currentUsername?.toLowerCase() ===
-									user.username.toLowerCase() ? (
-										<div className="dim" style={{ fontSize: 11 }}>
-											you
-										</div>
-									) : null}
-								</td>
-								<td>
-									{canManage ? (
-										<select
-											value={user.role}
-											disabled={isPrimaryAdmin}
-											onChange={(e) => {
-												void updateRole(
-													user.username,
-													e.target.value as UserRole,
-												)
-											}}
-										>
-											<option value="admin">admin</option>
-											<option value="readonly">readonly</option>
-										</select>
-									) : (
-										<span className="dim">{user.role}</span>
-									)}
-								</td>
-								<td className="dim" title={user.added_at}>
-									{new Date(user.added_at).toLocaleDateString()}
-								</td>
-								<td className="dim">{user.added_by}</td>
-								<td>
-									{canManage && !isPrimaryAdmin ? (
-										<button
-											type="button"
-											className="ghost"
-											onClick={() => {
-												void remove(user.username)
-											}}
-										>
-											Remove
-										</button>
-									) : null}
-								</td>
-							</tr>
-						)
-					})}
-				</tbody>
-			</table>
-		</>
+			<TableContainer component={Paper} variant="outlined">
+				<Table size="small">
+					<TableHead>
+						<TableRow>
+							<TableCell>GitHub User</TableCell>
+							<TableCell>Role</TableCell>
+							<TableCell>Added</TableCell>
+							<TableCell>Added By</TableCell>
+							<TableCell />
+						</TableRow>
+					</TableHead>
+					<TableBody>
+						{data.users.map((user) => {
+							const isPrimaryAdmin =
+								user.username.toLowerCase() === data.primaryAdmin.toLowerCase()
+							const isCurrentUser =
+								currentUsername?.toLowerCase() === user.username.toLowerCase()
+							return (
+								<TableRow key={user.username} hover>
+									<TableCell>
+										<Typography sx={{ fontWeight: 600 }}>{user.username}</Typography>
+										{isCurrentUser ? (
+											<Typography variant="caption" color="text.secondary">
+												you
+											</Typography>
+										) : null}
+									</TableCell>
+									<TableCell>
+										{canManage ? (
+											<TextField
+												select
+												value={user.role}
+												disabled={isPrimaryAdmin}
+												onChange={(e) => {
+													void updateRole(
+														user.username,
+														e.target.value as UserRole,
+													)
+												}}
+												size="small"
+												sx={{ minWidth: 120 }}
+											>
+												<MenuItem value="admin">admin</MenuItem>
+												<MenuItem value="readonly">readonly</MenuItem>
+											</TextField>
+										) : (
+											<Typography variant="body2" color="text.secondary">
+												{user.role}
+											</Typography>
+										)}
+									</TableCell>
+									<TableCell>
+										<Tooltip title={user.added_at}>
+											<Typography variant="body2" color="text.secondary">
+												{new Date(user.added_at).toLocaleDateString()}
+											</Typography>
+										</Tooltip>
+									</TableCell>
+									<TableCell>
+										<Typography variant="body2" color="text.secondary">
+											{user.added_by}
+										</Typography>
+									</TableCell>
+									<TableCell align="right">
+										{canManage && !isPrimaryAdmin ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												onClick={() => {
+													void remove(user.username)
+												}}
+											>
+												Remove
+											</Button>
+										) : null}
+									</TableCell>
+								</TableRow>
+							)
+						})}
+					</TableBody>
+				</Table>
+			</TableContainer>
+		</Stack>
 	)
 }
 
@@ -191,40 +231,62 @@ function UserForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 	}
 
 	return (
-		<form className="task-form" onSubmit={submit}>
-			<div className="row">
-				<div className="field">
-					<label htmlFor="user-username">GitHub username</label>
-					<input
-						id="user-username"
-						type="text"
+		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+			<Stack spacing={2}>
+				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+					<TextField
+						label="GitHub username"
 						placeholder="octocat"
 						value={username}
 						onChange={(e) => setUsername(e.target.value)}
 						required
+						size="small"
+						fullWidth
 					/>
-				</div>
-				<div className="field">
-					<label htmlFor="user-role">Role</label>
-					<select
-						id="user-role"
+					<TextField
+						select
+						label="Role"
 						value={role}
 						onChange={(e) => setRole(e.target.value as UserRole)}
+						size="small"
+						sx={{ minWidth: 160 }}
 					>
-						<option value="readonly">readonly</option>
-						<option value="admin">admin</option>
-					</select>
-				</div>
-			</div>
-			<div className="row end">
-				{error ? <span className="error">{error}</span> : null}
-				<button type="button" className="ghost" onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="submit" disabled={submitting || !username.trim()}>
-					{submitting ? 'Saving…' : 'Add user'}
-				</button>
-			</div>
-		</form>
+						<MenuItem value="readonly">readonly</MenuItem>
+						<MenuItem value="admin">admin</MenuItem>
+					</TextField>
+				</Stack>
+				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+					{error ? (
+						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+							{error}
+						</Typography>
+					) : null}
+					<Button variant="outlined" onClick={onCancel}>
+						Cancel
+					</Button>
+					<Button type="submit" variant="contained" disabled={submitting || !username.trim()}>
+						{submitting ? 'Saving…' : 'Add user'}
+					</Button>
+				</Stack>
+			</Stack>
+		</Paper>
+	)
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
 	)
 }
