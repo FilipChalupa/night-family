@@ -206,9 +206,28 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						<em>
 							Settings → Developer settings → Fine-grained tokens → Generate new token
 						</em>
-						. Pick this repository and grant read-only access to <em>Issues</em> and{' '}
-						<em>Pull requests</em>. The PAT is optional — needed only for issue import
-						and PR status tracking.
+						. Pick this repository and grant the following <strong>Repository
+						permissions</strong>:
+					</Typography>
+					<Typography variant="body2" component="ul" sx={{ my: 0, pl: 3 }}>
+						<li>
+							<strong>Contents: Read and write</strong> — Members push commits to
+							task branches.
+						</li>
+						<li>
+							<strong>Pull requests: Read and write</strong> — Members open PRs and
+							update PR status.
+						</li>
+						<li>
+							<strong>Issues: Read-only</strong> — used for issue import.
+						</li>
+					</Typography>
+					<Typography variant="body2">
+						The PAT is technically optional (binding works without it), but{' '}
+						<em>implement</em> tasks will fail at <code>git push</code> /{' '}
+						<code>gh pr create</code> with a read-only or missing token. Read-only
+						access is enough only if you exclusively run <em>review</em>,{' '}
+						<em>respond</em>, or <em>summarize</em> tasks.
 					</Typography>
 				</Alert>
 				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
