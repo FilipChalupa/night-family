@@ -13,6 +13,7 @@ import type {
 	WebhookConfig,
 	SmtpConfig,
 	ChannelConfig,
+	ChannelKind,
 } from './store.ts'
 
 export class NotificationSender {
@@ -26,6 +27,25 @@ export class NotificationSender {
 		await Promise.allSettled(
 			channels.map((ch) => this.sendToChannel(ch.id, ch.kind, ch.config, event, payload)),
 		)
+	}
+
+	/**
+	 * Send a synthetic test payload through a channel without recording it
+	 * in the deliveries history. Throws if the underlying transport fails so
+	 * the API layer can surface the error directly.
+	 */
+	async sendTest(kind: ChannelKind, config: ChannelConfig): Promise<void> {
+		const payload = {
+			message: 'This is a test notification from Night Agents.',
+			ts: new Date().toISOString(),
+		}
+		if (kind === 'webhook') {
+			await sendWebhook(config as WebhookConfig, 'test', payload)
+		} else if (kind === 'smtp') {
+			await sendSmtp(config as SmtpConfig, 'test', payload)
+		} else {
+			throw new Error(`unsupported channel kind: ${kind as string}`)
+		}
 	}
 
 	async retryDelivery(deliveryId: string): Promise<boolean> {
@@ -69,7 +89,7 @@ export class NotificationSender {
 
 async function sendWebhook(
 	config: WebhookConfig,
-	event: NotificationEventName,
+	event: NotificationEventName | 'test',
 	payload: Record<string, unknown>,
 ): Promise<void> {
 	const body = JSON.stringify({ event, payload, ts: new Date().toISOString() })
@@ -85,7 +105,7 @@ async function sendWebhook(
 
 async function sendSmtp(
 	config: SmtpConfig,
-	event: NotificationEventName,
+	event: NotificationEventName | 'test',
 	payload: Record<string, unknown>,
 ): Promise<void> {
 	const transporter = nodemailer.createTransport({

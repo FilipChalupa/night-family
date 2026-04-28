@@ -7,6 +7,7 @@ import {
 	FormGroup,
 	MenuItem,
 	Paper,
+	Snackbar,
 	Stack,
 	Table,
 	TableBody,
@@ -19,6 +20,7 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import SendIcon from '@mui/icons-material/Send'
 import { useEffect, useState } from 'react'
 
 type ChannelKind = 'webhook' | 'smtp'
@@ -67,6 +69,11 @@ export function NotificationsPanel({ canManage }: Props) {
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
 	const [showForm, setShowForm] = useState(false)
+	const [snackbar, setSnackbar] = useState<{
+		severity: 'success' | 'error'
+		message: string
+	} | null>(null)
+	const [testingId, setTestingId] = useState<string | null>(null)
 
 	const refresh = async () => {
 		setLoading(true)
@@ -101,6 +108,23 @@ export function NotificationsPanel({ canManage }: Props) {
 	const retryDelivery = async (id: string) => {
 		await fetch(`/api/notifications/deliveries/${id}/retry`, { method: 'POST' })
 		void refresh()
+	}
+
+	const testChannel = async (id: string, name: string) => {
+		setTestingId(id)
+		try {
+			const r = await fetch(`/api/notifications/channels/${id}/test`, { method: 'POST' })
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+			setSnackbar({ severity: 'success', message: `Test sent to "${name}".` })
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			setSnackbar({ severity: 'error', message: `Test to "${name}" failed: ${message}` })
+		} finally {
+			setTestingId(null)
+		}
 	}
 
 	if (loading) return <EmptyBox>Loading notification channels…</EmptyBox>
@@ -175,14 +199,29 @@ export function NotificationsPanel({ canManage }: Props) {
 									</TableCell>
 									<TableCell align="right">
 										{canManage ? (
-											<Button
-												size="small"
-												variant="outlined"
-												color="error"
-												onClick={() => void deleteChannel(ch.id, ch.name)}
+											<Stack
+												direction="row"
+												spacing={1}
+												sx={{ justifyContent: 'flex-end' }}
 											>
-												Delete
-											</Button>
+												<Button
+													size="small"
+													variant="outlined"
+													startIcon={<SendIcon />}
+													disabled={testingId === ch.id}
+													onClick={() => void testChannel(ch.id, ch.name)}
+												>
+													{testingId === ch.id ? 'Sending…' : 'Test'}
+												</Button>
+												<Button
+													size="small"
+													variant="outlined"
+													color="error"
+													onClick={() => void deleteChannel(ch.id, ch.name)}
+												>
+													Delete
+												</Button>
+											</Stack>
 										) : null}
 									</TableCell>
 								</TableRow>
@@ -250,6 +289,23 @@ export function NotificationsPanel({ canManage }: Props) {
 					</TableContainer>
 				</Stack>
 			) : null}
+
+			<Snackbar
+				open={snackbar !== null}
+				autoHideDuration={5000}
+				anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+				onClose={() => setSnackbar(null)}
+			>
+				{snackbar ? (
+					<Alert
+						severity={snackbar.severity}
+						variant="filled"
+						onClose={() => setSnackbar(null)}
+					>
+						{snackbar.message}
+					</Alert>
+				) : undefined}
+			</Snackbar>
 		</Stack>
 	)
 }
@@ -269,7 +325,11 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 		'member.disconnected',
 	])
 	const [submitting, setSubmitting] = useState(false)
+	const [testing, setTesting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [testResult, setTestResult] = useState<
+		{ severity: 'success' | 'error'; message: string } | null
+	>(null)
 
 	const toggleEvent = (ev: NotificationEvent) => {
 		setSubscribedEvents((prev) =>
@@ -315,6 +375,30 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 			setSubmitting(false)
 		}
 	}
+
+	const sendTest = async () => {
+		setTestResult(null)
+		setTesting(true)
+		try {
+			const r = await fetch('/api/notifications/channels/test', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ kind, config: buildConfig() }),
+			})
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+			setTestResult({ severity: 'success', message: 'Test notification delivered.' })
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			setTestResult({ severity: 'error', message: `Test failed: ${message}` })
+		} finally {
+			setTesting(false)
+		}
+	}
+
+	const canTest = kind === 'webhook' ? webhookUrl.trim().length > 0 : smtpHost && smtpTo
 
 	return (
 		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
@@ -440,6 +524,12 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 					</FormGroup>
 				</Box>
 
+				{testResult ? (
+					<Alert severity={testResult.severity} variant="outlined">
+						{testResult.message}
+					</Alert>
+				) : null}
+
 				<Stack
 					direction="row"
 					spacing={2}
@@ -450,6 +540,14 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 							{error}
 						</Typography>
 					) : null}
+					<Button
+						variant="outlined"
+						startIcon={<SendIcon />}
+						disabled={!canTest || testing || submitting}
+						onClick={() => void sendTest()}
+					>
+						{testing ? 'Sending…' : 'Send test'}
+					</Button>
 					<Button variant="outlined" onClick={onCancel}>
 						Cancel
 					</Button>

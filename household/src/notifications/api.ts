@@ -90,6 +90,43 @@ export function mountNotificationsApi(app: Hono, deps: NotificationsApiDeps): vo
 		return c.json(toWire(updated))
 	})
 
+	app.post('/api/notifications/channels/test', async (c) => {
+		const guardResult = deps.guard.requireAdmin(c)
+		if (guardResult) return guardResult
+
+		let body: unknown
+		try {
+			body = await c.req.json()
+		} catch {
+			return c.json({ error: 'invalid_json' }, 400)
+		}
+		if (!body || typeof body !== 'object') return c.json({ error: 'expected_object' }, 400)
+		const b = body as { kind?: unknown; config?: unknown }
+		if (b.kind !== 'webhook' && b.kind !== 'smtp') return c.json({ error: 'invalid_kind' }, 400)
+		if (!b.config || typeof b.config !== 'object') return c.json({ error: 'config_required' }, 400)
+		try {
+			await deps.sender.sendTest(b.kind, b.config as never)
+			return c.json({ ok: true })
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			return c.json({ error: message }, 502)
+		}
+	})
+
+	app.post('/api/notifications/channels/:id/test', async (c) => {
+		const guardResult = deps.guard.requireAdmin(c)
+		if (guardResult) return guardResult
+		const ch = deps.store.get(c.req.param('id'))
+		if (!ch) return c.json({ error: 'not_found' }, 404)
+		try {
+			await deps.sender.sendTest(ch.kind, ch.config)
+			return c.json({ ok: true })
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			return c.json({ error: message }, 502)
+		}
+	})
+
 	app.delete('/api/notifications/channels/:id', (c) => {
 		const guardResult = deps.guard.requireAdmin(c)
 		if (guardResult) return guardResult
