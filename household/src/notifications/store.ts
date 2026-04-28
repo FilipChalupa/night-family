@@ -14,9 +14,17 @@ export type NotificationEventName =
 
 export type ChannelKind = 'webhook' | 'smtp'
 
+export type WebhookFormat = 'generic' | 'slack' | 'discord'
+
 export interface WebhookConfig {
 	url: string
 	headers?: Record<string, string>
+	/**
+	 * Body format. `generic` posts `{ event, payload, ts }` (default for backward
+	 * compatibility); `slack` posts `{ text }` for Slack incoming webhooks;
+	 * `discord` posts `{ content }` for Discord webhooks.
+	 */
+	format?: WebhookFormat
 }
 
 export interface SmtpConfig {

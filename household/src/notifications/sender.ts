@@ -92,7 +92,17 @@ async function sendWebhook(
 	event: NotificationEventName | 'test',
 	payload: Record<string, unknown>,
 ): Promise<void> {
-	const body = JSON.stringify({ event, payload, ts: new Date().toISOString() })
+	const ts = new Date().toISOString()
+	const format = config.format ?? 'generic'
+	let body: string
+	if (format === 'slack') {
+		body = JSON.stringify({ text: renderText(event, payload, ts) })
+	} else if (format === 'discord') {
+		// Discord caps `content` at 2000 chars.
+		body = JSON.stringify({ content: renderText(event, payload, ts).slice(0, 1900) })
+	} else {
+		body = JSON.stringify({ event, payload, ts })
+	}
 	const headers: Record<string, string> = {
 		'content-type': 'application/json',
 		...config.headers,
@@ -101,6 +111,11 @@ async function sendWebhook(
 	if (!res.ok) {
 		throw new Error(`webhook returned ${res.status}`)
 	}
+}
+
+function renderText(event: string, payload: Record<string, unknown>, ts: string): string {
+	const detail = JSON.stringify(payload, null, 2)
+	return `[Night Agents] ${event} · ${ts}\n\`\`\`\n${detail}\n\`\`\``
 }
 
 async function sendSmtp(

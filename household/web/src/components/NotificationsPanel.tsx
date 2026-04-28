@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 type ChannelKind = 'webhook' | 'smtp'
+type WebhookFormat = 'generic' | 'slack' | 'discord'
 type NotificationEvent =
 	| 'task.failed'
 	| 'pr.merged'
@@ -195,7 +196,9 @@ export function NotificationsPanel({ canManage }: Props) {
 									</TableCell>
 									<TableCell>
 										<Typography variant="body2" color="text.secondary">
-											{ch.kind}
+											{ch.kind === 'webhook'
+												? `webhook · ${(ch.config['format'] as string | undefined) ?? 'generic'}`
+												: ch.kind}
 										</Typography>
 									</TableCell>
 									<TableCell>
@@ -329,6 +332,7 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 	const [name, setName] = useState('')
 	const [kind, setKind] = useState<ChannelKind>('webhook')
 	const [webhookUrl, setWebhookUrl] = useState('')
+	const [webhookFormat, setWebhookFormat] = useState<WebhookFormat>('generic')
 	const [smtpHost, setSmtpHost] = useState('')
 	const [smtpPort, setSmtpPort] = useState('587')
 	const [smtpUser, setSmtpUser] = useState('')
@@ -354,7 +358,7 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 	}
 
 	const buildConfig = () => {
-		if (kind === 'webhook') return { url: webhookUrl }
+		if (kind === 'webhook') return { url: webhookUrl, format: webhookFormat }
 		return {
 			host: smtpHost,
 			port: parseInt(smtpPort, 10),
@@ -443,16 +447,37 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 				</Stack>
 
 				{kind === 'webhook' ? (
-					<TextField
-						label="Webhook URL"
-						type="url"
-						placeholder="https://hooks.slack.com/…"
-						value={webhookUrl}
-						onChange={(e) => setWebhookUrl(e.target.value)}
-						required
-						size="small"
-						fullWidth
-					/>
+					<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+						<TextField
+							label="Webhook URL"
+							type="url"
+							placeholder="https://hooks.slack.com/…"
+							value={webhookUrl}
+							onChange={(e) => setWebhookUrl(e.target.value)}
+							required
+							size="small"
+							fullWidth
+						/>
+						<TextField
+							select
+							label="Body format"
+							value={webhookFormat}
+							onChange={(e) => setWebhookFormat(e.target.value as WebhookFormat)}
+							helperText={
+								webhookFormat === 'generic'
+									? 'JSON: { event, payload, ts }'
+									: webhookFormat === 'slack'
+										? 'Slack incoming webhook ({ text })'
+										: 'Discord webhook ({ content })'
+							}
+							size="small"
+							sx={{ minWidth: 220 }}
+						>
+							<MenuItem value="generic">Generic JSON</MenuItem>
+							<MenuItem value="slack">Slack</MenuItem>
+							<MenuItem value="discord">Discord</MenuItem>
+						</TextField>
+					</Stack>
 				) : (
 					<>
 						<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
