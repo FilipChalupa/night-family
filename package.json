@@ -14,7 +14,9 @@
 		"lint": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
 		"format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\"",
 		"test": "npm run test --workspaces --if-present",
+		"dev": "concurrently -n hh,web -c blue,magenta \"npm:dev:household\" \"npm:dev:web\"",
 		"dev:household": "npm run dev --workspace @night/household",
+		"dev:web": "npm run dev --workspace @night/household-web",
 		"dev:member": "npm run dev --workspace @night/member",
 		"build:household": "docker compose -f docker-compose.household.yml build",
 		"build:member": "docker compose -f docker-compose.member.yml build",
@@ -25,6 +27,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",
+		"concurrently": "^9.2.1",
 		"drizzle-orm": "^0.45.0",
 		"prettier": "^3.4.0",
 		"tsx": "^4.19.0",
