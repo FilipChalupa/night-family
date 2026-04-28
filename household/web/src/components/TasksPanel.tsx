@@ -20,6 +20,7 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
+import HistoryIcon from '@mui/icons-material/History'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useEffect, useState } from 'react'
 import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
@@ -283,24 +284,32 @@ function TasksTable({
 									spacing={1}
 									sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
 								>
-									{(t.status === 'in-review' && !t.prUrl) ||
-									(t.status === 'failed' && t.failureReason === 'no_changes') ? (
-										<Tooltip
-											title={
-												t.status === 'failed'
-													? 'Failed with no_changes — agent claimed it finished but did not modify any files. Click to inspect events from the run.'
-													: 'Marked in-review but no PR was opened. Click to inspect events from the run.'
-											}
-										>
-											<IconButton
-												size="small"
-												color="warning"
-												onClick={() => setEventsTaskId(t.id)}
-											>
-												<WarningAmberIcon fontSize="small" />
-											</IconButton>
-										</Tooltip>
-									) : null}
+									{(() => {
+										const suspicious =
+											(t.status === 'in-review' && !t.prUrl) ||
+											(t.status === 'failed' &&
+												t.failureReason === 'no_changes')
+										const tooltip = suspicious
+											? t.status === 'failed'
+												? 'Failed with no_changes — agent claimed it finished but did not modify any files. Click to inspect events.'
+												: 'Marked in-review but no PR was opened. Click to inspect events.'
+											: 'Inspect events from this task.'
+										return (
+											<Tooltip title={tooltip}>
+												<IconButton
+													size="small"
+													color={suspicious ? 'warning' : 'default'}
+													onClick={() => setEventsTaskId(t.id)}
+												>
+													{suspicious ? (
+														<WarningAmberIcon fontSize="small" />
+													) : (
+														<HistoryIcon fontSize="small" />
+													)}
+												</IconButton>
+											</Tooltip>
+										)
+									})()}
 									{canManage && ACTIVE.includes(t.status) ? (
 										<Button
 											size="small"
