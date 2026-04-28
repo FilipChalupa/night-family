@@ -125,30 +125,19 @@ export class Workspace {
 
 	/**
 	 * Create / update a draft PR via `gh`. Idempotent: if a PR for this branch
-	 * already exists, edit its body; otherwise open a fresh draft.
+	 * already exists, edit its body via the REST API and return its URL;
+	 * otherwise open a fresh draft.
 	 */
 	async upsertDraftPr(opts: { title: string; body: string }): Promise<{ url: string } | null> {
+		// Step 1: discover whether a PR already exists for this branch.
+		let existing: { url: string; number: number } | null = null
 		try {
-			const existing = await gh(
+			const raw = await gh(
 				['pr', 'list', '--head', this.branch, '--json', 'url,number', '--limit', '1'],
 				{ cwd: this.path, token: this.token },
 			)
-			const parsed = JSON.parse(existing) as Array<{ url: string; number: number }>
-			if (parsed[0]) {
-				await gh(
-					[
-						'pr',
-						'edit',
-						String(parsed[0].number),
-						'--body',
-						opts.body,
-						'--title',
-						opts.title,
-					],
-					{ cwd: this.path, token: this.token },
-				)
-				return { url: parsed[0].url }
-			}
+			const parsed = JSON.parse(raw) as Array<{ url: string; number: number }>
+			existing = parsed[0] ?? null
 		} catch (err) {
 			this.logger.warn(
 				{ err: err instanceof Error ? err.message : String(err) },
@@ -156,6 +145,43 @@ export class Workspace {
 			)
 		}
 
+		// Step 2: if a PR exists, update title/body via the REST API.
+		// We deliberately avoid `gh pr edit` because it goes through GraphQL and
+		// queries deprecated fields like `projectCards`, which can fail the whole
+		// command with `GraphQL: Projects (classic) is being deprecated …` even
+		// when the underlying update would have succeeded. The REST PATCH endpoint
+		// touches only the fields we actually care about.
+		if (existing) {
+			try {
+				await gh(
+					[
+						'api',
+						'-X',
+						'PATCH',
+						`repos/${this.repo}/pulls/${existing.number}`,
+						'-f',
+						`title=${opts.title}`,
+						'-f',
+						`body=${opts.body}`,
+					],
+					{ cwd: this.path, token: this.token },
+				)
+			} catch (err) {
+				// Non-fatal — the PR is already there with whatever body it had,
+				// so we can still return success and let the caller proceed.
+				if (err instanceof GitError) {
+					this.logger.warn({ stderr: err.stderr.slice(0, 400) }, 'gh pr edit failed')
+				} else {
+					this.logger.warn(
+						{ err: err instanceof Error ? err.message : String(err) },
+						'gh pr edit failed',
+					)
+				}
+			}
+			return { url: existing.url }
+		}
+
+		// Step 3: no existing PR — create one.
 		try {
 			const url = (
 				await gh(
