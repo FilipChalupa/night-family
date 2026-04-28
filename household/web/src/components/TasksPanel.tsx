@@ -244,17 +244,24 @@ function TasksTable({
 							<TableCell>
 								{t.estimateSize ? (
 									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-										<Chip
-											label={t.estimateSize}
-											size="small"
-											color={estimateColor(t.estimateSize)}
-											variant="filled"
-											sx={{ fontWeight: 600, minWidth: 36 }}
-										/>
+										<Tooltip title={estimateTooltip(t.estimateSize)}>
+											<Chip
+												label={t.estimateSize}
+												size="small"
+												color={estimateColor(t.estimateSize)}
+												variant="filled"
+												sx={{ fontWeight: 600, minWidth: 36 }}
+											/>
+										</Tooltip>
 										{t.estimateBlockers && t.estimateBlockers.length > 0 ? (
-											<Typography variant="caption" color="text.secondary">
-												blockers: {t.estimateBlockers.length}
-											</Typography>
+											<Tooltip title={t.estimateBlockers.join('\n')}>
+												<Typography
+													variant="caption"
+													color="text.secondary"
+												>
+													blockers: {t.estimateBlockers.length}
+												</Typography>
+											</Tooltip>
 										) : null}
 									</Stack>
 								) : (
@@ -453,6 +460,19 @@ function estimateColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warn
 			return 'warning'
 		case 'XL':
 			return 'error'
+	}
+}
+
+function estimateTooltip(size: 'S' | 'M' | 'L' | 'XL'): string {
+	switch (size) {
+		case 'S':
+			return 'Small — about an hour of focused work, single small file.'
+		case 'M':
+			return 'Medium — a few files, straightforward changes.'
+		case 'L':
+			return 'Large — multi-file refactor or non-trivial logic.'
+		case 'XL':
+			return 'Extra large — cross-cutting changes or significant new functionality.'
 	}
 }
 
