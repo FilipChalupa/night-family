@@ -51,13 +51,23 @@ export class Workspace {
 		await rm(taskPath, { recursive: true, force: true })
 		await mkdir(dirname(taskPath), { recursive: true })
 
+		// Idempotency for retries: a previous run for the same taskId may have
+		// left a registered worktree and the branch ref behind. `worktree prune`
+		// drops dangling worktree records (the dir was rm'd above), and `-B`
+		// resets the branch if it already exists instead of erroring.
+		try {
+			await git(['worktree', 'prune'], { cwd: cachePath })
+		} catch {
+			/* best-effort */
+		}
+
 		// Create branch from latest base, attached to a worktree. We can't use
 		// `origin/<baseBranch>` here: `git clone --bare` defaults to refspec
 		// `+refs/heads/*:refs/heads/*`, so the bare cache has no
 		// `refs/remotes/origin/*` — only `refs/heads/*`. The fetch above also
 		// lands on `refs/heads/<baseBranch>`.
 		await git(['fetch', 'origin', `+${baseBranch}:${baseBranch}`], { cwd: cachePath })
-		await git(['worktree', 'add', '-b', branch, taskPath, baseBranch], {
+		await git(['worktree', 'add', '-B', branch, taskPath, baseBranch], {
 			cwd: cachePath,
 		})
 

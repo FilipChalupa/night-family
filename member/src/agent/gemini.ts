@@ -69,7 +69,7 @@ export class GeminiProvider implements Provider {
 
 			const candidate = response.candidates?.[0]
 			if (!candidate) {
-				summary = '(no candidates returned)'
+				summary = describeEmptyResponse(response, null)
 				break
 			}
 
@@ -82,7 +82,8 @@ export class GeminiProvider implements Provider {
 
 			if (!functionCalls || functionCalls.length === 0) {
 				// No tool calls — extract text and finish.
-				summary = extractText(modelParts) ?? '(agent finished without text)'
+				const text = extractText(modelParts)
+				summary = text ?? describeEmptyResponse(response, candidate)
 				break
 			}
 
@@ -223,6 +224,42 @@ function buildKickoffPrompt(
 function extractText(parts: Part[]): string | null {
 	const texts = parts.filter((p) => typeof p.text === 'string').map((p) => p.text as string)
 	return texts.length > 0 ? texts.join('\n').trim() : null
+}
+
+/**
+ * Build a diagnostic summary when Gemini returns no text and no tool calls.
+ * The default stringification is unhelpful ("agent finished without text"),
+ * so we surface every signal the API gave us — finish reason, prompt-feedback
+ * block reason, safety ratings, candidate count — so the failure event can
+ * actually be acted on.
+ */
+function describeEmptyResponse(
+	response: { candidates?: unknown[]; promptFeedback?: unknown },
+	candidate: { finishReason?: unknown; finishMessage?: unknown; safetyRatings?: unknown } | null,
+): string {
+	const lines: string[] = ['(agent returned no text and no tool calls)']
+	if (candidate?.finishReason) {
+		lines.push(`finishReason: ${String(candidate.finishReason)}`)
+	}
+	if (candidate?.finishMessage) {
+		lines.push(`finishMessage: ${String(candidate.finishMessage)}`)
+	}
+	const blocked = (response.promptFeedback as { blockReason?: unknown } | undefined)?.blockReason
+	if (blocked) lines.push(`promptFeedback.blockReason: ${String(blocked)}`)
+	const safety = candidate?.safetyRatings
+	if (Array.isArray(safety) && safety.length > 0) {
+		const triggered = safety
+			.map((r) => r as { category?: string; probability?: string; blocked?: boolean })
+			.filter((r) => r.blocked || (r.probability && r.probability !== 'NEGLIGIBLE'))
+			.map(
+				(r) =>
+					`${r.category ?? '?'}=${r.probability ?? '?'}${r.blocked ? '(blocked)' : ''}`,
+			)
+		if (triggered.length > 0) lines.push(`safety: ${triggered.join(', ')}`)
+	}
+	const candidateCount = response.candidates?.length ?? 0
+	if (candidateCount === 0) lines.push('candidates: 0')
+	return lines.join(' · ')
 }
 
 function throwIfAborted(signal: AbortSignal): void {
