@@ -5,7 +5,9 @@
 	"type": "module",
 	"main": "./src/index.ts",
 	"scripts": {
-		"dev": "tsx watch --env-file-if-exists=../.env.household src/index.ts",
+		"dev": "concurrently -n be,web -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
+		"dev:backend": "tsx watch --env-file-if-exists=../.env.household src/index.ts",
+		"dev:web": "npm run dev --workspace @night/household-web",
 		"start": "tsx src/index.ts",
 		"typecheck": "tsc",
 		"test": "vitest run --passWithNoTests",

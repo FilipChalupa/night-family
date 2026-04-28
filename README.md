@@ -18,15 +18,16 @@ cp .env.member.example    .env.member      # see "Run a Member" below for the to
 npm run dev
 ```
 
-Starts Household (`:8080`), Vite (`:5173`), and a Member concurrently. Logs are prefixed `[hh]` / `[web]` / `[mem]`; Ctrl-C kills all three. Browse the UI at http://localhost:5173 — Vite proxies `/api`, `/auth`, and `/ws` to Household.
+Starts Household (backend `:8080` + Vite `:5173`) and a Member concurrently. Logs are prefixed `[hh]` / `[mem]`; Household nests its own `[be]` / `[web]` inside `[hh]`. Ctrl-C kills everything. Browse the UI at http://localhost:5173 — Vite proxies `/api`, `/auth`, and `/ws` to the backend.
 
 `.env.household` and `.env.member` are loaded automatically by the dev scripts (Node's `--env-file-if-exists`). If they're missing, the affected process will fail on the first required env var.
 
 Subset scripts:
 
-- `npm run dev:household` — Household only
-- `npm run dev:web` — Vite only
+- `npm run dev:household` — Household only (backend + Vite)
 - `npm run dev:member` — Member only
+- `npm run dev:backend --workspace @night/household` — backend without Vite
+- `npm run dev:web --workspace @night/household` — Vite without the backend
 
 Backend endpoints:
 
