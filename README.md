@@ -10,37 +10,32 @@ Prerequisites: Node 22+, npm 10+, Docker (optional).
 npm install
 ```
 
-### Run Household
+### Run Household + web UI
 
 ```bash
-REQUIRE_UI_LOGIN=false \
-PRIMARY_ADMIN_GITHUB_USERNAME=your-github-login \
-DATA_DIR=$(pwd)/.tmp/data \
-CONFIG_DIR=$(pwd)/.tmp/config \
-npm run dev:household
+cp .env.household.example .env.household   # ship-it defaults already work for dev
+npm run dev
 ```
 
-Household listens on http://localhost:8080. Endpoints:
+Starts the backend (`:8080`) and the Vite dev server (`:5173`) concurrently. Both processes are log-prefixed `[hh]` / `[web]`, and Ctrl-C kills both. Browse the UI at http://localhost:5173 — Vite proxies `/api`, `/auth`, and `/ws` to the backend.
+
+`.env.household` is loaded automatically by Node (via `--env-file-if-exists`). If the file is missing the dev script still runs, but `loadConfig()` will fail on the missing `REQUIRE_UI_LOGIN` — so `.env.household` is effectively required even in dev.
+
+Individually:
+
+- `npm run dev:household` — backend only
+- `npm run dev:web` — Vite only
+
+Backend endpointy:
 
 - `GET /health` — health check
 - `GET /api/members` — connected Members snapshot
 - `WS /ws/member` — Member fleet (bearer-token auth)
 - `WS /ws/ui` — UI live updates
 
-If you want the dashboard and UI APIs to require login, set `REQUIRE_UI_LOGIN=true`.
-In that mode, `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
-`GITHUB_OAUTH_CLIENT_SECRET` are all required, and access to the dashboard,
-read APIs, and UI websocket is limited to signed-in users.
+If you want the dashboard and UI APIs to require login, set `REQUIRE_UI_LOGIN=true` in `.env.household`. In that mode, `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and `GITHUB_OAUTH_CLIENT_SECRET` are all required, and access to the dashboard, read APIs, and UI websocket is limited to signed-in users.
 
-### Run the web UI
-
-In a second terminal, start Vite with API/WS proxy to the backend:
-
-```bash
-npm run dev --workspace @night/household-web
-```
-
-Visit http://localhost:5173. Production build is served by Household itself once you `npm run build --workspace @night/household-web`.
+Production build is served by Household itself on `:8080` after `npm run build --workspace @night/household-web`.
 
 ### Run a Member
 
@@ -55,18 +50,14 @@ console.log(raw)
 "
 ```
 
-Then start a Member (any LLM provider — `AI_API_KEY` can be a dummy in M1 since no agent runs yet):
+Then fill in `.env.member` (copy from `.env.member.example` and paste the token from the previous step; `AI_API_KEY=fake` is fine for M1) and run:
 
 ```bash
-HOUSEHOLD_URL=ws://localhost:8080 \
-HOUSEHOLD_ACCESS_TOKEN=<paste-token> \
-MEMBER_NAME=alice-dev \
-WORKSPACE_DIR=$(pwd)/.tmp/workspace \
-AI_PROVIDER=anthropic \
-AI_MODEL=claude-opus-4-7 \
-AI_API_KEY=fake \
+cp .env.member.example .env.member   # if it doesn't exist yet
 npm run dev:member
 ```
+
+`.env.member` is loaded automatically the same way as `.env.household`.
 
 The Member appears in `GET /api/members` and on the dashboard within ~1 s.
 
@@ -86,13 +77,13 @@ Without this, you would spend an unreasonable amount of time wondering why webho
 
 ## Docker
 
-Compose je rozdělený podle toho, kde co běží. V produkci pojede Household a Member každý na jiném stroji, takže každý dostal svůj soubor:
+Compose is split by where each side runs. In production, Household and Member each live on a different machine, so each gets its own file:
 
-- `docker-compose.household.yml` — jen Household.
-- `docker-compose.member.yml` — jen Member (bez `depends_on`, čte si vzdálený `HOUSEHOLD_URL` z `.env.member`).
-- `docker-compose.dev.yml` — `include:` obou + `depends_on: household healthy`. Pro lokální dev, kdy oboje pojede na jednom stroji.
+- `docker-compose.household.yml` — Household only.
+- `docker-compose.member.yml` — Member only (no `depends_on`; reads the remote `HOUSEHOLD_URL` from `.env.member`).
+- `docker-compose.dev.yml` — `include:`s both + `depends_on: household healthy`. For local dev where both run on one machine.
 
-Lokální dev (oboje najednou):
+Local dev (both at once):
 
 ```bash
 cp .env.household.example .env.household
@@ -101,14 +92,14 @@ cp .env.member.example   .env.member
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Jen Household (na serveru):
+Household only (on the server):
 
 ```bash
 cp .env.household.example .env.household
 docker compose -f docker-compose.household.yml up -d --build
 ```
 
-Jen Member (na worker stroji, `HOUSEHOLD_URL` v `.env.member` ukazuje na vzdálený Household):
+Member only (on the worker machine; `HOUSEHOLD_URL` in `.env.member` points at the remote Household):
 
 ```bash
 cp .env.member.example .env.member
@@ -140,7 +131,7 @@ plan.md      design doc — single source of truth
 
 Following the milestone plan in [plan.md §10](plan.md#10-fáze-milestones).
 
-- **M1** — kostra & spojení: in progress / mostly done
-- **M2** — manuální úkoly + estimate: not started
+- **M1** — skeleton & connection: in progress / mostly done
+- **M2** — manual tasks + estimate: not started
 
 Track per-milestone checkboxes in plan.md.
