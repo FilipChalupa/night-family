@@ -10,23 +10,25 @@ Prerequisites: Node 22+, npm 10+, Docker (optional).
 npm install
 ```
 
-### Run Household + web UI
+### Run the full stack
 
 ```bash
 cp .env.household.example .env.household   # ship-it defaults already work for dev
+cp .env.member.example    .env.member      # see "Run a Member" below for the token
 npm run dev
 ```
 
-Starts the backend (`:8080`) and the Vite dev server (`:5173`) concurrently. Both processes are log-prefixed `[hh]` / `[web]`, and Ctrl-C kills both. Browse the UI at http://localhost:5173 — Vite proxies `/api`, `/auth`, and `/ws` to the backend.
+Starts Household (`:8080`), Vite (`:5173`), and a Member concurrently. Logs are prefixed `[hh]` / `[web]` / `[mem]`; Ctrl-C kills all three. Browse the UI at http://localhost:5173 — Vite proxies `/api`, `/auth`, and `/ws` to Household.
 
-`.env.household` is loaded automatically by Node (via `--env-file-if-exists`). If the file is missing the dev script still runs, but `loadConfig()` will fail on the missing `REQUIRE_UI_LOGIN` — so `.env.household` is effectively required even in dev.
+`.env.household` and `.env.member` are loaded automatically by the dev scripts (Node's `--env-file-if-exists`). If they're missing, the affected process will fail on the first required env var.
 
-Individually:
+Subset scripts:
 
-- `npm run dev:household` — backend only
+- `npm run dev:household` — Household only
 - `npm run dev:web` — Vite only
+- `npm run dev:member` — Member only
 
-Backend endpointy:
+Backend endpoints:
 
 - `GET /health` — health check
 - `GET /api/members` — connected Members snapshot
@@ -37,9 +39,9 @@ If you want the dashboard and UI APIs to require login, set `REQUIRE_UI_LOGIN=tr
 
 Production build is served by Household itself on `:8080` after `npm run build --workspace @night/household-web`.
 
-### Run a Member
+### Generating a Member join-token
 
-Members need a join-token. For now, generate one by running:
+A Member needs a join-token to connect to Household. For now, generate one with:
 
 ```bash
 npx tsx -e "
@@ -50,16 +52,7 @@ console.log(raw)
 "
 ```
 
-Then fill in `.env.member` (copy from `.env.member.example` and paste the token from the previous step; `AI_API_KEY=fake` is fine for M1) and run:
-
-```bash
-cp .env.member.example .env.member   # if it doesn't exist yet
-npm run dev:member
-```
-
-`.env.member` is loaded automatically the same way as `.env.household`.
-
-The Member appears in `GET /api/members` and on the dashboard within ~1 s.
+Paste the printed value into `HOUSEHOLD_ACCESS_TOKEN` in `.env.member`. `AI_API_KEY=fake` is fine for M1 (no agent runs yet). After that, `npm run dev` (or `npm run dev:member`) will start a Member that registers with Household within ~1 s and shows up in `GET /api/members` and on the dashboard.
 
 ## Forwarding GitHub webhooks with smee.io
 
