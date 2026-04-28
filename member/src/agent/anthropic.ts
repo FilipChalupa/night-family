@@ -79,27 +79,6 @@ export class AnthropicProvider implements Provider {
 		// benefit from adaptive reasoning.
 		const useThinking = task.kind !== 'estimate'
 
-		// Force a tool call on the first turn of file-editing tasks. Without
-		// this, Sonnet sometimes produces a long markdown summary describing
-		// the edits and ends with `stop_reason: end_turn` having never invoked
-		// a tool — a hallucinated completion. `tool_choice: { type: 'any' }`
-		// makes the model pick at least one tool (typically `read_file` or
-		// `bash`); from the second iteration onward we revert to `auto` so the
-		// agent can stop calling tools when it's actually finished.
-		const forceFirstToolUse = task.kind === 'implement'
-
-		/**
-		 * For implement tasks we need at least one `write_file` call before the
-		 * agent can legitimately stop — otherwise the runner will fail with
-		 * `no_changes`. Sonnet has a strong bias toward summarizing planned edits
-		 * in prose and ending the turn without invoking the write tool, so when
-		 * we see `end_turn` with zero `write_file` calls in the conversation we
-		 * push a corrective user message and resume the loop.
-		 */
-		let writeFileCalls = 0
-		let nudgesUsed = 0
-		const MAX_NUDGES = 2
-
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
 
@@ -110,13 +89,6 @@ export class AnthropicProvider implements Provider {
 			// entire prior conversation from cache instead of paying full input
 			// rate on the growing message history.
 			markLatestUserAsCacheBreakpoint(messages)
-
-			const forcingToolUse = forceFirstToolUse && iteration === 0
-			// Anthropic rejects requests that combine extended thinking with a
-			// forced `tool_choice` (`Thinking may not be enabled when tool_choice
-			// forces tool use.`), so on the forcing turn we drop thinking. Subsequent
-			// turns use whatever `useThinking` is.
-			const enableThinking = useThinking && !forcingToolUse
 
 			const stream = this.client.messages.stream({
 				model: this.model,
@@ -130,8 +102,7 @@ export class AnthropicProvider implements Provider {
 				],
 				tools: sdkTools,
 				messages,
-				...(enableThinking ? { thinking: { type: 'adaptive' } } : {}),
-				...(forcingToolUse ? { tool_choice: { type: 'any' as const } } : {}),
+				...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
 			})
 
 			const message = await stream.finalMessage()
@@ -150,26 +121,6 @@ export class AnthropicProvider implements Provider {
 			messages.push({ role: 'assistant', content: message.content })
 
 			if (message.stop_reason === 'end_turn' || message.stop_reason === 'stop_sequence') {
-				if (task.kind === 'implement' && writeFileCalls === 0 && nudgesUsed < MAX_NUDGES) {
-					nudgesUsed++
-					await onEvent({
-						kind: 'log',
-						payload: {
-							message: 'agent ended without calling write_file, nudging',
-							attempt: nudgesUsed,
-						},
-					})
-					messages.push({
-						role: 'user',
-						content: [
-							{
-								type: 'text',
-								text: 'You ended your turn without calling `write_file`. Describing the changes is not enough — the runner detects work via `git status` and will fail this task as `no_changes` if no files were written. Resume the task: call `write_file` with the full new contents for every file that needs to change, then run any sanity checks via `bash`, and only then summarize.',
-							},
-						],
-					})
-					continue
-				}
 				summary = extractText(message.content) ?? '(agent finished without text)'
 				break
 			}
@@ -192,9 +143,6 @@ export class AnthropicProvider implements Provider {
 			const toolUseBlocks = message.content.filter(
 				(b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
 			)
-			for (const b of toolUseBlocks) {
-				if (b.name === 'write_file') writeFileCalls++
-			}
 
 			const toolResults: Anthropic.ToolResultBlockParam[] = []
 			for (const block of toolUseBlocks) {
@@ -354,21 +302,9 @@ function buildKickoffPrompt(
 	return [
 		`# Task: ${title}`,
 		``,
-		`Kind: ${kind}`,
-		``,
-		`## Description`,
 		description.trim(),
 		``,
-		`## How to do this task`,
-		`This is a code-editing task. You MUST modify files using the provided tools — answering with prose alone counts as failure (your changes are detected by \`git status\`; if no files changed, the task fails as \`no_changes\`).`,
-		``,
-		`Required workflow — call tools, do not just describe:`,
-		`1. Use \`bash\` (e.g. \`ls -la\`, \`cat README.md\`, \`rg <pattern>\`) and \`read_file\` to understand the relevant files.`,
-		`2. Use \`write_file\` to apply every change. One \`write_file\` per file you want to change; provide the full new contents.`,
-		`3. Use \`bash\` to run any tests, builds, or linters available in the repo. Fix what you broke before stopping.`,
-		`4. Only after the files actually look right on disk, stop calling tools and summarize what you changed.`,
-		``,
-		`If the task is genuinely impossible (missing context, request out of scope), still call no further tools and explicitly say so in your final summary — but only after at least exploring the repo.`,
+		`Apply this change by editing files in the working tree. Use \`read_file\` / \`bash\` to find what to change, \`write_file\` to apply each edit (full new contents per file), and \`bash\` to run any sanity checks the repo offers (tests, build, linter). When the files on disk look right, briefly summarize what you did and stop calling tools.`,
 	].join('\n')
 }
 
@@ -428,23 +364,29 @@ export function buildSystemPrompt(opts: {
 	projectInstructions: string | null
 }): string {
 	const sections: string[] = [
-		`You are ${opts.memberName}, a Night Family member — an autonomous coding agent that finishes implementation tasks end-to-end.`,
+		`You are ${opts.memberName}, a Night Family member — an automated coding agent.`,
 		``,
-		`# Operating principles`,
-		`- Stay inside the workspace. Do not access or modify files outside it.`,
-		`- Make small, logical commits as you go — do not batch every change into one commit at the end.`,
-		`- Run available verification (tests, build) before declaring the task done.`,
-		`- If you cannot finish (missing context, blocked by something out of scope), say so clearly and stop calling tools.`,
-		`- Never print, log, or include secrets/credentials in tool inputs or outputs.`,
+		`# Environment`,
+		`You operate inside a checked-out git working tree of a single repository, on a fresh branch created just for this task. The current directory is that tree; relative paths in your tools refer to it. **You will not commit, push, or open a PR yourself** — the runner around you does all of that automatically once you stop calling tools. Your job is to edit the files.`,
+		``,
+		`# Tools`,
+		`- \`read_file(path)\` — read a file in the workspace.`,
+		`- \`write_file(path, content)\` — overwrite a file with the full new contents (no diffs, no patches).`,
+		`- \`bash(command)\` — run a shell command in the workspace (60-second timeout). Use it for \`ls\`, \`rg\`, tests, builds, formatters, package managers.`,
+		``,
+		`# Ground rules`,
+		`- Stay inside the workspace. Do not touch files outside it.`,
+		`- Never print, log, or pass through secrets or credentials.`,
+		`- When you are finished editing, write a short final summary of what you changed and stop calling tools.`,
 	]
 	if (opts.repo) {
-		sections.push(``, `# Repository`, `Working on \`${opts.repo}\`.`)
+		sections.push(``, `# Repository`, `\`${opts.repo}\``)
 	}
 	if (opts.projectInstructions && opts.projectInstructions.trim().length > 0) {
 		sections.push(
 			``,
 			`# Project-specific instructions`,
-			`The repository ships its own agent guide. Treat it as authoritative when it conflicts with the operating principles above.`,
+			`The repository ships its own agent guide; treat it as authoritative when it conflicts with anything above.`,
 			``,
 			opts.projectInstructions.trim(),
 		)
