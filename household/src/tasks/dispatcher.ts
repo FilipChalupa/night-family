@@ -127,9 +127,11 @@ export class Dispatcher {
 		const pref = this.deps.reviewProviderPreference ?? null
 		const sorted = idleReviewers.slice().sort((a, b) => {
 			const aScore =
-				(pref && a.provider === pref ? 2 : 0) + (a.memberId !== task.assignedMemberId ? 1 : 0)
+				(pref && a.provider === pref ? 2 : 0) +
+				(a.memberId !== task.assignedMemberId ? 1 : 0)
 			const bScore =
-				(pref && b.provider === pref ? 2 : 0) + (b.memberId !== task.assignedMemberId ? 1 : 0)
+				(pref && b.provider === pref ? 2 : 0) +
+				(b.memberId !== task.assignedMemberId ? 1 : 0)
 			return bScore - aScore
 		})
 
@@ -201,7 +203,10 @@ export class Dispatcher {
 			const target: TaskStatus = task.status === 'estimating' ? 'new' : 'queued'
 			this.deps.taskStore.transition(task.id, [task.status], target)
 			this.deps.taskStore.clearAssignment(task.id)
-			this.deps.logger.info({ taskId: task.id, target }, 'requeued task after member disconnect')
+			this.deps.logger.info(
+				{ taskId: task.id, target },
+				'requeued task after member disconnect',
+			)
 		}
 
 		// Return owned review jobs to pending.
@@ -211,14 +216,15 @@ export class Dispatcher {
 				clearTimeout(this.pendingJobAck.get(job.id)?.timer)
 				this.pendingJobAck.delete(job.id)
 				this.deps.jobStore.clearAssignment(job.id)
-				this.deps.logger.info({ jobId: job.id }, 'review job returned to pending after disconnect')
+				this.deps.logger.info(
+					{ jobId: job.id },
+					'review job returned to pending after disconnect',
+				)
 			}
 		}
 
 		if (ownedTasks.length > 0 || ownedJobs.length > 0) {
-			this.deps.notifSender
-				?.fire('member.disconnected', { sessionId })
-				.catch(() => undefined)
+			this.deps.notifSender?.fire('member.disconnected', { sessionId }).catch(() => undefined)
 			this.tryDispatchAll()
 		}
 	}
@@ -249,7 +255,10 @@ export class Dispatcher {
 			this.handleTaskAckTimeout(task.id)
 		}, TASK_ACK_TIMEOUT_MS)
 		this.pendingTaskAck.set(task.id, { timer, previousStatus: task.status })
-		this.deps.logger.info({ taskId: task.id, member: conn.memberName, wireKind }, 'task dispatched')
+		this.deps.logger.info(
+			{ taskId: task.id, member: conn.memberName, wireKind },
+			'task dispatched',
+		)
 	}
 
 	private handleTaskAckTimeout(taskId: string): void {
@@ -310,7 +319,10 @@ export class Dispatcher {
 					.catch(() => undefined)
 			}
 		} else {
-			this.deps.logger.warn({ taskId, status: task.status }, 'task.completed in unexpected status')
+			this.deps.logger.warn(
+				{ taskId, status: task.status },
+				'task.completed in unexpected status',
+			)
 		}
 
 		this.tryDispatchAll()

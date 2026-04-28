@@ -297,7 +297,11 @@ function TokenForm({
 					size="small"
 					fullWidth
 				/>
-				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+				<Stack
+					direction="row"
+					spacing={2}
+					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+				>
 					{error ? (
 						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
 							{error}

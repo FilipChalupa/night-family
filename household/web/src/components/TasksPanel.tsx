@@ -132,13 +132,21 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 					size="small"
 					fullWidth
 				/>
-				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+				<Stack
+					direction="row"
+					spacing={2}
+					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+				>
 					{error ? (
 						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
 							{error}
 						</Typography>
 					) : null}
-					<Button type="submit" variant="contained" disabled={submitting || !title.trim()}>
+					<Button
+						type="submit"
+						variant="contained"
+						disabled={submitting || !title.trim()}
+					>
 						{submitting ? 'Creating…' : 'Create task'}
 					</Button>
 				</Stack>
@@ -266,9 +274,7 @@ function TasksTable({
 	)
 }
 
-function statusColor(
-	status: TaskStatus,
-): 'default' | 'info' | 'warning' | 'success' | 'error' {
+function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'success' | 'error' {
 	switch (status) {
 		case 'new':
 		case 'queued':

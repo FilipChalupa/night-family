@@ -36,7 +36,11 @@ export function MembersPanel({ members }: Props) {
 						<TableRow key={m.sessionId} hover>
 							<TableCell>
 								<Box>
-									<Typography component="span" color="text.secondary" variant="body2">
+									<Typography
+										component="span"
+										color="text.secondary"
+										variant="body2"
+									>
 										Night{' '}
 									</Typography>
 									<Typography component="span" sx={{ fontWeight: 600 }}>
@@ -55,7 +59,11 @@ export function MembersPanel({ members }: Props) {
 									variant="outlined"
 								/>
 								{m.currentTask ? (
-									<Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+									<Typography
+										variant="caption"
+										color="text.secondary"
+										sx={{ display: 'block', mt: 0.5 }}
+									>
 										task {m.currentTask}
 									</Typography>
 								) : null}

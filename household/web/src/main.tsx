@@ -10,8 +10,7 @@ const theme = createTheme({
 		background: { default: '#0c0d10', paper: '#15171c' },
 	},
 	typography: {
-		fontFamily:
-			'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+		fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
 	},
 	shape: { borderRadius: 8 },
 })

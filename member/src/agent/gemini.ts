@@ -32,7 +32,16 @@ export class GeminiProvider implements Provider {
 		const history: Content[] = [
 			{
 				role: 'user',
-				parts: [{ text: buildKickoffPrompt(task.title, task.description, task.kind, task.prUrl) }],
+				parts: [
+					{
+						text: buildKickoffPrompt(
+							task.title,
+							task.description,
+							task.kind,
+							task.prUrl,
+						),
+					},
+				],
 			},
 		]
 

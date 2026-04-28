@@ -61,10 +61,7 @@ const jobStore = new TaskJobStore(dbHandles.db)
 const eventLog = new TaskEventLog(dbHandles.db)
 const repoBindings = new RepoBindingStore(dbHandles.db, cipher)
 const notifStore = new NotificationStore(dbHandles.db, cipher)
-const notifSender = new NotificationSender(
-	notifStore,
-	logger.child({ component: 'notifications' }),
-)
+const notifSender = new NotificationSender(notifStore, logger.child({ component: 'notifications' }))
 const dispatcher = new Dispatcher({
 	taskStore,
 	jobStore,

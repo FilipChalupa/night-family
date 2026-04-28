@@ -104,7 +104,10 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 							{repos.map((r) => (
 								<TableRow key={r.repo} hover>
 									<TableCell>
-										<Typography component="code" sx={{ fontFamily: 'monospace' }}>
+										<Typography
+											component="code"
+											sx={{ fontFamily: 'monospace' }}
+										>
 											{r.repo}
 										</Typography>
 									</TableCell>
@@ -195,15 +198,17 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						<Typography component="code" sx={{ fontFamily: 'monospace' }}>
 							{`${window.location.origin}/webhooks/github`}
 						</Typography>
-						, content type to <em>application/json</em>, and choose any secret — paste it
-						here.
+						, content type to <em>application/json</em>, and choose any secret — paste
+						it here.
 					</Typography>
 					<Typography variant="body2">
 						<strong>GitHub PAT:</strong> In GitHub, go to{' '}
-						<em>Settings → Developer settings → Fine-grained tokens → Generate new token</em>
+						<em>
+							Settings → Developer settings → Fine-grained tokens → Generate new token
+						</em>
 						. Pick this repository and grant read-only access to <em>Issues</em> and{' '}
-						<em>Pull requests</em>. The PAT is optional — needed only for issue import and
-						PR status tracking.
+						<em>Pull requests</em>. The PAT is optional — needed only for issue import
+						and PR status tracking.
 					</Typography>
 				</Alert>
 				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -237,7 +242,11 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						fullWidth
 					/>
 				</Stack>
-				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+				<Stack
+					direction="row"
+					spacing={2}
+					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+				>
 					{error ? (
 						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
 							{error}

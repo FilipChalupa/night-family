@@ -1,6 +1,11 @@
 import type { Hono } from 'hono'
 import type { AdminGuard } from '../auth/guard.ts'
-import type { NotificationStore, NotificationEventName, ChannelKind, ChannelRecord } from './store.ts'
+import type {
+	NotificationStore,
+	NotificationEventName,
+	ChannelKind,
+	ChannelRecord,
+} from './store.ts'
 import type { NotificationSender } from './sender.ts'
 
 const ALL_EVENTS: NotificationEventName[] = [

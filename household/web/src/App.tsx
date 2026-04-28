@@ -1,10 +1,4 @@
-import {
-	Box,
-	Button,
-	Container,
-	Stack,
-	Typography,
-} from '@mui/material'
+import { Box, Button, Container, Stack, Typography } from '@mui/material'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import { useEffect, useState } from 'react'
 import { MembersPanel } from './components/MembersPanel.tsx'
@@ -65,7 +59,10 @@ export function App() {
 
 	if (isLoggedOutWithRequiredLogin) {
 		return (
-			<Container maxWidth="sm" sx={{ minHeight: '60vh', display: 'flex', alignItems: 'center' }}>
+			<Container
+				maxWidth="sm"
+				sx={{ minHeight: '60vh', display: 'flex', alignItems: 'center' }}
+			>
 				<Stack spacing={2} sx={{ width: '100%' }}>
 					<Typography variant="h4" component="h1">
 						{health?.household ?? 'Night Agents'}
@@ -73,7 +70,12 @@ export function App() {
 					<Typography color="text.secondary">
 						Dashboard access requires GitHub sign-in.
 					</Typography>
-					<Button variant="contained" component="a" href="/auth/github?redirect_to=/" sx={{ alignSelf: 'flex-start' }}>
+					<Button
+						variant="contained"
+						component="a"
+						href="/auth/github?redirect_to=/"
+						sx={{ alignSelf: 'flex-start' }}
+					>
 						Sign in with GitHub
 					</Button>
 				</Stack>
@@ -117,7 +119,11 @@ export function App() {
 				}}
 			>
 				<Box>
-					<Typography variant="h6" component="h1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+					<Typography
+						variant="h6"
+						component="h1"
+						sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+					>
 						<FiberManualRecordIcon
 							fontSize="inherit"
 							sx={{ fontSize: 12, color: connected ? 'success.main' : 'error.main' }}
@@ -130,7 +136,11 @@ export function App() {
 							: 'connecting…'}
 					</Typography>
 				</Box>
-				<Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+				<Stack
+					direction="row"
+					spacing={1.5}
+					sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+				>
 					{me?.authenticated ? (
 						<>
 							<Typography variant="body2" color="text.secondary">
@@ -141,7 +151,12 @@ export function App() {
 							</Button>
 						</>
 					) : me?.oauth_configured ? (
-						<Button variant="contained" size="small" component="a" href="/auth/github?redirect_to=/">
+						<Button
+							variant="contained"
+							size="small"
+							component="a"
+							href="/auth/github?redirect_to=/"
+						>
 							Sign in with GitHub
 						</Button>
 					) : null}

@@ -48,7 +48,12 @@ export class AnthropicProvider implements Provider {
 				content: [
 					{
 						type: 'text',
-						text: buildKickoffPrompt(task.title, task.description, task.kind, task.prUrl),
+						text: buildKickoffPrompt(
+							task.title,
+							task.description,
+							task.kind,
+							task.prUrl,
+						),
 					},
 				],
 			},

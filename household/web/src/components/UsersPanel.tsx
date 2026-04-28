@@ -135,7 +135,9 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 							return (
 								<TableRow key={user.username} hover>
 									<TableCell>
-										<Typography sx={{ fontWeight: 600 }}>{user.username}</Typography>
+										<Typography sx={{ fontWeight: 600 }}>
+											{user.username}
+										</Typography>
 										{isCurrentUser ? (
 											<Typography variant="caption" color="text.secondary">
 												you
@@ -255,7 +257,11 @@ function UserForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						<MenuItem value="admin">admin</MenuItem>
 					</TextField>
 				</Stack>
-				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+				<Stack
+					direction="row"
+					spacing={2}
+					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+				>
 					{error ? (
 						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
 							{error}
@@ -264,7 +270,11 @@ function UserForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 					<Button variant="outlined" onClick={onCancel}>
 						Cancel
 					</Button>
-					<Button type="submit" variant="contained" disabled={submitting || !username.trim()}>
+					<Button
+						type="submit"
+						variant="contained"
+						disabled={submitting || !username.trim()}
+					>
 						{submitting ? 'Saving…' : 'Add user'}
 					</Button>
 				</Stack>

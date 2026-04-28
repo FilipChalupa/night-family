@@ -93,7 +93,10 @@ export class OpenAIProvider implements Provider {
 					parsedInput = {}
 				}
 
-				await onEvent({ kind: 'tool_call', payload: { tool: toolName, input: parsedInput } })
+				await onEvent({
+					kind: 'tool_call',
+					payload: { tool: toolName, input: parsedInput },
+				})
 
 				const tool = toolByName.get(toolName)
 				let resultText: string

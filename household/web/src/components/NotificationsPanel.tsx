@@ -135,8 +135,8 @@ export function NotificationsPanel({ canManage }: Props) {
 
 			{channels.length === 0 ? (
 				<EmptyBox>
-					No notification channels configured. Add a webhook or SMTP channel to get notified
-					on events.
+					No notification channels configured. Add a webhook or SMTP channel to get
+					notified on events.
 				</EmptyBox>
 			) : (
 				<TableContainer component={Paper} variant="outlined">
@@ -218,8 +218,8 @@ export function NotificationsPanel({ canManage }: Props) {
 										</TableCell>
 										<TableCell>
 											<Typography variant="body2" color="text.secondary">
-												{channels.find((ch) => ch.id === d.channelId)?.name ??
-													d.channelId}
+												{channels.find((ch) => ch.id === d.channelId)
+													?.name ?? d.channelId}
 											</Typography>
 										</TableCell>
 										<TableCell>
@@ -254,13 +254,7 @@ export function NotificationsPanel({ canManage }: Props) {
 	)
 }
 
-function ChannelForm({
-	onCreated,
-	onCancel,
-}: {
-	onCreated: () => void
-	onCancel: () => void
-}) {
+function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
 	const [name, setName] = useState('')
 	const [kind, setKind] = useState<ChannelKind>('webhook')
 	const [webhookUrl, setWebhookUrl] = useState('')
@@ -303,7 +297,12 @@ function ChannelForm({
 			const r = await fetch('/api/notifications/channels', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ name: name.trim(), kind, config: buildConfig(), subscribedEvents }),
+				body: JSON.stringify({
+					name: name.trim(),
+					kind,
+					config: buildConfig(),
+					subscribedEvents,
+				}),
 			})
 			if (!r.ok) {
 				const b = (await r.json().catch(() => ({}))) as { error?: string }
@@ -441,7 +440,11 @@ function ChannelForm({
 					</FormGroup>
 				</Box>
 
-				<Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+				<Stack
+					direction="row"
+					spacing={2}
+					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
+				>
 					{error ? (
 						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
 							{error}

@@ -91,7 +91,11 @@ export function mountTokensApi(app: Hono, deps: TokensApiDeps): void {
 		const ok = deps.tokens.revoke(id, actor.githubUsername)
 		if (!ok) return c.json({ error: 'not_found_or_already_revoked' }, 404)
 		deps.notifSender
-			?.fire('token.revoked', { tokenId: id, tokenName: token?.name ?? id, revokedBy: actor.githubUsername })
+			?.fire('token.revoked', {
+				tokenId: id,
+				tokenName: token?.name ?? id,
+				revokedBy: actor.githubUsername,
+			})
 			.catch(() => undefined)
 		return c.json({ ok: true })
 	})

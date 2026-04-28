@@ -125,7 +125,11 @@ export class TaskRunner {
 
 			// Tasks that don't need a git worktree — agent works in a scratch dir.
 			const isReview = task.kind === 'review'
-			const isNoWorkspace = isReview || task.kind === 'respond' || task.kind === 'estimate' || task.kind === 'summarize'
+			const isNoWorkspace =
+				isReview ||
+				task.kind === 'respond' ||
+				task.kind === 'estimate' ||
+				task.kind === 'summarize'
 
 			let workspace: Workspace | null = null
 			if (task.repo && !isNoWorkspace) {
