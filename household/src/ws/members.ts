@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { WSContext } from 'hono/ws'
 import {
+	PING_INTERVAL_MS,
 	PROTOCOL_VERSION,
 	decode,
 	encode,
@@ -40,9 +41,34 @@ export function createMemberWsHandler(deps: MemberWsDeps) {
 		const tokenId = tokenRecord?.id ?? null
 
 		let session: SessionState | null = null
+		let pingTimer: NodeJS.Timeout | null = null
 
 		const send = (ws: WSContext<unknown>, msg: HouseholdToMember) => {
 			ws.send(encode(msg))
+		}
+
+		const stopPings = () => {
+			if (pingTimer) {
+				clearInterval(pingTimer)
+				pingTimer = null
+			}
+		}
+
+		// Member's connection-level watchdog closes the WS after ~120s of total
+		// silence from Household. While a Member is grinding through a long
+		// agent loop we don't have any natural traffic to send, so we explicitly
+		// ping every PING_INTERVAL_MS to keep its `lastServerActivity` fresh.
+		// Member replies with `pong`, which is also fine — the timer just needs
+		// any outbound message to land.
+		const startPings = (ws: WSContext<unknown>) => {
+			stopPings()
+			pingTimer = setInterval(() => {
+				try {
+					send(ws, { type: 'ping' })
+				} catch {
+					/* socket already closed */
+				}
+			}, PING_INTERVAL_MS)
 		}
 
 		return {
@@ -76,6 +102,7 @@ export function createMemberWsHandler(deps: MemberWsDeps) {
 						return
 					}
 					session = handleHandshake(msg, ws, tokenId, deps, send)
+					if (session) startPings(ws)
 					return
 				}
 
@@ -83,6 +110,7 @@ export function createMemberWsHandler(deps: MemberWsDeps) {
 			},
 
 			onClose: (_evt: unknown, _ws: WSContext<unknown>) => {
+				stopPings()
 				if (session) {
 					deps.logger.info(
 						{ sessionId: session.sessionId, memberId: session.memberId },
