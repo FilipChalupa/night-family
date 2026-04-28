@@ -88,6 +88,18 @@ export class AnthropicProvider implements Provider {
 		// agent can stop calling tools when it's actually finished.
 		const forceFirstToolUse = task.kind === 'implement'
 
+		/**
+		 * For implement tasks we need at least one `write_file` call before the
+		 * agent can legitimately stop — otherwise the runner will fail with
+		 * `no_changes`. Sonnet has a strong bias toward summarizing planned edits
+		 * in prose and ending the turn without invoking the write tool, so when
+		 * we see `end_turn` with zero `write_file` calls in the conversation we
+		 * push a corrective user message and resume the loop.
+		 */
+		let writeFileCalls = 0
+		let nudgesUsed = 0
+		const MAX_NUDGES = 2
+
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
 
@@ -138,6 +150,26 @@ export class AnthropicProvider implements Provider {
 			messages.push({ role: 'assistant', content: message.content })
 
 			if (message.stop_reason === 'end_turn' || message.stop_reason === 'stop_sequence') {
+				if (task.kind === 'implement' && writeFileCalls === 0 && nudgesUsed < MAX_NUDGES) {
+					nudgesUsed++
+					await onEvent({
+						kind: 'log',
+						payload: {
+							message: 'agent ended without calling write_file, nudging',
+							attempt: nudgesUsed,
+						},
+					})
+					messages.push({
+						role: 'user',
+						content: [
+							{
+								type: 'text',
+								text: 'You ended your turn without calling `write_file`. Describing the changes is not enough — the runner detects work via `git status` and will fail this task as `no_changes` if no files were written. Resume the task: call `write_file` with the full new contents for every file that needs to change, then run any sanity checks via `bash`, and only then summarize.',
+							},
+						],
+					})
+					continue
+				}
 				summary = extractText(message.content) ?? '(agent finished without text)'
 				break
 			}
@@ -160,6 +192,9 @@ export class AnthropicProvider implements Provider {
 			const toolUseBlocks = message.content.filter(
 				(b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
 			)
+			for (const b of toolUseBlocks) {
+				if (b.name === 'write_file') writeFileCalls++
+			}
 
 			const toolResults: Anthropic.ToolResultBlockParam[] = []
 			for (const block of toolUseBlocks) {
