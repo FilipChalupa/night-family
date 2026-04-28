@@ -103,7 +103,8 @@ export function mountNotificationsApi(app: Hono, deps: NotificationsApiDeps): vo
 		if (!body || typeof body !== 'object') return c.json({ error: 'expected_object' }, 400)
 		const b = body as { kind?: unknown; config?: unknown }
 		if (b.kind !== 'webhook' && b.kind !== 'smtp') return c.json({ error: 'invalid_kind' }, 400)
-		if (!b.config || typeof b.config !== 'object') return c.json({ error: 'config_required' }, 400)
+		if (!b.config || typeof b.config !== 'object')
+			return c.json({ error: 'config_required' }, 400)
 		try {
 			await deps.sender.sendTest(b.kind, b.config as never)
 			return c.json({ ok: true })

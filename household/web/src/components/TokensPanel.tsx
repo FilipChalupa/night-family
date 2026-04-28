@@ -72,8 +72,8 @@ export function TokensPanel({ canManage }: Props) {
 			title: 'Revoke token',
 			description: (
 				<>
-					Revoke token <strong>{name}</strong>? All members using it will be
-					disconnected immediately.
+					Revoke token <strong>{name}</strong>? All members using it will be disconnected
+					immediately.
 				</>
 			),
 			confirmLabel: 'Revoke',

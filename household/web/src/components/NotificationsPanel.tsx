@@ -230,7 +230,9 @@ export function NotificationsPanel({ canManage }: Props) {
 													size="small"
 													variant="outlined"
 													color="error"
-													onClick={() => void deleteChannel(ch.id, ch.name)}
+													onClick={() =>
+														void deleteChannel(ch.id, ch.name)
+													}
 												>
 													Delete
 												</Button>
@@ -340,9 +342,10 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 	const [submitting, setSubmitting] = useState(false)
 	const [testing, setTesting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	const [testResult, setTestResult] = useState<
-		{ severity: 'success' | 'error'; message: string } | null
-	>(null)
+	const [testResult, setTestResult] = useState<{
+		severity: 'success' | 'error'
+		message: string
+	} | null>(null)
 
 	const toggleEvent = (ev: NotificationEvent) => {
 		setSubscribedEvents((prev) =>

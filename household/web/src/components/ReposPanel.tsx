@@ -219,13 +219,13 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						<em>
 							Settings → Developer settings → Fine-grained tokens → Generate new token
 						</em>
-						. Pick this repository and grant the following <strong>Repository
-						permissions</strong>:
+						. Pick this repository and grant the following{' '}
+						<strong>Repository permissions</strong>:
 					</Typography>
 					<Typography variant="body2" component="ul" sx={{ my: 0, pl: 3 }}>
 						<li>
-							<strong>Contents: Read and write</strong> — Members push commits to
-							task branches.
+							<strong>Contents: Read and write</strong> — Members push commits to task
+							branches.
 						</li>
 						<li>
 							<strong>Pull requests: Read and write</strong> — Members open PRs and

@@ -10,7 +10,7 @@ Guardrails for AI coding agents (Claude Code, Codex, etc.) working in this repo.
 ## Code style
 
 - Formatter is Prettier with the repo's `.prettierrc.json`: tabs (width 4), single quotes, no semicolons, trailing commas, 100-char line, arrow parens always.
-- Run `npm run format` before committing if unsure; CI runs `npm run lint`.
+- **Always run `npm run format` after editing any code, JSON, YAML, or Markdown** — even if you think the change matches the style. CI fails if `npm run lint` finds drift, and prior agents have repeatedly forgotten this. Treat it as the last step before reporting a task complete.
 - Indentation is **tabs** even in JSON/YAML/Markdown (see `.editorconfig`).
 - TypeScript is ESM with explicit `.ts` extensions in relative imports (e.g. `import { foo } from './bar.ts'`).
 
