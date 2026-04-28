@@ -99,6 +99,13 @@ export class AnthropicProvider implements Provider {
 			// rate on the growing message history.
 			markLatestUserAsCacheBreakpoint(messages)
 
+			const forcingToolUse = forceFirstToolUse && iteration === 0
+			// Anthropic rejects requests that combine extended thinking with a
+			// forced `tool_choice` (`Thinking may not be enabled when tool_choice
+			// forces tool use.`), so on the forcing turn we drop thinking. Subsequent
+			// turns use whatever `useThinking` is.
+			const enableThinking = useThinking && !forcingToolUse
+
 			const stream = this.client.messages.stream({
 				model: this.model,
 				max_tokens: DEFAULT_MAX_TOKENS,
@@ -111,10 +118,8 @@ export class AnthropicProvider implements Provider {
 				],
 				tools: sdkTools,
 				messages,
-				...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
-				...(forceFirstToolUse && iteration === 0
-					? { tool_choice: { type: 'any' as const } }
-					: {}),
+				...(enableThinking ? { thinking: { type: 'adaptive' } } : {}),
+				...(forcingToolUse ? { tool_choice: { type: 'any' as const } } : {}),
 			})
 
 			const message = await stream.finalMessage()
