@@ -19,7 +19,9 @@
 		"build:household": "docker compose -f docker-compose.household.yml build",
 		"build:member": "docker compose -f docker-compose.member.yml build",
 		"up:household": "docker compose -f docker-compose.household.yml up -d",
-		"up:member": "docker compose -f docker-compose.member.yml up -d"
+		"up:member": "docker compose -f docker-compose.member.yml up -d",
+		"down:household": "docker compose -f docker-compose.household.yml down",
+		"down:member": "docker compose -f docker-compose.member.yml down"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.0",
