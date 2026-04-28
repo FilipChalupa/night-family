@@ -289,7 +289,7 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 		}
 	}
 
-	const submit = async (e: React.FormEvent) => {
+	const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
 		e.preventDefault()
 		setError(null)
 		setSubmitting(true)

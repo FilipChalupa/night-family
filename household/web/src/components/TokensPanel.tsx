@@ -262,7 +262,7 @@ function TokenForm({
 	const [submitting, setSubmitting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
-	const submit = async (e: React.FormEvent) => {
+	const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
 		e.preventDefault()
 		setError(null)
 		setSubmitting(true)
