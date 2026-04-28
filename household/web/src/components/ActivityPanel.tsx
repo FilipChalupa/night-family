@@ -1,0 +1,172 @@
+import { Alert, Box, Paper, Stack, Typography } from '@mui/material'
+import { BarChart } from '@mui/x-charts/BarChart'
+import { PieChart } from '@mui/x-charts/PieChart'
+import { useEffect, useState } from 'react'
+
+interface DailyRow {
+	date: string
+	created: number
+	completed: number
+}
+
+interface StatusRow {
+	status: string
+	count: number
+}
+
+interface MemberRow {
+	name: string
+	completed: number
+}
+
+interface StatsResponse {
+	windowDays: number
+	daily: DailyRow[]
+	statusBreakdown: StatusRow[]
+	byMember: MemberRow[]
+}
+
+const STATUS_COLOR: Record<string, string> = {
+	new: '#a8b6e6',
+	queued: '#a8b6e6',
+	estimating: '#ffb37a',
+	assigned: '#ffb37a',
+	'in-progress': '#ffb37a',
+	'in-review': '#ffb37a',
+	'awaiting-merge': '#ffb37a',
+	done: '#6cd28a',
+	failed: '#ff8a8a',
+	disconnected: '#ff8a8a',
+}
+
+export function ActivityPanel() {
+	const [data, setData] = useState<StatsResponse | null>(null)
+	const [loading, setLoading] = useState(true)
+	const [error, setError] = useState<string | null>(null)
+
+	useEffect(() => {
+		setLoading(true)
+		void fetch('/api/stats/tasks?days=30')
+			.then(async (r) => {
+				if (!r.ok) {
+					const b = (await r.json().catch(() => ({}))) as { error?: string }
+					throw new Error(b.error ?? `HTTP ${r.status}`)
+				}
+				return r.json() as Promise<StatsResponse>
+			})
+			.then(setData)
+			.catch((err) => setError(err instanceof Error ? err.message : String(err)))
+			.finally(() => setLoading(false))
+	}, [])
+
+	if (loading) return <EmptyBox>Loading activity…</EmptyBox>
+	if (error) return <Alert severity="error">{error}</Alert>
+	if (!data) return <EmptyBox>No data.</EmptyBox>
+
+	const totalTasks = data.statusBreakdown.reduce((sum, r) => sum + r.count, 0)
+
+	return (
+		<Stack spacing={2}>
+			<Paper variant="outlined" sx={{ p: 2 }}>
+				<Typography variant="body2" color="text.secondary" gutterBottom>
+					Tasks per day · last {data.windowDays} days
+				</Typography>
+				{data.daily.every((d) => d.created === 0 && d.completed === 0) ? (
+					<EmptyBox>No task activity in this window yet.</EmptyBox>
+				) : (
+					<BarChart
+						height={240}
+						xAxis={[
+							{ data: data.daily.map((d) => d.date.slice(5)), scaleType: 'band' },
+						]}
+						series={[
+							{
+								data: data.daily.map((d) => d.created),
+								label: 'Created',
+								color: '#4a87ff',
+							},
+							{
+								data: data.daily.map((d) => d.completed),
+								label: 'Completed',
+								color: '#6cd28a',
+							},
+						]}
+						margin={{ left: 40, right: 16, top: 16, bottom: 32 }}
+					/>
+				)}
+			</Paper>
+
+			<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Status breakdown · {totalTasks} total
+					</Typography>
+					{totalTasks === 0 ? (
+						<EmptyBox>No tasks yet.</EmptyBox>
+					) : (
+						<PieChart
+							height={240}
+							series={[
+								{
+									data: data.statusBreakdown.map((r, i) => ({
+										id: r.status,
+										value: r.count,
+										label: r.status,
+										color:
+											STATUS_COLOR[r.status] ??
+											`hsl(${(i * 47) % 360}, 60%, 60%)`,
+									})),
+									innerRadius: 50,
+									paddingAngle: 1,
+									cornerRadius: 2,
+								},
+							]}
+							margin={{ left: 16, right: 16, top: 16, bottom: 16 }}
+						/>
+					)}
+				</Paper>
+
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Throughput by member · last {data.windowDays} days
+					</Typography>
+					{data.byMember.length === 0 ? (
+						<EmptyBox>Nobody finished a task in this window yet.</EmptyBox>
+					) : (
+						<BarChart
+							height={240}
+							layout="horizontal"
+							yAxis={[{ data: data.byMember.map((m) => m.name), scaleType: 'band' }]}
+							series={[
+								{
+									data: data.byMember.map((m) => m.completed),
+									label: 'Completed',
+									color: '#6cd28a',
+								},
+							]}
+							margin={{ left: 80, right: 16, top: 16, bottom: 32 }}
+						/>
+					)}
+				</Paper>
+			</Stack>
+		</Stack>
+	)
+}
+
+function EmptyBox({ children }: { children: React.ReactNode }) {
+	return (
+		<Box
+			sx={{
+				p: 3,
+				border: 1,
+				borderStyle: 'dashed',
+				borderColor: 'divider',
+				borderRadius: 2,
+				color: 'text.secondary',
+				textAlign: 'center',
+			}}
+		>
+			{children}
+		</Box>
+	)
+}

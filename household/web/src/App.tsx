@@ -1,6 +1,7 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import { useEffect, useState } from 'react'
+import { ActivityPanel } from './components/ActivityPanel.tsx'
 import { MembersPanel } from './components/MembersPanel.tsx'
 import { NotificationsPanel } from './components/NotificationsPanel.tsx'
 import { ReposPanel } from './components/ReposPanel.tsx'
@@ -162,6 +163,10 @@ export function App() {
 					) : null}
 				</Stack>
 			</Stack>
+
+			<Section title="Activity">
+				<ActivityPanel />
+			</Section>
 
 			<Section title={`Tasks (${tasks.length})`}>
 				<TasksPanel

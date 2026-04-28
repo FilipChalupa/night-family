@@ -18,6 +18,7 @@ import { mountNotificationsApi } from './notifications/api.ts'
 import { NotificationSender } from './notifications/sender.ts'
 import { NotificationStore } from './notifications/store.ts'
 import { mountStaticUi } from './static.ts'
+import { mountStatsApi } from './stats/api.ts'
 import { mountTasksApi } from './tasks/api.ts'
 import { Dispatcher } from './tasks/dispatcher.ts'
 import { TaskEventLog } from './tasks/eventLog.ts'
@@ -147,6 +148,7 @@ mountTasksApi(app, {
 })
 
 mountRepoBindingsApi(app, { bindings: repoBindings, guard })
+mountStatsApi(app, { sqlite: dbHandles.sqlite, guard })
 mountTokensApi(app, { tokens, guard, notifSender })
 mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })
 if (users) {
