@@ -259,9 +259,12 @@
 			<h2>Conventions to know</h2>
 			<ul>
 				<li>
-					<strong>The <code>night</code> label is the one and only trigger.</strong>
-					Removing the label or closing the issue is a no-op; cancel the task
-					from the dashboard instead.
+					<strong>The <code>night</code> label drives the lifecycle.</strong>
+					Adding it imports / dispatches; removing it cancels the matching
+					task; closing the issue cancels too (unless the task is already
+					<code>done</code> or <code>awaiting-merge</code>, which the PR
+					webhook owns). Cancellation reaches an in-flight Member as
+					<code>task.cancel</code>.
 				</li>
 				<li>
 					<strong>Branch prefix <code>pr/night/</code></strong> is how
