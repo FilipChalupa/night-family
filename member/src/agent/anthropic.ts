@@ -35,10 +35,16 @@ export class AnthropicProvider implements Provider {
 	async runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 		const { task, tools, systemPrompt, onEvent, abortSignal } = opts
 
-		const sdkTools: Anthropic.ToolUnion[] = tools.map((t) => ({
+		// Mark the last tool definition as a cache breakpoint. Anthropic caches
+		// all content above (and including) a `cache_control: ephemeral` block,
+		// so this tags the entire tool array as cacheable. Tools don't change
+		// across iterations, so every turn after the first reads them from
+		// cache instead of re-sending them as fresh input tokens.
+		const sdkTools: Anthropic.ToolUnion[] = tools.map((t, i) => ({
 			name: t.name,
 			description: t.description,
 			input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+			...(i === tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
 		}))
 		const toolByName = new Map(tools.map((t) => [t.name, t]))
 
@@ -75,6 +81,14 @@ export class AnthropicProvider implements Provider {
 
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
+
+			// Mark the latest user turn (kickoff or most-recent tool_results) as a
+			// cache breakpoint, stripping the previous one so we never exceed the
+			// 4-breakpoint API limit. Combined with `cache_control` on the system
+			// prompt and last tool, every iteration after the first reads the
+			// entire prior conversation from cache instead of paying full input
+			// rate on the growing message history.
+			markLatestUserAsCacheBreakpoint(messages)
 
 			const stream = this.client.messages.stream({
 				model: this.model,
@@ -304,6 +318,35 @@ function buildKickoffPrompt(
 		``,
 		`If the task is genuinely impossible (missing context, request out of scope), still call no further tools and explicitly say so in your final summary — but only after at least exploring the repo.`,
 	].join('\n')
+}
+
+/**
+ * Strip any pre-existing `cache_control` from user-message content blocks and
+ * place a fresh `ephemeral` breakpoint on the last block of the latest user
+ * message. Anthropic caches longest-prefix-matching content automatically;
+ * the breakpoint tells the API where to stop and write a new cache layer.
+ *
+ * Why we move (not accumulate) the breakpoint: the API caps at 4 cache
+ * breakpoints per request, and we already use two for `system` and `tools`.
+ * Keeping just one moving breakpoint on the user side stays comfortably
+ * under the limit no matter how long the conversation grows.
+ */
+function markLatestUserAsCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
+	for (const m of messages) {
+		if (m.role !== 'user' || !Array.isArray(m.content)) continue
+		for (const block of m.content) {
+			if (typeof block === 'object' && block !== null && 'cache_control' in block) {
+				delete (block as { cache_control?: unknown }).cache_control
+			}
+		}
+	}
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!
+		if (m.role !== 'user' || !Array.isArray(m.content) || m.content.length === 0) continue
+		const last = m.content[m.content.length - 1] as { cache_control?: unknown }
+		last.cache_control = { type: 'ephemeral' }
+		return
+	}
 }
 
 function extractText(content: Anthropic.ContentBlock[]): string | null {
