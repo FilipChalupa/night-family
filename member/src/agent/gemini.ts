@@ -9,30 +9,29 @@ const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 /**
- * Gemini occasionally returns `MALFORMED_FUNCTION_CALL` (the SDK rejected the
- * model's tool-call JSON before delivering it). It's nondeterministic —
- * re-issuing the same request usually succeeds. Cap retries per iteration so
- * a truly broken state doesn't loop forever.
- */
-const MAX_MALFORMED_CALL_RETRIES = 3
-
-/**
- * Sampling temperature for Gemini calls. Held at 0 (deterministic / greedy).
+ * Sampling temperature schedule for Gemini calls.
  *
- * Why: the @google/genai SDK does not expose strict / constrained tool-call
- * decoding for `functionDeclarations`, so the model emits tool calls as plain
- * generated tokens. Higher temperatures sharply increase the rate of invalid
- * JSON in tool arguments — particularly for long string fields like
- * `write_file.content` (markdown with backticks, embedded quotes, …) — which
- * Gemini reports as `finishReason: MALFORMED_FUNCTION_CALL`. Temperature 0
- * picks the most-likely token at every step and is by far the most reliable
- * setting for structured output with this SDK.
+ * Why a schedule and not a single value: the @google/genai SDK does not expose
+ * strict / constrained tool-call decoding for `functionDeclarations`, so the
+ * model emits tool calls as plain generated tokens. Higher temperatures
+ * sharply increase the rate of invalid JSON in tool arguments — particularly
+ * for long string fields like `write_file.content` (markdown with backticks,
+ * embedded quotes, …) — which Gemini reports as
+ * `finishReason: MALFORMED_FUNCTION_CALL`.
+ *
+ * - First attempt is at 0 (greedy / deterministic), the most reliable setting
+ *   for structured output most of the time.
+ * - But retrying greedy at 0 is pointless — same input → same malformed
+ *   output. So follow-up attempts ramp temperature up to perturb the sampling
+ *   path until either a valid tool call lands or we give up.
  *
  * Tradeoff: file contents written by the agent are slightly more uniform /
- * less "creative". For a coding agent that's a good trade — we want correct,
- * stable tool calls and sensible code, not stylistic variety.
+ * less "creative" at temp 0. For a coding agent that's a good trade — we want
+ * correct, stable tool calls and sensible code, not stylistic variety. The
+ * higher-temp retries only kick in when the deterministic path has already
+ * failed, so the average run is still effectively temp 0.
  */
-const TEMPERATURE = 0
+const TEMPERATURE_SCHEDULE = [0, 0.3, 0.7, 1] as const
 
 export class GeminiProvider implements Provider {
 	readonly name = 'gemini' as const
@@ -79,8 +78,11 @@ export class GeminiProvider implements Provider {
 
 			let response: Awaited<ReturnType<typeof this.client.models.generateContent>> | null =
 				null
-			let malformedRetries = 0
+			let attempt = 0
 			while (true) {
+				const temperature =
+					TEMPERATURE_SCHEDULE[attempt] ??
+					TEMPERATURE_SCHEDULE[TEMPERATURE_SCHEDULE.length - 1]!
 				const r = await this.client.models.generateContent({
 					model: this.model,
 					contents: history,
@@ -88,7 +90,7 @@ export class GeminiProvider implements Provider {
 						systemInstruction: systemPrompt,
 						tools: [{ functionDeclarations: sdkTools }],
 						maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-						temperature: TEMPERATURE,
+						temperature,
 					},
 				})
 				if (r.usageMetadata) {
@@ -97,16 +99,14 @@ export class GeminiProvider implements Provider {
 					await onEvent({ kind: 'usage', payload: { ...totalUsage } })
 				}
 				const fr = r.candidates?.[0]?.finishReason
-				if (
-					fr === 'MALFORMED_FUNCTION_CALL' &&
-					malformedRetries < MAX_MALFORMED_CALL_RETRIES
-				) {
-					malformedRetries++
+				if (fr === 'MALFORMED_FUNCTION_CALL' && attempt < TEMPERATURE_SCHEDULE.length - 1) {
+					attempt++
 					await onEvent({
 						kind: 'log',
 						payload: {
 							message: 'gemini returned MALFORMED_FUNCTION_CALL, retrying',
-							attempt: malformedRetries,
+							attempt,
+							next_temperature: TEMPERATURE_SCHEDULE[attempt],
 						},
 					})
 					continue
