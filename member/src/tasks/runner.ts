@@ -489,7 +489,7 @@ function buildPrDescription(opts: {
 
 	lines.push('---')
 	lines.push(
-		`🤖 Authored by Night Agent \`${opts.memberName}\` · task \`${opts.taskId.slice(0, 8)}\``,
+		`🤖 Authored by Night Family member \`${opts.memberName}\` · task \`${opts.taskId.slice(0, 8)}\``,
 	)
 	return lines.join('\n')
 }

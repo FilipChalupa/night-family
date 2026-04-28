@@ -36,7 +36,7 @@ export class NotificationSender {
 	 */
 	async sendTest(kind: ChannelKind, config: ChannelConfig): Promise<void> {
 		const payload = {
-			message: 'This is a test notification from Night Agents.',
+			message: 'This is a test notification from Night Family.',
 			ts: new Date().toISOString(),
 		}
 		if (kind === 'webhook') {
@@ -115,7 +115,7 @@ async function sendWebhook(
 
 function renderText(event: string, payload: Record<string, unknown>, ts: string): string {
 	const detail = JSON.stringify(payload, null, 2)
-	return `[Night Agents] ${event} · ${ts}\n\`\`\`\n${detail}\n\`\`\``
+	return `[Night Family] ${event} · ${ts}\n\`\`\`\n${detail}\n\`\`\``
 }
 
 async function sendSmtp(
@@ -132,7 +132,7 @@ async function sendSmtp(
 	await transporter.sendMail({
 		from: config.from,
 		to: config.to,
-		subject: `[Night Agents] ${event}`,
+		subject: `[Night Family] ${event}`,
 		text: JSON.stringify(payload, null, 2),
 	})
 }

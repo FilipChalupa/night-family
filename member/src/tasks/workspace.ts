@@ -58,7 +58,7 @@ export class Workspace {
 		})
 
 		// Configure committer identity for this worktree.
-		await git(['config', 'user.name', 'Night Agents'], { cwd: taskPath })
+		await git(['config', 'user.name', 'Night Family'], { cwd: taskPath })
 		await git(['config', 'user.email', 'noreply+night@local'], { cwd: taskPath })
 
 		logger.info({ taskId, repo, branch, baseBranch }, 'workspace ready')

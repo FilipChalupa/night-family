@@ -65,7 +65,7 @@ export function App() {
 			>
 				<Stack spacing={2} sx={{ width: '100%' }}>
 					<Typography variant="h4" component="h1">
-						{health?.household ?? 'Night Agents'}
+						{health?.household ?? 'Night Family'}
 					</Typography>
 					<Typography color="text.secondary">
 						Dashboard access requires GitHub sign-in.
@@ -128,7 +128,7 @@ export function App() {
 							fontSize="inherit"
 							sx={{ fontSize: 12, color: connected ? 'success.main' : 'error.main' }}
 						/>
-						{health?.household ?? 'Night Agents'}
+						{health?.household ?? 'Night Family'}
 					</Typography>
 					<Typography variant="body2" color="text.secondary">
 						{health

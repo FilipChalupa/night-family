@@ -299,7 +299,7 @@ export function buildSystemPrompt(opts: {
 	projectInstructions: string | null
 }): string {
 	const sections: string[] = [
-		`You are Night Agent ${opts.memberName}, an autonomous coding agent that finishes implementation tasks end-to-end.`,
+		`You are ${opts.memberName}, a Night Family member — an autonomous coding agent that finishes implementation tasks end-to-end.`,
 		``,
 		`# Operating principles`,
 		`- Stay inside the workspace. Do not access or modify files outside it.`,

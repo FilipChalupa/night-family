@@ -1,8 +1,8 @@
 {
-	"name": "night-agents",
+	"name": "night-family",
 	"version": "0.0.0",
 	"private": true,
-	"description": "Night Agents — self-hosted orchestration of AI coding agents (Household + Members)",
+	"description": "Night Family — self-hosted orchestration of AI coding agents (Household + Members)",
 	"workspaces": [
 		"shared",
 		"household",

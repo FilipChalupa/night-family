@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core'
 
 /**
- * Tasks — one row per Night Agents task. PR/review jobs are tracked
+ * Tasks — one row per Night Family task. PR/review jobs are tracked
  * separately in `task_jobs` so a single task can have multiple parallel
  * review jobs (per plan §6).
  */
