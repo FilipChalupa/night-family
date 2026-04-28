@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { hostname, userInfo } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ALL_SKILLS, type Provider, type Skill, type WorkerProfile } from '@night/shared'
 
@@ -95,7 +95,11 @@ function defaultMemberName(): string {
 }
 
 export function loadConfig(): MemberConfig {
-	const workspaceDir = optional('WORKSPACE_DIR', '/workspace')
+	const workspaceDirRaw = optional('WORKSPACE_DIR', '/workspace')
+	// Always store an absolute path: Workspace.create runs `git` with overridden
+	// cwd, and a relative `workspaceDir` would land the bare clone in the wrong
+	// place (resolved relative to git's cwd, not the process cwd).
+	const workspaceDir = isAbsolute(workspaceDirRaw) ? workspaceDirRaw : resolve(workspaceDirRaw)
 	const skillsRaw = optional('MEMBER_SKILLS', ALL_SKILLS.join(','))
 
 	return {
