@@ -33,7 +33,11 @@ export function App() {
 			.catch(() => setMe(null))
 	}, [])
 
-	const isAdmin = me?.authenticated === true && me.role === 'admin'
+	// Backend's requireAdmin is a no-op when OAuth isn't configured, so every
+	// visitor is effectively admin. Mirror that here so the UI doesn't hide
+	// edits the backend would happily accept.
+	const isAdmin =
+		(me?.authenticated === true && me.role === 'admin') || me?.oauth_configured === false
 	const canSeeUsers = me?.authenticated === true
 	const requiresLogin = me?.require_ui_login === true
 	const isLoggedOutWithRequiredLogin = requiresLogin && me?.authenticated === false
