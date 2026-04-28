@@ -8,6 +8,32 @@ import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './ty
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
+/**
+ * Gemini occasionally returns `MALFORMED_FUNCTION_CALL` (the SDK rejected the
+ * model's tool-call JSON before delivering it). It's nondeterministic —
+ * re-issuing the same request usually succeeds. Cap retries per iteration so
+ * a truly broken state doesn't loop forever.
+ */
+const MAX_MALFORMED_CALL_RETRIES = 3
+
+/**
+ * Sampling temperature for Gemini calls. Held at 0 (deterministic / greedy).
+ *
+ * Why: the @google/genai SDK does not expose strict / constrained tool-call
+ * decoding for `functionDeclarations`, so the model emits tool calls as plain
+ * generated tokens. Higher temperatures sharply increase the rate of invalid
+ * JSON in tool arguments — particularly for long string fields like
+ * `write_file.content` (markdown with backticks, embedded quotes, …) — which
+ * Gemini reports as `finishReason: MALFORMED_FUNCTION_CALL`. Temperature 0
+ * picks the most-likely token at every step and is by far the most reliable
+ * setting for structured output with this SDK.
+ *
+ * Tradeoff: file contents written by the agent are slightly more uniform /
+ * less "creative". For a coding agent that's a good trade — we want correct,
+ * stable tool calls and sensible code, not stylistic variety.
+ */
+const TEMPERATURE = 0
+
 export class GeminiProvider implements Provider {
 	readonly name = 'gemini' as const
 	readonly model: string
@@ -51,20 +77,42 @@ export class GeminiProvider implements Provider {
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)
 
-			const response = await this.client.models.generateContent({
-				model: this.model,
-				contents: history,
-				config: {
-					systemInstruction: systemPrompt,
-					tools: [{ functionDeclarations: sdkTools }],
-					maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-				},
-			})
-
-			if (response.usageMetadata) {
-				totalUsage.input += response.usageMetadata.promptTokenCount ?? 0
-				totalUsage.output += response.usageMetadata.candidatesTokenCount ?? 0
-				await onEvent({ kind: 'usage', payload: { ...totalUsage } })
+			let response: Awaited<ReturnType<typeof this.client.models.generateContent>> | null =
+				null
+			let malformedRetries = 0
+			while (true) {
+				const r = await this.client.models.generateContent({
+					model: this.model,
+					contents: history,
+					config: {
+						systemInstruction: systemPrompt,
+						tools: [{ functionDeclarations: sdkTools }],
+						maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+						temperature: TEMPERATURE,
+					},
+				})
+				if (r.usageMetadata) {
+					totalUsage.input += r.usageMetadata.promptTokenCount ?? 0
+					totalUsage.output += r.usageMetadata.candidatesTokenCount ?? 0
+					await onEvent({ kind: 'usage', payload: { ...totalUsage } })
+				}
+				const fr = r.candidates?.[0]?.finishReason
+				if (
+					fr === 'MALFORMED_FUNCTION_CALL' &&
+					malformedRetries < MAX_MALFORMED_CALL_RETRIES
+				) {
+					malformedRetries++
+					await onEvent({
+						kind: 'log',
+						payload: {
+							message: 'gemini returned MALFORMED_FUNCTION_CALL, retrying',
+							attempt: malformedRetries,
+						},
+					})
+					continue
+				}
+				response = r
+				break
 			}
 
 			const candidate = response.candidates?.[0]
