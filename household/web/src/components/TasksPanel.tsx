@@ -283,8 +283,15 @@ function TasksTable({
 									spacing={1}
 									sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
 								>
-									{t.status === 'in-review' && !t.prUrl ? (
-										<Tooltip title="Marked in-review but no PR was opened. Click to inspect events from the agent run.">
+									{(t.status === 'in-review' && !t.prUrl) ||
+									(t.status === 'failed' && t.failureReason === 'no_changes') ? (
+										<Tooltip
+											title={
+												t.status === 'failed'
+													? 'Failed with no_changes — agent claimed it finished but did not modify any files. Click to inspect events from the run.'
+													: 'Marked in-review but no PR was opened. Click to inspect events from the run.'
+											}
+										>
 											<IconButton
 												size="small"
 												color="warning"
