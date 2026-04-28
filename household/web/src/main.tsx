@@ -21,7 +21,7 @@ if (!root) throw new Error('root element missing')
 createRoot(root).render(
 	<React.StrictMode>
 		<ThemeProvider theme={theme}>
-			<CssBaseline />
+			<CssBaseline enableColorScheme />
 			<App />
 		</ThemeProvider>
 	</React.StrictMode>,
