@@ -105,6 +105,14 @@ export function App() {
 		await fetch(`/api/tasks/${id}/cancel`, { method: 'POST' })
 	}
 
+	const retryTask = async (id: string) => {
+		const r = await fetch(`/api/tasks/${id}/retry`, { method: 'POST' })
+		if (!r.ok) {
+			const b = (await r.json().catch(() => ({}))) as { error?: string }
+			throw new Error(b.error ?? `HTTP ${r.status}`)
+		}
+	}
+
 	return (
 		<Container maxWidth="lg" sx={{ py: 3 }}>
 			<Stack
@@ -174,6 +182,7 @@ export function App() {
 					canManage={isAdmin}
 					onCreate={createTask}
 					onCancel={cancelTask}
+					onRetry={retryTask}
 				/>
 			</Section>
 

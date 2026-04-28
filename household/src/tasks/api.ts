@@ -123,6 +123,31 @@ export function mountTasksApi(app: Hono, deps: TasksApiDeps): void {
 		return c.json({ ok: true, mode: 'cancelled_locally' })
 	})
 
+	app.post('/api/tasks/:id/retry', (c) => {
+		const guardResult = deps.guard.requireAdmin(c)
+		if (guardResult) return guardResult
+		const id = c.req.param('id')
+		const task = deps.taskStore.get(id)
+		if (!task) return c.json({ error: 'not_found' }, 404)
+		if (task.status !== 'failed') {
+			return c.json({ error: 'not_failed', status: task.status }, 409)
+		}
+
+		// Skip the estimate step if we already have a size; otherwise re-run from
+		// scratch. Reset retry counter and clear the previous failure reason so
+		// the task is indistinguishable from a fresh dispatch.
+		const target: TaskStatus = task.estimateSize ? 'queued' : 'new'
+		const updated = deps.taskStore.transition(id, ['failed'], target, {
+			failureReason: null,
+			retryCount: 0,
+		})
+		if (!updated) return c.json({ error: 'transition_failed' }, 409)
+		deps.taskStore.clearAssignment(id)
+		deps.logger.info({ taskId: id, target }, 'task retried by admin')
+		deps.dispatcher.tryDispatchAll()
+		return c.json({ ok: true, status: target })
+	})
+
 	app.delete('/api/tasks/:id', (c) => {
 		const guardResult = deps.guard.requireAdmin(c)
 		if (guardResult) return guardResult

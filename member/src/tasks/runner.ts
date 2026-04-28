@@ -285,10 +285,14 @@ export class TaskRunner {
 						await emit('log', { message: 'PR skipped (no GitHub token)' })
 					}
 				} else {
-					await emit('log', { message: 'no changes to commit' })
+					await emit('log', {
+						message: 'no changes to commit',
+						agent_summary: providerResult.summary,
+					})
 					if (task.kind === 'implement') {
 						return await this.fail(emit, workspace, 'no_changes', {
 							message: 'agent did not modify any files',
+							agent_summary: providerResult.summary,
 						})
 					}
 				}

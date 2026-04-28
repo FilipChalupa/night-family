@@ -34,6 +34,7 @@ interface Props {
 		repo: string | null
 	}) => Promise<void>
 	onCancel: (id: string) => Promise<void>
+	onRetry: (id: string) => Promise<void>
 }
 
 const KINDS: TaskKind[] = ['implement', 'review', 'respond', 'summarize', 'estimate']
@@ -47,7 +48,7 @@ const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'awaiting-merge',
 ]
 
-export function TasksPanel({ tasks, canManage, onCreate, onCancel }: Props) {
+export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry }: Props) {
 	return (
 		<Stack spacing={2}>
 			{canManage ? (
@@ -57,7 +58,7 @@ export function TasksPanel({ tasks, canManage, onCreate, onCancel }: Props) {
 					You can view tasks, but creating or cancelling tasks is admin-only.
 				</Alert>
 			)}
-			<TasksTable tasks={tasks} canManage={canManage} onCancel={onCancel} />
+			<TasksTable tasks={tasks} canManage={canManage} onCancel={onCancel} onRetry={onRetry} />
 		</Stack>
 	)
 }
@@ -164,12 +165,16 @@ function TasksTable({
 	tasks,
 	canManage,
 	onCancel,
+	onRetry,
 }: {
 	tasks: TaskRecord[]
 	canManage: boolean
 	onCancel: Props['onCancel']
+	onRetry: Props['onRetry']
 }) {
 	const [eventsTaskId, setEventsTaskId] = useState<string | null>(null)
+	const [retryingId, setRetryingId] = useState<string | null>(null)
+	const [retryError, setRetryError] = useState<string | null>(null)
 	if (tasks.length === 0) {
 		return (
 			<Box
@@ -293,7 +298,50 @@ function TasksTable({
 											Cancel
 										</Button>
 									) : null}
+									{canManage && t.status === 'failed' ? (
+										<Tooltip
+											title={
+												t.failureReason
+													? `Retry this task. Last failure: ${t.failureReason}`
+													: 'Retry this task'
+											}
+										>
+											<span>
+												<Button
+													size="small"
+													variant="outlined"
+													disabled={retryingId === t.id}
+													onClick={async () => {
+														setRetryingId(t.id)
+														setRetryError(null)
+														try {
+															await onRetry(t.id)
+														} catch (err) {
+															setRetryError(
+																err instanceof Error
+																	? err.message
+																	: String(err),
+															)
+														} finally {
+															setRetryingId(null)
+														}
+													}}
+												>
+													{retryingId === t.id ? 'Retrying…' : 'Retry'}
+												</Button>
+											</span>
+										</Tooltip>
+									) : null}
 								</Stack>
+								{retryError && retryingId === null && t.status === 'failed' ? (
+									<Typography
+										variant="caption"
+										color="error"
+										sx={{ display: 'block', mt: 0.5 }}
+									>
+										{retryError}
+									</Typography>
+								) : null}
 							</TableCell>
 						</TableRow>
 					))}
