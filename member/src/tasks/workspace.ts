@@ -104,8 +104,14 @@ export class Workspace {
 
 	async push(): Promise<void> {
 		const remote = authenticatedRemoteUrl(this.repo, this.token)
+		// `--force` not `--force-with-lease`: the bare cache only fetches the
+		// base branch (workspace.create), so we have no remote-tracking ref for
+		// `pr/night/...` to lease against. Without a lease the push errors as
+		// `(stale info)`. The branch is owned exclusively by this task — it
+		// matches `pr/night/<task-id>-…` and no other agent runs the same task
+		// concurrently — so plain `--force` is safe here.
 		try {
-			await git(['push', remote, `${this.branch}:${this.branch}`, '--force-with-lease'], {
+			await git(['push', '--force', remote, `${this.branch}:${this.branch}`], {
 				cwd: this.path,
 				timeoutMs: 120_000,
 			})
