@@ -143,6 +143,7 @@ mountTasksApi(app, {
 	taskStore,
 	dispatcher,
 	registry,
+	eventLog,
 	guard,
 	logger: logger.child({ component: 'tasks.api' }),
 })

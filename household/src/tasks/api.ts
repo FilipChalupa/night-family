@@ -4,6 +4,7 @@ import type { Logger } from 'pino'
 import type { AdminGuard } from '../auth/guard.ts'
 import type { MemberRegistry } from '../members/registry.ts'
 import type { Dispatcher } from './dispatcher.ts'
+import type { TaskEventLog } from './eventLog.ts'
 import type { TaskStore } from './store.ts'
 
 const VALID_KINDS = new Set<TaskKind>(['estimate', 'implement', 'review', 'respond', 'summarize'])
@@ -12,6 +13,7 @@ export interface TasksApiDeps {
 	taskStore: TaskStore
 	dispatcher: Dispatcher
 	registry: MemberRegistry
+	eventLog: TaskEventLog
 	logger: Logger
 	guard: AdminGuard
 }
@@ -40,6 +42,24 @@ export function mountTasksApi(app: Hono, deps: TasksApiDeps): void {
 		const task = deps.taskStore.get(id)
 		if (!task) return c.json({ error: 'not_found' }, 404)
 		return c.json({ task })
+	})
+
+	app.get('/api/tasks/:id/events', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
+		const id = c.req.param('id')
+		if (!deps.taskStore.get(id)) return c.json({ error: 'not_found' }, 404)
+		const limitParam = Number.parseInt(c.req.query('limit') ?? '', 10)
+		const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 100
+		const events = deps.eventLog.list(id, { limit }).map((e) => ({
+			seq: e.seq,
+			ts: e.ts.toISOString(),
+			kind: e.kind,
+			memberId: e.memberId,
+			payload: e.payload,
+		}))
+		return c.json({ events })
 	})
 
 	app.post('/api/tasks', async (c) => {

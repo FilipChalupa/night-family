@@ -4,7 +4,7 @@
  * ignored via INSERT OR IGNORE so reconnection idempotently catches up.
  */
 
-import { eq, max, sql } from 'drizzle-orm'
+import { desc, eq, max, sql } from 'drizzle-orm'
 import type { Db } from '../db/index.ts'
 import { taskEvents } from '../db/schema.ts'
 
@@ -16,6 +16,23 @@ export interface IncomingEvent {
 	memberId: string | null
 	kind: string
 	payload: unknown
+}
+
+export interface StoredEvent {
+	seq: number
+	ts: Date
+	sessionId: string | null
+	memberId: string | null
+	kind: string
+	payload: unknown
+}
+
+function safeParse(raw: string): unknown {
+	try {
+		return JSON.parse(raw)
+	} catch {
+		return raw
+	}
 }
 
 export class TaskEventLog {
@@ -53,6 +70,29 @@ export class TaskEventLog {
 			.where(eq(taskEvents.taskId, taskId))
 			.all()
 		return rows[0]?.max ?? 0
+	}
+
+	/**
+	 * Return recent events for a single task, newest first. `limit` defaults
+	 * to 100 (capped at 500).
+	 */
+	list(taskId: string, opts: { limit?: number } = {}): StoredEvent[] {
+		const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
+		const rows = this.db
+			.select()
+			.from(taskEvents)
+			.where(eq(taskEvents.taskId, taskId))
+			.orderBy(desc(taskEvents.seq))
+			.limit(limit)
+			.all()
+		return rows.map((r) => ({
+			seq: r.seq,
+			ts: r.ts,
+			sessionId: r.sessionId,
+			memberId: r.memberId,
+			kind: r.kind,
+			payload: safeParse(r.payload),
+		}))
 	}
 
 	/**

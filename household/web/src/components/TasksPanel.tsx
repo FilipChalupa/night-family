@@ -3,6 +3,10 @@ import {
 	Box,
 	Button,
 	Chip,
+	Dialog,
+	DialogContent,
+	DialogTitle,
+	IconButton,
 	MenuItem,
 	Paper,
 	Stack,
@@ -16,7 +20,8 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
-import { useState } from 'react'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import { useEffect, useState } from 'react'
 import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
 
 interface Props {
@@ -164,6 +169,7 @@ function TasksTable({
 	canManage: boolean
 	onCancel: Props['onCancel']
 }) {
+	const [eventsTaskId, setEventsTaskId] = useState<string | null>(null)
 	if (tasks.length === 0) {
 		return (
 			<Box
@@ -260,23 +266,132 @@ function TasksTable({
 								</Tooltip>
 							</TableCell>
 							<TableCell align="right">
-								{canManage && ACTIVE.includes(t.status) ? (
-									<Button
-										size="small"
-										variant="outlined"
-										onClick={() => {
-											void onCancel(t.id)
-										}}
-									>
-										Cancel
-									</Button>
-								) : null}
+								<Stack
+									direction="row"
+									spacing={1}
+									sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
+								>
+									{t.status === 'in-review' && !t.prUrl ? (
+										<Tooltip title="Marked in-review but no PR was opened. Click to inspect events from the agent run.">
+											<IconButton
+												size="small"
+												color="warning"
+												onClick={() => setEventsTaskId(t.id)}
+											>
+												<WarningAmberIcon fontSize="small" />
+											</IconButton>
+										</Tooltip>
+									) : null}
+									{canManage && ACTIVE.includes(t.status) ? (
+										<Button
+											size="small"
+											variant="outlined"
+											onClick={() => {
+												void onCancel(t.id)
+											}}
+										>
+											Cancel
+										</Button>
+									) : null}
+								</Stack>
 							</TableCell>
 						</TableRow>
 					))}
 				</TableBody>
 			</Table>
+			<TaskEventsDialog taskId={eventsTaskId} onClose={() => setEventsTaskId(null)} />
 		</TableContainer>
+	)
+}
+
+interface TaskEvent {
+	seq: number
+	ts: string
+	kind: string
+	memberId: string | null
+	payload: unknown
+}
+
+function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose: () => void }) {
+	const [events, setEvents] = useState<TaskEvent[] | null>(null)
+	const [error, setError] = useState<string | null>(null)
+
+	useEffect(() => {
+		if (!taskId) {
+			setEvents(null)
+			setError(null)
+			return
+		}
+		setEvents(null)
+		setError(null)
+		void fetch(`/api/tasks/${taskId}/events?limit=50`)
+			.then(async (r) => {
+				if (!r.ok) {
+					const b = (await r.json().catch(() => ({}))) as { error?: string }
+					throw new Error(b.error ?? `HTTP ${r.status}`)
+				}
+				return r.json() as Promise<{ events: TaskEvent[] }>
+			})
+			.then((b) => setEvents(b.events))
+			.catch((err) => setError(err instanceof Error ? err.message : String(err)))
+	}, [taskId])
+
+	return (
+		<Dialog open={taskId !== null} onClose={onClose} maxWidth="md" fullWidth>
+			<DialogTitle>Task events</DialogTitle>
+			<DialogContent>
+				{error ? <Alert severity="error">{error}</Alert> : null}
+				{!events && !error ? (
+					<Typography color="text.secondary">Loading…</Typography>
+				) : null}
+				{events && events.length === 0 ? (
+					<Typography color="text.secondary">
+						No events recorded for this task. Either the agent never sent any (e.g. it
+						crashed before emit) or they were purged after 90 days.
+					</Typography>
+				) : null}
+				{events && events.length > 0 ? (
+					<Stack spacing={1}>
+						{events.map((e) => (
+							<Box
+								key={e.seq}
+								sx={{
+									p: 1.5,
+									border: 1,
+									borderColor: 'divider',
+									borderRadius: 1,
+									backgroundColor: 'background.default',
+								}}
+							>
+								<Stack
+									direction="row"
+									spacing={1}
+									sx={{ alignItems: 'baseline', mb: 0.5 }}
+								>
+									<Chip label={e.kind} size="small" variant="outlined" />
+									<Typography variant="caption" color="text.secondary">
+										seq {e.seq} · {new Date(e.ts).toLocaleString()}
+									</Typography>
+								</Stack>
+								<Box
+									component="pre"
+									sx={{
+										m: 0,
+										fontFamily: 'monospace',
+										fontSize: '0.78rem',
+										whiteSpace: 'pre-wrap',
+										wordBreak: 'break-word',
+										color: 'text.secondary',
+									}}
+								>
+									{JSON.stringify(e.payload, null, 2)}
+								</Box>
+							</Box>
+						))}
+					</Stack>
+				) : null}
+			</DialogContent>
+		</Dialog>
 	)
 }
 
