@@ -9,7 +9,7 @@ import { TasksPanel } from './components/TasksPanel.tsx'
 import { TokensPanel } from './components/TokensPanel.tsx'
 import { UsersPanel } from './components/UsersPanel.tsx'
 import { useUiStream } from './hooks/useUiStream.ts'
-import type { CurrentUser, MemberSnapshot, TaskKind } from './types.ts'
+import type { CurrentUser, MemberSnapshot, TaskKind, TaskRecord } from './types.ts'
 
 interface Health {
 	status: string
@@ -197,7 +197,7 @@ export function App() {
 			) : null}
 
 			<Section title={`Members (${members.length})`}>
-				<MembersList members={members} />
+				<MembersList members={members} tasks={tasks} />
 			</Section>
 
 			{isAdmin ? (
@@ -247,7 +247,13 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
 	)
 }
 
-function MembersList({ members }: { members: MemberSnapshot[] }) {
+function MembersList({
+	members,
+	tasks,
+}: {
+	members: MemberSnapshot[]
+	tasks: TaskRecord[]
+}) {
 	if (members.length === 0) {
 		return (
 			<EmptyState>
@@ -255,7 +261,7 @@ function MembersList({ members }: { members: MemberSnapshot[] }) {
 			</EmptyState>
 		)
 	}
-	return <MembersPanel members={members} />
+	return <MembersPanel members={members} tasks={tasks} />
 }
 
 function formatUptime(sec: number): string {

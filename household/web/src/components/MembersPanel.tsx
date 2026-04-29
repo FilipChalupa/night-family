@@ -11,13 +11,15 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
-import type { MemberSnapshot } from '../types.ts'
+import type { MemberSnapshot, TaskRecord } from '../types.ts'
 
 interface Props {
 	members: MemberSnapshot[]
+	tasks: TaskRecord[]
 }
 
-export function MembersPanel({ members }: Props) {
+export function MembersPanel({ members, tasks }: Props) {
+	const tasksById = new Map(tasks.map((t) => [t.id, t]))
 	return (
 		<TableContainer component={Paper} variant="outlined">
 			<Table size="small">
@@ -59,13 +61,48 @@ export function MembersPanel({ members }: Props) {
 									variant="outlined"
 								/>
 								{m.currentTask ? (
-									<Typography
-										variant="caption"
-										color="text.secondary"
-										sx={{ display: 'block', mt: 0.5 }}
-									>
-										task {m.currentTask}
-									</Typography>
+									<Box sx={{ mt: 0.5 }}>
+										{(() => {
+											const task = tasksById.get(m.currentTask)
+											if (!task) {
+												return (
+													<Typography variant="caption" color="text.secondary">
+														task {m.currentTask}
+													</Typography>
+												)
+											}
+											return (
+												<Tooltip
+													title={task.description || task.title}
+													placement="top"
+												>
+													<Box>
+														<Typography
+															variant="caption"
+															color="text.secondary"
+															sx={{ display: 'block' }}
+														>
+															{task.kind}
+															{task.repo ? ` · ${task.repo}` : ''}
+														</Typography>
+														<Typography
+															variant="body2"
+															sx={{
+																display: '-webkit-box',
+																WebkitLineClamp: 2,
+																WebkitBoxOrient: 'vertical',
+																overflow: 'hidden',
+																lineHeight: 1.3,
+																maxWidth: 320,
+															}}
+														>
+															{task.title}
+														</Typography>
+													</Box>
+												</Tooltip>
+											)
+										})()}
+									</Box>
 								) : null}
 							</TableCell>
 							<TableCell>
