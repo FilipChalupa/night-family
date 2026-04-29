@@ -163,6 +163,29 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			byMember,
 		})
 	})
+
+	// Per-task token totals (input + output). Cumulative running totals are
+	// emitted by Members in `usage` events; MAX() per task gives the final
+	// spend. Cheap thanks to retention purging old events.
+	app.get('/api/stats/task-tokens', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
+		const rows = deps.sqlite
+			.prepare(
+				`SELECT task_id,
+				        MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+				            COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+				 FROM task_events
+				 WHERE kind = 'usage'
+				 GROUP BY task_id`,
+			)
+			.all() as Array<{ task_id: string; tokens: number }>
+
+		const tokens: Record<string, number> = {}
+		for (const r of rows) tokens[r.task_id] = Number(r.tokens) || 0
+		return c.json({ tokens })
+	})
 }
 
 function buildDailySeries(

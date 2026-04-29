@@ -177,6 +177,7 @@ function TasksTable({
 	const [eventsTaskId, setEventsTaskId] = useState<string | null>(null)
 	const [retryingId, setRetryingId] = useState<string | null>(null)
 	const [retryError, setRetryError] = useState<string | null>(null)
+	const tokensByTask = useTaskTokens()
 	if (tasks.length === 0) {
 		return (
 			<Box
@@ -205,6 +206,7 @@ function TasksTable({
 						<TableCell>Assigned</TableCell>
 						<TableCell>Repo</TableCell>
 						<TableCell>Estimate</TableCell>
+						<TableCell align="right">Tokens</TableCell>
 						<TableCell>Created</TableCell>
 						<TableCell />
 					</TableRow>
@@ -314,6 +316,29 @@ function TasksTable({
 										—
 									</Typography>
 								)}
+							</TableCell>
+							<TableCell align="right">
+								{(() => {
+									const n = tokensByTask[t.id]
+									if (!n) {
+										return (
+											<Typography variant="body2" color="text.secondary">
+												—
+											</Typography>
+										)
+									}
+									return (
+										<Tooltip title={n.toLocaleString()}>
+											<Typography
+												variant="body2"
+												color="text.secondary"
+												sx={{ fontVariantNumeric: 'tabular-nums' }}
+											>
+												{formatTokens(n)}
+											</Typography>
+										</Tooltip>
+									)
+								})()}
 							</TableCell>
 							<TableCell>
 								<Tooltip title={t.createdAt}>
@@ -568,6 +593,36 @@ function githubIssueRef(
 	const url = typeof urlRaw === 'string' ? urlRaw : null
 	if (number === null && url === null) return null
 	return { number, url }
+}
+
+function useTaskTokens(): Record<string, number> {
+	const [tokens, setTokens] = useState<Record<string, number>>({})
+	useEffect(() => {
+		let cancelled = false
+		const load = async () => {
+			try {
+				const r = await fetch('/api/stats/task-tokens')
+				if (!r.ok) return
+				const b = (await r.json()) as { tokens: Record<string, number> }
+				if (!cancelled) setTokens(b.tokens ?? {})
+			} catch {
+				/* ignore — best effort, will retry on next tick */
+			}
+		}
+		void load()
+		const id = window.setInterval(load, 15_000)
+		return () => {
+			cancelled = true
+			window.clearInterval(id)
+		}
+	}, [])
+	return tokens
+}
+
+function formatTokens(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+	return value.toLocaleString()
 }
 
 function relativeTime(iso: string): string {
