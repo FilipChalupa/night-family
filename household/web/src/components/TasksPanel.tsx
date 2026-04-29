@@ -7,6 +7,7 @@ import {
 	DialogContent,
 	DialogTitle,
 	IconButton,
+	Link,
 	MenuItem,
 	Paper,
 	Stack,
@@ -212,7 +213,37 @@ function TasksTable({
 					{tasks.map((t) => (
 						<TableRow key={t.id} hover>
 							<TableCell>
-								<Typography sx={{ fontWeight: 600 }}>{t.title}</Typography>
+								{(() => {
+									const issue = githubIssueRef(t.metadata)
+									return (
+										<Stack
+											direction="row"
+											spacing={1}
+											sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+										>
+											{issue?.url ? (
+												<Link
+													href={issue.url}
+													target="_blank"
+													rel="noopener noreferrer"
+													underline="hover"
+													sx={{ fontWeight: 600 }}
+												>
+													{t.title}
+												</Link>
+											) : (
+												<Typography sx={{ fontWeight: 600 }}>
+													{t.title}
+												</Typography>
+											)}
+											{issue?.number != null ? (
+												<Typography variant="caption" color="text.secondary">
+													#{issue.number}
+												</Typography>
+											) : null}
+										</Stack>
+									)
+								})()}
 								{t.failureReason ? (
 									<Typography variant="caption" color="error">
 										✗ {t.failureReason}
@@ -511,6 +542,18 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 		default:
 			return 'default'
 	}
+}
+
+function githubIssueRef(
+	metadata: Record<string, unknown> | null,
+): { number: number | null; url: string | null } | null {
+	if (!metadata) return null
+	const numberRaw = metadata['github_issue_number']
+	const urlRaw = metadata['github_issue_url']
+	const number = typeof numberRaw === 'number' ? numberRaw : null
+	const url = typeof urlRaw === 'string' ? urlRaw : null
+	if (number === null && url === null) return null
+	return { number, url }
 }
 
 function relativeTime(iso: string): string {
