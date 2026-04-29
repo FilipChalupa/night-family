@@ -233,7 +233,20 @@ export class Dispatcher {
 
 	private sendTask(conn: ConnectedMember, task: TaskRecord): void {
 		const wireKind: TaskKind = task.status === 'estimating' ? 'estimate' : task.kind
-		const githubToken = this.getToken(task.repo)
+		const githubToken = task.repo ? this.getToken(task.repo) : ''
+
+		if (task.repo && !githubToken) {
+			this.deps.taskStore.transition(task.id, [task.status], 'failed', {
+				failureReason: 'repo_not_bound',
+			})
+			this.deps.taskStore.clearAssignment(task.id)
+			this.deps.logger.warn(
+				{ taskId: task.id, repo: task.repo },
+				'task failed: repo has no binding (add one in Repos)',
+			)
+			this.tryDispatchAll()
+			return
+		}
 
 		conn.send({
 			type: 'task.assigned',
@@ -374,7 +387,16 @@ export class Dispatcher {
 	// ─── Private job helpers ──────────────────────────────────────────────────
 
 	private sendReviewJob(conn: ConnectedMember, job: TaskJobRecord, task: TaskRecord): void {
-		const githubToken = this.getToken(task.repo)
+		const githubToken = task.repo ? this.getToken(task.repo) : ''
+
+		if (task.repo && !githubToken) {
+			this.deps.jobStore.fail(job.id, 'repo_not_bound')
+			this.deps.logger.warn(
+				{ jobId: job.id, taskId: task.id, repo: task.repo },
+				'review job failed: repo has no binding',
+			)
+			return
+		}
 
 		conn.send({
 			type: 'task.assigned',

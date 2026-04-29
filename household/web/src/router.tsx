@@ -1,4 +1,10 @@
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { Alert, Button, Stack, Typography } from '@mui/material'
+import {
+	createRootRoute,
+	createRoute,
+	createRouter,
+	type ErrorComponentProps,
+} from '@tanstack/react-router'
 import { Dashboard } from './routes/Dashboard.tsx'
 import { RootLayout } from './routes/Root.tsx'
 import { TasksPage } from './routes/TasksPage.tsx'
@@ -36,7 +42,39 @@ export const tasksRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([dashboardRoute, tasksRoute])
 
-export const router = createRouter({ routeTree })
+function RouteError({ error, reset }: ErrorComponentProps) {
+	return (
+		<Stack spacing={2} sx={{ py: 2 }}>
+			<Alert severity="error" variant="outlined">
+				<Typography sx={{ fontWeight: 600 }} gutterBottom>
+					Something went wrong rendering this page.
+				</Typography>
+				<Typography
+					variant="body2"
+					component="pre"
+					sx={{
+						fontFamily: 'monospace',
+						whiteSpace: 'pre-wrap',
+						wordBreak: 'break-word',
+						m: 0,
+					}}
+				>
+					{error.message}
+				</Typography>
+			</Alert>
+			<Button
+				variant="outlined"
+				size="small"
+				sx={{ alignSelf: 'flex-start' }}
+				onClick={reset}
+			>
+				Retry
+			</Button>
+		</Stack>
+	)
+}
+
+export const router = createRouter({ routeTree, defaultErrorComponent: RouteError })
 
 declare module '@tanstack/react-router' {
 	interface Register {
