@@ -241,9 +241,8 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						</li>
 					</Typography>
 					<Typography variant="body2">
-						The PAT is required: without it Members cannot{' '}
-						<code>git push</code> commits or open pull requests, and{' '}
-						<em>implement</em> tasks will fail.
+						The PAT is required: without it Members cannot <code>git push</code> commits
+						or open pull requests, and <em>implement</em> tasks will fail.
 					</Typography>
 				</Alert>
 				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
