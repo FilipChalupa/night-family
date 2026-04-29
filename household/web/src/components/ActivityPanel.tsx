@@ -8,6 +8,7 @@ interface DailyRow {
 	created: number
 	completed: number
 	failed: number
+	tokens: number
 }
 
 interface StatusRow {
@@ -19,6 +20,7 @@ interface MemberRow {
 	name: string
 	completed: number
 	failed: number
+	tokens: number
 }
 
 interface StatsResponse {
@@ -163,8 +165,66 @@ export function ActivityPanel() {
 					)}
 				</Paper>
 			</Stack>
+
+			<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Tokens per day · last {data.windowDays} days
+					</Typography>
+					{data.daily.every((d) => d.tokens === 0) ? (
+						<EmptyBox>No token usage reported in this window yet.</EmptyBox>
+					) : (
+						<BarChart
+							height={240}
+							xAxis={[
+								{ data: data.daily.map((d) => d.date.slice(5)), scaleType: 'band' },
+							]}
+							series={[
+								{
+									data: data.daily.map((d) => d.tokens),
+									label: 'Tokens',
+									color: '#a78bfa',
+									valueFormatter: formatTokens,
+								},
+							]}
+							margin={{ left: 64, right: 16, top: 16, bottom: 32 }}
+						/>
+					)}
+				</Paper>
+
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Tokens by member · last {data.windowDays} days
+					</Typography>
+					{data.byMember.every((m) => m.tokens === 0) ? (
+						<EmptyBox>No token usage reported in this window yet.</EmptyBox>
+					) : (
+						<BarChart
+							height={240}
+							layout="horizontal"
+							yAxis={[{ data: data.byMember.map((m) => m.name), scaleType: 'band' }]}
+							series={[
+								{
+									data: data.byMember.map((m) => m.tokens),
+									label: 'Tokens',
+									color: '#a78bfa',
+									valueFormatter: formatTokens,
+								},
+							]}
+							margin={{ left: 80, right: 16, top: 16, bottom: 32 }}
+						/>
+					)}
+				</Paper>
+			</Stack>
 		</Stack>
 	)
+}
+
+function formatTokens(value: number | null): string {
+	if (value === null) return ''
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+	return value.toLocaleString()
 }
 
 function EmptyBox({ children }: { children: React.ReactNode }) {

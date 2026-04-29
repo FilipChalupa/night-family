@@ -20,6 +20,7 @@ interface DailyRow {
 	created: number
 	completed: number
 	failed: number
+	tokens: number
 }
 
 interface StatusRow {
@@ -31,6 +32,7 @@ interface MemberRow {
 	name: string
 	completed: number
 	failed: number
+	tokens: number
 }
 
 const DEFAULT_DAYS = 30
@@ -82,8 +84,38 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			)
 			.all(cutoffMs) as Array<{ date: string; count: number }>
 
+		// Tokens per day: sum the per-task final usage (input + output). Each
+		// usage event is a running cumulative total, so MAX() per task gives us
+		// the final spend, then SUM across tasks bucketed by their terminal day.
+		const tokensByDay = deps.sqlite
+			.prepare(
+				`WITH task_tokens AS (
+					SELECT task_id,
+					       MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+					           COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+					FROM task_events
+					WHERE kind = 'usage'
+					GROUP BY task_id
+				 )
+				 SELECT date(t.updated_at / 1000, 'unixepoch') AS date,
+				        COALESCE(SUM(tt.tokens), 0) AS count
+				 FROM tasks t
+				 JOIN task_tokens tt ON tt.task_id = t.id
+				 WHERE t.status IN ('done', 'failed')
+				   AND t.updated_at >= ?
+				 GROUP BY date
+				 ORDER BY date`,
+			)
+			.all(cutoffMs) as Array<{ date: string; count: number }>
+
 		// Build a continuous date series so the chart shows zero-days too.
-		const daily = buildDailySeries(days, createdByDay, completedByDay, failedByDay)
+		const daily = buildDailySeries(
+			days,
+			createdByDay,
+			completedByDay,
+			failedByDay,
+			tokensByDay,
+		)
 
 		// Current status snapshot (no time filter — current state).
 		const statusBreakdown = deps.sqlite
@@ -92,17 +124,27 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			)
 			.all() as StatusRow[]
 
-		// Per-member throughput: completed and failed tasks within the window.
+		// Per-member throughput: completed and failed tasks plus tokens spent.
 		const memberAggregates = deps.sqlite
 			.prepare(
-				`SELECT assigned_member_name AS name,
-				        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
-				        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
-				 FROM tasks
-				 WHERE status IN ('done', 'failed')
-				   AND assigned_member_name IS NOT NULL
-				   AND updated_at >= ?
-				 GROUP BY assigned_member_name
+				`WITH task_tokens AS (
+					SELECT task_id,
+					       MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+					           COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+					FROM task_events
+					WHERE kind = 'usage'
+					GROUP BY task_id
+				 )
+				 SELECT t.assigned_member_name AS name,
+				        SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
+				        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
+				        COALESCE(SUM(tt.tokens), 0) AS tokens
+				 FROM tasks t
+				 LEFT JOIN task_tokens tt ON tt.task_id = t.id
+				 WHERE t.status IN ('done', 'failed')
+				   AND t.assigned_member_name IS NOT NULL
+				   AND t.updated_at >= ?
+				 GROUP BY t.assigned_member_name
 				 ORDER BY (completed + failed) DESC
 				 LIMIT 20`,
 			)
@@ -111,6 +153,7 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			name: r.name,
 			completed: Number(r.completed) || 0,
 			failed: Number(r.failed) || 0,
+			tokens: Number(r.tokens) || 0,
 		}))
 
 		return c.json({
@@ -127,10 +170,12 @@ function buildDailySeries(
 	created: Array<{ date: string; count: number }>,
 	completed: Array<{ date: string; count: number }>,
 	failed: Array<{ date: string; count: number }>,
+	tokens: Array<{ date: string; count: number }>,
 ): DailyRow[] {
 	const createdMap = new Map(created.map((r) => [r.date, r.count]))
 	const completedMap = new Map(completed.map((r) => [r.date, r.count]))
 	const failedMap = new Map(failed.map((r) => [r.date, r.count]))
+	const tokensMap = new Map(tokens.map((r) => [r.date, r.count]))
 
 	const out: DailyRow[] = []
 	const today = new Date()
@@ -144,6 +189,7 @@ function buildDailySeries(
 			created: createdMap.get(date) ?? 0,
 			completed: completedMap.get(date) ?? 0,
 			failed: failedMap.get(date) ?? 0,
+			tokens: tokensMap.get(date) ?? 0,
 		})
 	}
 	return out
