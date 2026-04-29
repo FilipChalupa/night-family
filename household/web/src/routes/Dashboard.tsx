@@ -33,6 +33,7 @@ export function Dashboard() {
 						onCreate={createTask}
 						onCancel={cancelTask}
 						onRetry={retryTask}
+						showCreateForm={false}
 					/>
 					<Box sx={{ textAlign: 'right' }}>
 						<Link
@@ -45,8 +46,8 @@ export function Dashboard() {
 							}}
 						>
 							{hiddenCount > 0
-								? `Show all tasks (${tasks.length}, +${hiddenCount} hidden) →`
-								: 'Open tasks page →'}
+								? `Open tasks page (${tasks.length} tasks, +${hiddenCount} hidden, create new) →`
+								: 'Open tasks page (create new, see all) →'}
 						</Link>
 					</Box>
 				</Stack>

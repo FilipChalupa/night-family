@@ -48,6 +48,7 @@ interface Props {
 	onCancel: (id: string) => Promise<void>
 	onRetry: (id: string) => Promise<void>
 	pagination?: PaginationControl
+	showCreateForm?: boolean
 }
 
 const KINDS: TaskKind[] = ['implement', 'review', 'respond', 'summarize', 'estimate']
@@ -61,7 +62,15 @@ const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'awaiting-merge',
 ]
 
-export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry, pagination }: Props) {
+export function TasksPanel({
+	tasks,
+	canManage,
+	onCreate,
+	onCancel,
+	onRetry,
+	pagination,
+	showCreateForm = true,
+}: Props) {
 	const visible = pagination
 		? tasks.slice(
 				pagination.page * pagination.pageSize,
@@ -71,13 +80,15 @@ export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry, pagi
 
 	return (
 		<Stack spacing={2}>
-			{canManage ? (
-				<NewTaskForm onCreate={onCreate} />
-			) : (
-				<Alert severity="info" variant="outlined">
-					You can view tasks, but creating or cancelling tasks is admin-only.
-				</Alert>
-			)}
+			{showCreateForm ? (
+				canManage ? (
+					<NewTaskForm onCreate={onCreate} />
+				) : (
+					<Alert severity="info" variant="outlined">
+						You can view tasks, but creating or cancelling tasks is admin-only.
+					</Alert>
+				)
+			) : null}
 			<TasksTable
 				tasks={visible}
 				canManage={canManage}
