@@ -69,7 +69,8 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	}
 
 	if (reposQuery.isLoading) return <EmptyBox>Loading repos…</EmptyBox>
-	if (reposQuery.error) return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
+	if (reposQuery.error)
+		return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
 	const repos = reposQuery.data ?? []
 
 	return (

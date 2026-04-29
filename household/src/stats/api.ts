@@ -109,13 +109,7 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			.all(cutoffMs) as Array<{ date: string; count: number }>
 
 		// Build a continuous date series so the chart shows zero-days too.
-		const daily = buildDailySeries(
-			days,
-			createdByDay,
-			completedByDay,
-			failedByDay,
-			tokensByDay,
-		)
+		const daily = buildDailySeries(days, createdByDay, completedByDay, failedByDay, tokensByDay)
 
 		// Current status snapshot (no time filter — current state).
 		const statusBreakdown = deps.sqlite

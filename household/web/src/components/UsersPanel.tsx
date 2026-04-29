@@ -100,7 +100,8 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 	}
 
 	if (usersQuery.isLoading) return <EmptyBox>Loading users…</EmptyBox>
-	if (usersQuery.error) return <Alert severity="error">{(usersQuery.error as Error).message}</Alert>
+	if (usersQuery.error)
+		return <Alert severity="error">{(usersQuery.error as Error).message}</Alert>
 	const data = usersQuery.data
 	if (!data) return <EmptyBox>No users loaded.</EmptyBox>
 
@@ -168,7 +169,10 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 												value={user.role}
 												disabled={isPrimaryAdmin}
 												onChange={(e) => {
-													updateRole(user.username, e.target.value as UserRole)
+													updateRole(
+														user.username,
+														e.target.value as UserRole,
+													)
 												}}
 												size="small"
 												sx={{ minWidth: 120 }}

@@ -201,11 +201,7 @@ function cancelForIssue(
 	}
 }
 
-function findTasksForIssue(
-	store: TaskStore,
-	repo: string,
-	issueNumber: number,
-): TaskRecord[] {
+function findTasksForIssue(store: TaskStore, repo: string, issueNumber: number): TaskRecord[] {
 	return store.list({ repo }).filter((t) => {
 		const meta = t.metadata as Record<string, unknown> | null
 		return meta?.['github_issue_number'] === issueNumber
@@ -219,10 +215,7 @@ function retryFailedTask(ctx: IssuesEventCtx, task: TaskRecord): void {
 		retryCount: 0,
 	})
 	if (!updated) {
-		ctx.logger.warn(
-			{ taskId: task.id, target },
-			'retry transition failed for re-labeled issue',
-		)
+		ctx.logger.warn({ taskId: task.id, target }, 'retry transition failed for re-labeled issue')
 		return
 	}
 	ctx.taskStore.clearAssignment(task.id)

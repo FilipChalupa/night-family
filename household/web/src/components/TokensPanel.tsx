@@ -91,7 +91,8 @@ export function TokensPanel({ canManage }: Props) {
 	}
 
 	if (tokensQuery.isLoading) return <EmptyBox>Loading tokens…</EmptyBox>
-	if (tokensQuery.error) return <Alert severity="error">{(tokensQuery.error as Error).message}</Alert>
+	if (tokensQuery.error)
+		return <Alert severity="error">{(tokensQuery.error as Error).message}</Alert>
 	const data = tokensQuery.data
 	if (!data) return <EmptyBox>No data.</EmptyBox>
 

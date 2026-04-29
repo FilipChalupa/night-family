@@ -53,14 +53,7 @@ const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'awaiting-merge',
 ]
 
-export function TasksPanel({
-	tasks,
-	canManage,
-	onCreate,
-	onCancel,
-	onRetry,
-	paginate,
-}: Props) {
+export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry, paginate }: Props) {
 	const [page, setPage] = useState(0)
 	const [pageSize, setPageSize] = useState(25)
 
@@ -275,7 +268,10 @@ function TasksTable({
 												</Typography>
 											)}
 											{issue?.number != null ? (
-												<Typography variant="caption" color="text.secondary">
+												<Typography
+													variant="caption"
+													color="text.secondary"
+												>
 													#{issue.number}
 												</Typography>
 											) : null}

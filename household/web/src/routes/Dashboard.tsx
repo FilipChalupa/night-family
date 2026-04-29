@@ -13,16 +13,8 @@ import { EmptyState, Section } from './Root.tsx'
 const DASHBOARD_TASKS_LIMIT = 5
 
 export function Dashboard() {
-	const {
-		me,
-		members,
-		tasks,
-		isAdmin,
-		canSeeUsers,
-		createTask,
-		cancelTask,
-		retryTask,
-	} = useAppData()
+	const { me, members, tasks, isAdmin, canSeeUsers, createTask, cancelTask, retryTask } =
+		useAppData()
 
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
 	const hiddenCount = Math.max(0, tasks.length - visibleTasks.length)
@@ -45,7 +37,11 @@ export function Dashboard() {
 					<Box sx={{ textAlign: 'right' }}>
 						<Link
 							to="/tasks"
-							style={{ color: 'inherit', textDecoration: 'underline', fontSize: '0.875rem' }}
+							style={{
+								color: 'inherit',
+								textDecoration: 'underline',
+								fontSize: '0.875rem',
+							}}
 						>
 							{hiddenCount > 0
 								? `Show all tasks (${tasks.length}, +${hiddenCount} hidden) →`

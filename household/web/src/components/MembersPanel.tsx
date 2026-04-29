@@ -66,7 +66,10 @@ export function MembersPanel({ members, tasks }: Props) {
 											const task = tasksById.get(m.currentTask)
 											if (!task) {
 												return (
-													<Typography variant="caption" color="text.secondary">
+													<Typography
+														variant="caption"
+														color="text.secondary"
+													>
 														task {m.currentTask}
 													</Typography>
 												)
@@ -136,9 +139,7 @@ export function MembersPanel({ members, tasks }: Props) {
 	)
 }
 
-function statusColor(
-	status: MemberSnapshot['status'],
-): 'success' | 'warning' | 'default' {
+function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 'default' {
 	switch (status) {
 		case 'idle':
 			return 'success'

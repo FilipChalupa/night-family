@@ -69,9 +69,7 @@ export function ActivityPanel() {
 				<Typography variant="body2" color="text.secondary" gutterBottom>
 					Tasks per day · last {data.windowDays} days
 				</Typography>
-				{data.daily.every(
-					(d) => d.created === 0 && d.completed === 0 && d.failed === 0,
-				) ? (
+				{data.daily.every((d) => d.created === 0 && d.completed === 0 && d.failed === 0) ? (
 					<EmptyBox>No task activity in this window yet.</EmptyBox>
 				) : (
 					<BarChart

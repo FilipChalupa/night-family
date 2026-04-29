@@ -142,7 +142,10 @@ export function RootLayout() {
 						>
 							<FiberManualRecordIcon
 								fontSize="inherit"
-								sx={{ fontSize: 12, color: connected ? 'success.main' : 'error.main' }}
+								sx={{
+									fontSize: 12,
+									color: connected ? 'success.main' : 'error.main',
+								}}
 							/>
 							{health?.household ?? 'Night Family'}
 						</Typography>
@@ -162,7 +165,11 @@ export function RootLayout() {
 								<Typography variant="body2" color="text.secondary">
 									signed in as <strong>{me.username}</strong> · role {me.role}
 								</Typography>
-								<Button variant="outlined" size="small" onClick={() => void logout()}>
+								<Button
+									variant="outlined"
+									size="small"
+									onClick={() => void logout()}
+								>
 									Sign out
 								</Button>
 							</>
