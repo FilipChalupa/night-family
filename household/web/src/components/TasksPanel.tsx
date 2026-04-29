@@ -16,6 +16,7 @@ import {
 	TableCell,
 	TableContainer,
 	TableHead,
+	TablePagination,
 	TableRow,
 	TextField,
 	Tooltip,
@@ -38,6 +39,7 @@ interface Props {
 	}) => Promise<void>
 	onCancel: (id: string) => Promise<void>
 	onRetry: (id: string) => Promise<void>
+	paginate?: boolean
 }
 
 const KINDS: TaskKind[] = ['implement', 'review', 'respond', 'summarize', 'estimate']
@@ -51,7 +53,21 @@ const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'awaiting-merge',
 ]
 
-export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry }: Props) {
+export function TasksPanel({
+	tasks,
+	canManage,
+	onCreate,
+	onCancel,
+	onRetry,
+	paginate,
+}: Props) {
+	const [page, setPage] = useState(0)
+	const [pageSize, setPageSize] = useState(25)
+
+	const lastPage = Math.max(0, Math.ceil(tasks.length / pageSize) - 1)
+	const safePage = Math.min(page, lastPage)
+	const visible = paginate ? tasks.slice(safePage * pageSize, (safePage + 1) * pageSize) : tasks
+
 	return (
 		<Stack spacing={2}>
 			{canManage ? (
@@ -61,7 +77,26 @@ export function TasksPanel({ tasks, canManage, onCreate, onCancel, onRetry }: Pr
 					You can view tasks, but creating or cancelling tasks is admin-only.
 				</Alert>
 			)}
-			<TasksTable tasks={tasks} canManage={canManage} onCancel={onCancel} onRetry={onRetry} />
+			<TasksTable
+				tasks={visible}
+				canManage={canManage}
+				onCancel={onCancel}
+				onRetry={onRetry}
+			/>
+			{paginate ? (
+				<TablePagination
+					component="div"
+					count={tasks.length}
+					page={safePage}
+					onPageChange={(_, p) => setPage(p)}
+					rowsPerPage={pageSize}
+					onRowsPerPageChange={(e) => {
+						setPageSize(parseInt(e.target.value, 10))
+						setPage(0)
+					}}
+					rowsPerPageOptions={[10, 25, 50, 100]}
+				/>
+			) : null}
 		</Stack>
 	)
 }

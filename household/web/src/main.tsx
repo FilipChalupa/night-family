@@ -1,9 +1,10 @@
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './App.tsx'
 import { ConfirmDialogProvider } from './components/ConfirmDialog.tsx'
+import { router } from './router.tsx'
 
 const queryClient = new QueryClient({
 	defaultOptions: {
@@ -36,7 +37,7 @@ createRoot(root).render(
 			<ThemeProvider theme={theme}>
 				<CssBaseline enableColorScheme />
 				<ConfirmDialogProvider>
-					<App />
+					<RouterProvider router={router} />
 				</ConfirmDialogProvider>
 			</ThemeProvider>
 		</QueryClientProvider>
