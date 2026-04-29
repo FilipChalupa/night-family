@@ -57,7 +57,7 @@ export function MembersPanel({ members, tasks }: Props) {
 								<Chip
 									label={m.status}
 									size="small"
-									color={m.status === 'idle' ? 'success' : 'warning'}
+									color={statusColor(m.status)}
 									variant="outlined"
 								/>
 								{m.currentTask ? (
@@ -134,6 +134,19 @@ export function MembersPanel({ members, tasks }: Props) {
 			</Table>
 		</TableContainer>
 	)
+}
+
+function statusColor(
+	status: MemberSnapshot['status'],
+): 'success' | 'warning' | 'default' {
+	switch (status) {
+		case 'idle':
+			return 'success'
+		case 'busy':
+			return 'warning'
+		case 'offline':
+			return 'default'
+	}
 }
 
 function relativeTime(iso: string): string {

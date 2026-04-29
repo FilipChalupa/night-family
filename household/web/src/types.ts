@@ -11,7 +11,7 @@ export interface MemberSnapshot {
 	workerProfile: string
 	tokenId: string
 	connectedAt: string
-	status: 'idle' | 'busy'
+	status: 'idle' | 'busy' | 'offline'
 	currentTask: string | null
 	lastHeartbeat: string
 }

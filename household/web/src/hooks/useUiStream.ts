@@ -53,7 +53,13 @@ export function useUiStream(enabled: boolean): {
 						setMembers((prev) => upsert(prev, msg.member, (m) => m.sessionId))
 						break
 					case 'member.disconnected':
-						setMembers((prev) => prev.filter((m) => m.sessionId !== msg.sessionId))
+						setMembers((prev) =>
+							prev.map((m) =>
+								m.sessionId === msg.sessionId
+									? { ...m, status: 'offline', currentTask: null }
+									: m,
+							),
+						)
 						break
 					case 'task.created':
 					case 'task.updated':
