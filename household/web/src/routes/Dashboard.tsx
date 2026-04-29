@@ -37,6 +37,7 @@ export function Dashboard() {
 					<Box sx={{ textAlign: 'right' }}>
 						<Link
 							to="/tasks"
+							search={{ page: 0, pageSize: 25 }}
 							style={{
 								color: 'inherit',
 								textDecoration: 'underline',

@@ -23,6 +23,7 @@ import AddIcon from '@mui/icons-material/Add'
 import SendIcon from '@mui/icons-material/Send'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { EmptyState } from '../routes/Root.tsx'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 type ChannelKind = 'webhook' | 'smtp'
@@ -150,7 +151,7 @@ export function NotificationsPanel({ canManage }: Props) {
 	}
 
 	if (channelsQuery.isLoading || deliveriesQuery.isLoading) {
-		return <EmptyBox>Loading notification channels…</EmptyBox>
+		return <EmptyState>Loading notification channels…</EmptyState>
 	}
 	const loadError = channelsQuery.error ?? deliveriesQuery.error
 	if (loadError) return <Alert severity="error">{(loadError as Error).message}</Alert>
@@ -185,10 +186,10 @@ export function NotificationsPanel({ canManage }: Props) {
 			) : null}
 
 			{channels.length === 0 ? (
-				<EmptyBox>
+				<EmptyState>
 					No notification channels configured. Add a webhook or SMTP channel to get
 					notified on events.
-				</EmptyBox>
+				</EmptyState>
 			) : (
 				<TableContainer component={Paper} variant="outlined">
 					<Table size="small">
@@ -611,23 +612,5 @@ function ChannelForm({ onCreated, onCancel }: { onCreated: () => void; onCancel:
 				</Stack>
 			</Stack>
 		</Paper>
-	)
-}
-
-function EmptyBox({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			sx={{
-				p: 3,
-				border: 1,
-				borderStyle: 'dashed',
-				borderColor: 'divider',
-				borderRadius: 2,
-				color: 'text.secondary',
-				textAlign: 'center',
-			}}
-		>
-			{children}
-		</Box>
 	)
 }

@@ -1,7 +1,8 @@
-import { Alert, Box, Paper, Stack, Typography } from '@mui/material'
+import { Alert, Paper, Stack, Typography } from '@mui/material'
 import { BarChart } from '@mui/x-charts/BarChart'
 import { PieChart } from '@mui/x-charts/PieChart'
 import { useQuery } from '@tanstack/react-query'
+import { EmptyState } from '../routes/Root.tsx'
 
 interface DailyRow {
 	date: string
@@ -57,9 +58,9 @@ export function ActivityPanel() {
 		refetchInterval: 30_000,
 	})
 
-	if (isLoading) return <EmptyBox>Loading activity…</EmptyBox>
+	if (isLoading) return <EmptyState>Loading activity…</EmptyState>
 	if (error) return <Alert severity="error">{(error as Error).message}</Alert>
-	if (!data) return <EmptyBox>No data.</EmptyBox>
+	if (!data) return <EmptyState>No data.</EmptyState>
 
 	const totalTasks = data.statusBreakdown.reduce((sum, r) => sum + r.count, 0)
 
@@ -70,7 +71,7 @@ export function ActivityPanel() {
 					Tasks per day · last {data.windowDays} days
 				</Typography>
 				{data.daily.every((d) => d.created === 0 && d.completed === 0 && d.failed === 0) ? (
-					<EmptyBox>No task activity in this window yet.</EmptyBox>
+					<EmptyState>No task activity in this window yet.</EmptyState>
 				) : (
 					<BarChart
 						height={240}
@@ -105,7 +106,7 @@ export function ActivityPanel() {
 						Status breakdown · {totalTasks} total
 					</Typography>
 					{totalTasks === 0 ? (
-						<EmptyBox>No tasks yet.</EmptyBox>
+						<EmptyState>No tasks yet.</EmptyState>
 					) : (
 						<PieChart
 							height={240}
@@ -134,7 +135,7 @@ export function ActivityPanel() {
 						Throughput by member · last {data.windowDays} days
 					</Typography>
 					{data.byMember.length === 0 ? (
-						<EmptyBox>Nobody finished a task in this window yet.</EmptyBox>
+						<EmptyState>Nobody finished a task in this window yet.</EmptyState>
 					) : (
 						<BarChart
 							height={240}
@@ -164,7 +165,7 @@ export function ActivityPanel() {
 						Tokens per day · last {data.windowDays} days
 					</Typography>
 					{data.daily.every((d) => d.tokens === 0) ? (
-						<EmptyBox>No token usage reported in this window yet.</EmptyBox>
+						<EmptyState>No token usage reported in this window yet.</EmptyState>
 					) : (
 						<BarChart
 							height={240}
@@ -189,7 +190,7 @@ export function ActivityPanel() {
 						Tokens by member · last {data.windowDays} days
 					</Typography>
 					{data.byMember.every((m) => m.tokens === 0) ? (
-						<EmptyBox>No token usage reported in this window yet.</EmptyBox>
+						<EmptyState>No token usage reported in this window yet.</EmptyState>
 					) : (
 						<BarChart
 							height={240}
@@ -217,22 +218,4 @@ function formatTokens(value: number | null): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
 	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
 	return value.toLocaleString()
-}
-
-function EmptyBox({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			sx={{
-				p: 3,
-				border: 1,
-				borderStyle: 'dashed',
-				borderColor: 'divider',
-				borderRadius: 2,
-				color: 'text.secondary',
-				textAlign: 'center',
-			}}
-		>
-			{children}
-		</Box>
-	)
 }

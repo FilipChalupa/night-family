@@ -17,11 +17,11 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { EmptyState } from '../routes/Root.tsx'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 interface RepoBinding {
 	repo: string
-	hasPat: boolean
 	createdAt: string
 	updatedAt: string
 }
@@ -68,7 +68,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 		removeMutation.mutate(repo)
 	}
 
-	if (reposQuery.isLoading) return <EmptyBox>Loading repos…</EmptyBox>
+	if (reposQuery.isLoading) return <EmptyState>Loading repos…</EmptyState>
 	if (reposQuery.error)
 		return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
 	const repos = reposQuery.data ?? []
@@ -103,16 +103,15 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 			)}
 
 			{repos.length === 0 ? (
-				<EmptyBox>
+				<EmptyState>
 					No repo bindings yet. Add one to enable issue import + PR tracking.
-				</EmptyBox>
+				</EmptyState>
 			) : (
 				<TableContainer component={Paper} variant="outlined">
 					<Table size="small">
 						<TableHead>
 							<TableRow>
 								<TableCell>Repo</TableCell>
-								<TableCell>PAT</TableCell>
 								<TableCell>Webhook URL</TableCell>
 								<TableCell>Created</TableCell>
 								<TableCell />
@@ -127,14 +126,6 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 											sx={{ fontFamily: 'monospace' }}
 										>
 											{r.repo}
-										</Typography>
-									</TableCell>
-									<TableCell>
-										<Typography
-											variant="body2"
-											color={r.hasPat ? 'text.primary' : 'text.secondary'}
-										>
-											{r.hasPat ? '✓ stored' : 'missing'}
 										</Typography>
 									</TableCell>
 									<TableCell>
@@ -191,7 +182,7 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 				body: JSON.stringify({
 					repo: repo.trim(),
 					webhook_secret: secret,
-					pat: pat.trim() || null,
+					pat: pat.trim(),
 				}),
 			})
 			if (!res.ok) {
@@ -296,23 +287,5 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 				</Stack>
 			</Stack>
 		</Paper>
-	)
-}
-
-function EmptyBox({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			sx={{
-				p: 3,
-				border: 1,
-				borderStyle: 'dashed',
-				borderColor: 'divider',
-				borderRadius: 2,
-				color: 'text.secondary',
-				textAlign: 'center',
-			}}
-		>
-			{children}
-		</Box>
 	)
 }

@@ -11,7 +11,6 @@ import type { SecretCipher } from '../crypto/secrets.ts'
 
 export interface RepoBinding {
 	repo: string
-	hasPat: boolean
 	createdAt: string
 	updatedAt: string
 }
@@ -22,7 +21,7 @@ export class RepoBindingStore {
 		private readonly cipher: SecretCipher,
 	) {}
 
-	upsert(input: { repo: string; webhookSecret: string; pat?: string | null }): RepoBinding {
+	upsert(input: { repo: string; webhookSecret: string; pat: string }): RepoBinding {
 		const existing = this.db
 			.select()
 			.from(repoBindings)
@@ -30,10 +29,7 @@ export class RepoBindingStore {
 			.all()[0]
 
 		const webhookSecretEnc = this.cipher.encrypt(input.webhookSecret)
-		const githubPatEnc =
-			input.pat !== undefined && input.pat !== null
-				? this.cipher.encrypt(input.pat)
-				: (existing?.githubPatEnc ?? null)
+		const githubPatEnc = this.cipher.encrypt(input.pat)
 
 		const now = new Date()
 		if (existing) {
@@ -69,7 +65,6 @@ export class RepoBindingStore {
 			.all()
 			.map((r) => ({
 				repo: r.repo,
-				hasPat: r.githubPatEnc !== null,
 				createdAt: r.createdAt.toISOString(),
 				updatedAt: r.updatedAt.toISOString(),
 			}))
@@ -80,7 +75,6 @@ export class RepoBindingStore {
 		if (!r) return null
 		return {
 			repo: r.repo,
-			hasPat: r.githubPatEnc !== null,
 			createdAt: r.createdAt.toISOString(),
 			updatedAt: r.updatedAt.toISOString(),
 		}
@@ -94,7 +88,7 @@ export class RepoBindingStore {
 
 	getPat(repo: string): string | null {
 		const r = this.db.select().from(repoBindings).where(eq(repoBindings.repo, repo)).all()[0]
-		if (!r || !r.githubPatEnc) return null
+		if (!r) return null
 		return this.cipher.decrypt(r.githubPatEnc)
 	}
 }

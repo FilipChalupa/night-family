@@ -17,6 +17,7 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { EmptyState } from '../routes/Root.tsx'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 interface TokenRecord {
@@ -90,11 +91,11 @@ export function TokensPanel({ canManage }: Props) {
 		}
 	}
 
-	if (tokensQuery.isLoading) return <EmptyBox>Loading tokens…</EmptyBox>
+	if (tokensQuery.isLoading) return <EmptyState>Loading tokens…</EmptyState>
 	if (tokensQuery.error)
 		return <Alert severity="error">{(tokensQuery.error as Error).message}</Alert>
 	const data = tokensQuery.data
-	if (!data) return <EmptyBox>No data.</EmptyBox>
+	if (!data) return <EmptyState>No data.</EmptyState>
 
 	const active = data.tokens.filter((t) => !t.revoked_at)
 	const revoked = data.tokens.filter((t) => t.revoked_at)
@@ -219,7 +220,7 @@ export function TokensPanel({ canManage }: Props) {
 					</Table>
 				</TableContainer>
 			) : (
-				<EmptyBox>No active tokens. Generate one to connect Members.</EmptyBox>
+				<EmptyState>No active tokens. Generate one to connect Members.</EmptyState>
 			)}
 
 			{revoked.length > 0 ? (
@@ -332,23 +333,5 @@ function TokenForm({
 				</Stack>
 			</Stack>
 		</Paper>
-	)
-}
-
-function EmptyBox({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			sx={{
-				p: 3,
-				border: 1,
-				borderStyle: 'dashed',
-				borderColor: 'divider',
-				borderRadius: 2,
-				color: 'text.secondary',
-				textAlign: 'center',
-			}}
-		>
-			{children}
-		</Box>
 	)
 }

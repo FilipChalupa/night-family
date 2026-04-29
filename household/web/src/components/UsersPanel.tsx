@@ -18,6 +18,7 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { EmptyState } from '../routes/Root.tsx'
 import type { UserRecord, UserRole } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
@@ -99,11 +100,11 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 		removeMutation.mutate(username)
 	}
 
-	if (usersQuery.isLoading) return <EmptyBox>Loading users…</EmptyBox>
+	if (usersQuery.isLoading) return <EmptyState>Loading users…</EmptyState>
 	if (usersQuery.error)
 		return <Alert severity="error">{(usersQuery.error as Error).message}</Alert>
 	const data = usersQuery.data
-	if (!data) return <EmptyBox>No users loaded.</EmptyBox>
+	if (!data) return <EmptyState>No users loaded.</EmptyState>
 
 	return (
 		<Stack spacing={2}>
@@ -298,23 +299,5 @@ function UserForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 				</Stack>
 			</Stack>
 		</Paper>
-	)
-}
-
-function EmptyBox({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			sx={{
-				p: 3,
-				border: 1,
-				borderStyle: 'dashed',
-				borderColor: 'divider',
-				borderRadius: 2,
-				color: 'text.secondary',
-				textAlign: 'center',
-			}}
-		>
-			{children}
-		</Box>
 	)
 }
