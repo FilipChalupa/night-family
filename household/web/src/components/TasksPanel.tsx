@@ -269,9 +269,22 @@ function TasksTable({
 								</Typography>
 							</TableCell>
 							<TableCell>
-								<Typography variant="body2" color="text.secondary">
-									{t.repo ?? '—'}
-								</Typography>
+								{t.repo ? (
+									<Link
+										href={`https://github.com/${t.repo}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										underline="hover"
+										variant="body2"
+										color="text.secondary"
+									>
+										{t.repo}
+									</Link>
+								) : (
+									<Typography variant="body2" color="text.secondary">
+										—
+									</Typography>
+								)}
 							</TableCell>
 							<TableCell>
 								{t.estimateSize ? (
