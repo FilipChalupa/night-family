@@ -482,7 +482,7 @@ function estimateColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warn
 function estimateTooltip(size: 'S' | 'M' | 'L' | 'XL'): string {
 	switch (size) {
 		case 'S':
-			return 'Small — about an hour of focused work, single small file.'
+			return 'Small — focused change in a single small file.'
 		case 'M':
 			return 'Medium — a few files, straightforward changes.'
 		case 'L':
