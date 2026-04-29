@@ -21,7 +21,8 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import SendIcon from '@mui/icons-material/Send'
-import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 type ChannelKind = 'webhook' | 'smtp'
@@ -66,10 +67,7 @@ interface Props {
 }
 
 export function NotificationsPanel({ canManage }: Props) {
-	const [channels, setChannels] = useState<Channel[]>([])
-	const [deliveries, setDeliveries] = useState<Delivery[]>([])
-	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
 	const [snackbar, setSnackbar] = useState<{
 		severity: 'success' | 'error'
@@ -78,29 +76,41 @@ export function NotificationsPanel({ canManage }: Props) {
 	const [testingId, setTestingId] = useState<string | null>(null)
 	const confirm = useConfirm()
 
-	const refresh = async () => {
-		setLoading(true)
-		setError(null)
-		try {
-			const [chRes, delRes] = await Promise.all([
-				fetch('/api/notifications/channels'),
-				fetch('/api/notifications/deliveries'),
-			])
-			if (!chRes.ok || !delRes.ok) throw new Error('Failed to load')
-			const { channels: ch } = (await chRes.json()) as { channels: Channel[] }
-			const { deliveries: del } = (await delRes.json()) as { deliveries: Delivery[] }
-			setChannels(ch)
-			setDeliveries(del)
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err))
-		} finally {
-			setLoading(false)
-		}
+	const channelsQuery = useQuery<Channel[]>({
+		queryKey: ['notifications', 'channels'],
+		queryFn: async () => {
+			const r = await fetch('/api/notifications/channels')
+			if (!r.ok) throw new Error('Failed to load channels')
+			const body = (await r.json()) as { channels: Channel[] }
+			return body.channels
+		},
+	})
+	const deliveriesQuery = useQuery<Delivery[]>({
+		queryKey: ['notifications', 'deliveries'],
+		queryFn: async () => {
+			const r = await fetch('/api/notifications/deliveries')
+			if (!r.ok) throw new Error('Failed to load deliveries')
+			const body = (await r.json()) as { deliveries: Delivery[] }
+			return body.deliveries
+		},
+	})
+
+	const invalidate = () => {
+		void queryClient.invalidateQueries({ queryKey: ['notifications'] })
 	}
 
-	useEffect(() => {
-		void refresh()
-	}, [])
+	const deleteMutation = useMutation({
+		mutationFn: async (id: string) => {
+			await fetch(`/api/notifications/channels/${id}`, { method: 'DELETE' })
+		},
+		onSuccess: invalidate,
+	})
+	const retryMutation = useMutation({
+		mutationFn: async (id: string) => {
+			await fetch(`/api/notifications/deliveries/${id}/retry`, { method: 'POST' })
+		},
+		onSuccess: invalidate,
+	})
 
 	const deleteChannel = async (id: string, name: string) => {
 		const ok = await confirm({
@@ -115,13 +125,11 @@ export function NotificationsPanel({ canManage }: Props) {
 			confirmColor: 'error',
 		})
 		if (!ok) return
-		await fetch(`/api/notifications/channels/${id}`, { method: 'DELETE' })
-		void refresh()
+		deleteMutation.mutate(id)
 	}
 
-	const retryDelivery = async (id: string) => {
-		await fetch(`/api/notifications/deliveries/${id}/retry`, { method: 'POST' })
-		void refresh()
+	const retryDelivery = (id: string) => {
+		retryMutation.mutate(id)
 	}
 
 	const testChannel = async (id: string, name: string) => {
@@ -141,9 +149,14 @@ export function NotificationsPanel({ canManage }: Props) {
 		}
 	}
 
-	if (loading) return <EmptyBox>Loading notification channels…</EmptyBox>
-	if (error) return <Alert severity="error">{error}</Alert>
+	if (channelsQuery.isLoading || deliveriesQuery.isLoading) {
+		return <EmptyBox>Loading notification channels…</EmptyBox>
+	}
+	const loadError = channelsQuery.error ?? deliveriesQuery.error
+	if (loadError) return <Alert severity="error">{(loadError as Error).message}</Alert>
 
+	const channels = channelsQuery.data ?? []
+	const deliveries = deliveriesQuery.data ?? []
 	const failedDeliveries = deliveries.filter((d) => d.status === 'failed')
 
 	return (
@@ -153,7 +166,7 @@ export function NotificationsPanel({ canManage }: Props) {
 					<ChannelForm
 						onCreated={() => {
 							setShowForm(false)
-							void refresh()
+							invalidate()
 						}}
 						onCancel={() => setShowForm(false)}
 					/>

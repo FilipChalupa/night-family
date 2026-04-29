@@ -16,7 +16,8 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import type { UserRecord, UserRole } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
@@ -31,46 +32,56 @@ interface UsersResponse {
 }
 
 export function UsersPanel({ canManage, currentUsername }: Props) {
-	const [data, setData] = useState<UsersResponse | null>(null)
-	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
 	const confirm = useConfirm()
 
+	const usersQuery = useQuery<UsersResponse>({
+		queryKey: ['users'],
+		queryFn: async () => {
+			const response = await fetch('/api/users')
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string }
+				throw new Error(body.error ?? `HTTP ${response.status}`)
+			}
+			return (await response.json()) as UsersResponse
+		},
+	})
+
 	const refresh = () => {
-		setLoading(true)
-		setError(null)
-		void fetch('/api/users')
-			.then(async (response) => {
-				if (!response.ok) {
-					const body = (await response.json().catch(() => ({}))) as { error?: string }
-					throw new Error(body.error ?? `HTTP ${response.status}`)
-				}
-				return response.json() as Promise<UsersResponse>
-			})
-			.then((body) => {
-				setData(body)
-				setLoading(false)
-			})
-			.catch((err) => {
-				setError(err instanceof Error ? err.message : String(err))
-				setLoading(false)
-			})
+		void queryClient.invalidateQueries({ queryKey: ['users'] })
 	}
 
-	useEffect(refresh, [])
+	const updateRoleMutation = useMutation({
+		mutationFn: async ({ username, role }: { username: string; role: UserRole }) => {
+			const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ role }),
+			})
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string }
+				throw new Error(body.error ?? `HTTP ${response.status}`)
+			}
+		},
+		onSuccess: refresh,
+	})
 
-	const updateRole = async (username: string, role: UserRole) => {
-		const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
-			method: 'PATCH',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ role }),
-		})
-		if (!response.ok) {
-			const body = (await response.json().catch(() => ({}))) as { error?: string }
-			throw new Error(body.error ?? `HTTP ${response.status}`)
-		}
-		refresh()
+	const removeMutation = useMutation({
+		mutationFn: async (username: string) => {
+			const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+				method: 'DELETE',
+			})
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string }
+				throw new Error(body.error ?? `HTTP ${response.status}`)
+			}
+		},
+		onSuccess: refresh,
+	})
+
+	const updateRole = (username: string, role: UserRole) => {
+		updateRoleMutation.mutate({ username, role })
 	}
 
 	const remove = async (username: string) => {
@@ -85,18 +96,12 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 			confirmColor: 'error',
 		})
 		if (!ok) return
-		const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
-			method: 'DELETE',
-		})
-		if (!response.ok) {
-			const body = (await response.json().catch(() => ({}))) as { error?: string }
-			throw new Error(body.error ?? `HTTP ${response.status}`)
-		}
-		refresh()
+		removeMutation.mutate(username)
 	}
 
-	if (loading) return <EmptyBox>Loading users…</EmptyBox>
-	if (error) return <Alert severity="error">{error}</Alert>
+	if (usersQuery.isLoading) return <EmptyBox>Loading users…</EmptyBox>
+	if (usersQuery.error) return <Alert severity="error">{(usersQuery.error as Error).message}</Alert>
+	const data = usersQuery.data
 	if (!data) return <EmptyBox>No users loaded.</EmptyBox>
 
 	return (
@@ -163,10 +168,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 												value={user.role}
 												disabled={isPrimaryAdmin}
 												onChange={(e) => {
-													void updateRole(
-														user.username,
-														e.target.value as UserRole,
-													)
+													updateRole(user.username, e.target.value as UserRole)
 												}}
 												size="small"
 												sx={{ minWidth: 120 }}

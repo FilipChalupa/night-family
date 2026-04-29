@@ -1,6 +1,6 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ActivityPanel } from './components/ActivityPanel.tsx'
 import { MembersPanel } from './components/MembersPanel.tsx'
 import { NotificationsPanel } from './components/NotificationsPanel.tsx'
@@ -19,22 +19,23 @@ interface Health {
 }
 
 export function App() {
-	const [health, setHealth] = useState<Health | null>(null)
-	const [me, setMe] = useState<CurrentUser | null>(null)
+	const { data: health = null } = useQuery<Health | null>({
+		queryKey: ['health'],
+		queryFn: async () => {
+			const r = await fetch('/health')
+			return r.ok ? ((await r.json()) as Health) : null
+		},
+		refetchInterval: 30_000,
+	})
+	const { data: me } = useQuery<CurrentUser | null>({
+		queryKey: ['me'],
+		queryFn: async () => {
+			const r = await fetch('/api/me')
+			return r.ok ? ((await r.json()) as CurrentUser) : null
+		},
+	})
 	const shouldConnectUiStream = me?.authenticated === true || me?.require_ui_login !== true
 	const { members, tasks, connected } = useUiStream(shouldConnectUiStream)
-
-	useEffect(() => {
-		void fetch('/health')
-			.then((r) => r.json())
-			.then((j: Health) => setHealth(j))
-			.catch(() => setHealth(null))
-
-		void fetch('/api/me')
-			.then((r) => r.json())
-			.then((j: CurrentUser) => setMe(j))
-			.catch(() => setMe(null))
-	}, [])
 
 	// Backend's requireAdmin is a no-op when OAuth isn't configured, so every
 	// visitor is effectively admin. Mirror that here so the UI doesn't hide

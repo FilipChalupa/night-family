@@ -1,7 +1,7 @@
 import { Alert, Box, Paper, Stack, Typography } from '@mui/material'
 import { BarChart } from '@mui/x-charts/BarChart'
 import { PieChart } from '@mui/x-charts/PieChart'
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 interface DailyRow {
 	date: string
@@ -44,27 +44,21 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 export function ActivityPanel() {
-	const [data, setData] = useState<StatsResponse | null>(null)
-	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const { data, isLoading, error } = useQuery<StatsResponse>({
+		queryKey: ['stats', 'tasks', { days: 30 }],
+		queryFn: async () => {
+			const r = await fetch('/api/stats/tasks?days=30')
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+			return (await r.json()) as StatsResponse
+		},
+		refetchInterval: 30_000,
+	})
 
-	useEffect(() => {
-		setLoading(true)
-		void fetch('/api/stats/tasks?days=30')
-			.then(async (r) => {
-				if (!r.ok) {
-					const b = (await r.json().catch(() => ({}))) as { error?: string }
-					throw new Error(b.error ?? `HTTP ${r.status}`)
-				}
-				return r.json() as Promise<StatsResponse>
-			})
-			.then(setData)
-			.catch((err) => setError(err instanceof Error ? err.message : String(err)))
-			.finally(() => setLoading(false))
-	}, [])
-
-	if (loading) return <EmptyBox>Loading activity…</EmptyBox>
-	if (error) return <Alert severity="error">{error}</Alert>
+	if (isLoading) return <EmptyBox>Loading activity…</EmptyBox>
+	if (error) return <Alert severity="error">{(error as Error).message}</Alert>
 	if (!data) return <EmptyBox>No data.</EmptyBox>
 
 	const totalTasks = data.statusBreakdown.reduce((sum, r) => sum + r.count, 0)

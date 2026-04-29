@@ -15,7 +15,8 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 interface TokenRecord {
@@ -37,35 +38,37 @@ interface Props {
 }
 
 export function TokensPanel({ canManage }: Props) {
-	const [data, setData] = useState<TokensResponse | null>(null)
-	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
 	const [newToken, setNewToken] = useState<string | null>(null)
 	const confirm = useConfirm()
 
+	const tokensQuery = useQuery<TokensResponse>({
+		queryKey: ['tokens'],
+		queryFn: async () => {
+			const r = await fetch('/api/tokens')
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+			return (await r.json()) as TokensResponse
+		},
+	})
+
 	const refresh = () => {
-		setLoading(true)
-		setError(null)
-		void fetch('/api/tokens')
-			.then(async (r) => {
-				if (!r.ok) {
-					const b = (await r.json().catch(() => ({}))) as { error?: string }
-					throw new Error(b.error ?? `HTTP ${r.status}`)
-				}
-				return r.json() as Promise<TokensResponse>
-			})
-			.then((body) => {
-				setData(body)
-				setLoading(false)
-			})
-			.catch((err) => {
-				setError(err instanceof Error ? err.message : String(err))
-				setLoading(false)
-			})
+		void queryClient.invalidateQueries({ queryKey: ['tokens'] })
 	}
 
-	useEffect(refresh, [])
+	const revokeMutation = useMutation({
+		mutationFn: async (id: string) => {
+			const r = await fetch(`/api/tokens/${id}`, { method: 'DELETE' })
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+		},
+		onSuccess: refresh,
+	})
 
 	const revoke = async (id: string, name: string) => {
 		const ok = await confirm({
@@ -80,17 +83,16 @@ export function TokensPanel({ canManage }: Props) {
 			confirmColor: 'error',
 		})
 		if (!ok) return
-		const r = await fetch(`/api/tokens/${id}`, { method: 'DELETE' })
-		if (!r.ok) {
-			const b = (await r.json().catch(() => ({}))) as { error?: string }
-			alert(b.error ?? `HTTP ${r.status}`)
-			return
+		try {
+			await revokeMutation.mutateAsync(id)
+		} catch (err) {
+			alert(err instanceof Error ? err.message : String(err))
 		}
-		refresh()
 	}
 
-	if (loading) return <EmptyBox>Loading tokens…</EmptyBox>
-	if (error) return <Alert severity="error">{error}</Alert>
+	if (tokensQuery.isLoading) return <EmptyBox>Loading tokens…</EmptyBox>
+	if (tokensQuery.error) return <Alert severity="error">{(tokensQuery.error as Error).message}</Alert>
+	const data = tokensQuery.data
 	if (!data) return <EmptyBox>No data.</EmptyBox>
 
 	const active = data.tokens.filter((t) => !t.revoked_at)

@@ -23,7 +23,8 @@ import {
 } from '@mui/material'
 import HistoryIcon from '@mui/icons-material/History'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
 
 interface Props {
@@ -454,34 +455,25 @@ interface TaskEvent {
 }
 
 function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose: () => void }) {
-	const [events, setEvents] = useState<TaskEvent[] | null>(null)
-	const [error, setError] = useState<string | null>(null)
-
-	useEffect(() => {
-		if (!taskId) {
-			setEvents(null)
-			setError(null)
-			return
-		}
-		setEvents(null)
-		setError(null)
-		void fetch(`/api/tasks/${taskId}/events?limit=50`)
-			.then(async (r) => {
-				if (!r.ok) {
-					const b = (await r.json().catch(() => ({}))) as { error?: string }
-					throw new Error(b.error ?? `HTTP ${r.status}`)
-				}
-				return r.json() as Promise<{ events: TaskEvent[] }>
-			})
-			.then((b) => setEvents(b.events))
-			.catch((err) => setError(err instanceof Error ? err.message : String(err)))
-	}, [taskId])
+	const { data: events, error } = useQuery<TaskEvent[]>({
+		queryKey: ['task-events', taskId],
+		queryFn: async () => {
+			const r = await fetch(`/api/tasks/${taskId}/events?limit=50`)
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
+			const body = (await r.json()) as { events: TaskEvent[] }
+			return body.events
+		},
+		enabled: taskId !== null,
+	})
 
 	return (
 		<Dialog open={taskId !== null} onClose={onClose} maxWidth="md" fullWidth>
 			<DialogTitle>Task events</DialogTitle>
 			<DialogContent>
-				{error ? <Alert severity="error">{error}</Alert> : null}
+				{error ? <Alert severity="error">{(error as Error).message}</Alert> : null}
 				{!events && !error ? (
 					<Typography color="text.secondary">Loading…</Typography>
 				) : null}
@@ -596,27 +588,17 @@ function githubIssueRef(
 }
 
 function useTaskTokens(): Record<string, number> {
-	const [tokens, setTokens] = useState<Record<string, number>>({})
-	useEffect(() => {
-		let cancelled = false
-		const load = async () => {
-			try {
-				const r = await fetch('/api/stats/task-tokens')
-				if (!r.ok) return
-				const b = (await r.json()) as { tokens: Record<string, number> }
-				if (!cancelled) setTokens(b.tokens ?? {})
-			} catch {
-				/* ignore — best effort, will retry on next tick */
-			}
-		}
-		void load()
-		const id = window.setInterval(load, 15_000)
-		return () => {
-			cancelled = true
-			window.clearInterval(id)
-		}
-	}, [])
-	return tokens
+	const { data } = useQuery<Record<string, number>>({
+		queryKey: ['task-tokens'],
+		queryFn: async () => {
+			const r = await fetch('/api/stats/task-tokens')
+			if (!r.ok) return {}
+			const b = (await r.json()) as { tokens: Record<string, number> }
+			return b.tokens ?? {}
+		},
+		refetchInterval: 15_000,
+	})
+	return data ?? {}
 }
 
 function formatTokens(value: number): string {

@@ -15,7 +15,8 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 interface RepoBinding {
@@ -26,27 +27,30 @@ interface RepoBinding {
 }
 
 export function ReposPanel({ canManage }: { canManage: boolean }) {
-	const [repos, setRepos] = useState<RepoBinding[]>([])
-	const [loading, setLoading] = useState(true)
-	const [error, setError] = useState<string | null>(null)
+	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
 	const confirm = useConfirm()
 
+	const reposQuery = useQuery<RepoBinding[]>({
+		queryKey: ['repos'],
+		queryFn: async () => {
+			const r = await fetch('/api/repos')
+			if (!r.ok) throw new Error(`HTTP ${r.status}`)
+			const body = (await r.json()) as { repos: RepoBinding[] }
+			return body.repos
+		},
+	})
+
 	const refresh = () => {
-		setLoading(true)
-		void fetch('/api/repos')
-			.then((r) => r.json())
-			.then((j: { repos: RepoBinding[] }) => {
-				setRepos(j.repos)
-				setLoading(false)
-			})
-			.catch((err) => {
-				setError(err instanceof Error ? err.message : String(err))
-				setLoading(false)
-			})
+		void queryClient.invalidateQueries({ queryKey: ['repos'] })
 	}
 
-	useEffect(refresh, [])
+	const removeMutation = useMutation({
+		mutationFn: async (repo: string) => {
+			await fetch(`/api/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' })
+		},
+		onSuccess: refresh,
+	})
 
 	const remove = async (repo: string) => {
 		const ok = await confirm({
@@ -61,12 +65,12 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 			confirmColor: 'error',
 		})
 		if (!ok) return
-		await fetch(`/api/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' })
-		refresh()
+		removeMutation.mutate(repo)
 	}
 
-	if (loading) return <EmptyBox>Loading repos…</EmptyBox>
-	if (error) return <Alert severity="error">{error}</Alert>
+	if (reposQuery.isLoading) return <EmptyBox>Loading repos…</EmptyBox>
+	if (reposQuery.error) return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
+	const repos = reposQuery.data ?? []
 
 	return (
 		<Stack spacing={2}>
