@@ -345,6 +345,7 @@ function TasksTable({
 										<Button
 											size="small"
 											variant="outlined"
+											color="error"
 											onClick={() => {
 												void onCancel(t.id)
 											}}
