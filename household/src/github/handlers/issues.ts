@@ -3,8 +3,8 @@
  *
  * Per plan §7: only issues with the `night` label create tasks. We watch:
  *   - `opened` — if labeled `night` already, import.
- *   - `labeled` — if the added label is `night` and we don't have a task yet,
- *     import.
+ *   - `labeled` — if the added label is `night`: import a new task, or retry
+ *     the prior task if it was previously cancelled by removing the label.
  *   - `unlabeled` (the `night` label was removed) — cancel the task.
  *   - `closed` — cancel the task unless it already reached a terminal /
  *     awaiting-merge state (those are handled by the PR webhook).
@@ -78,7 +78,14 @@ async function importIssue(
 	ctx: IssuesEventCtx,
 	issue: { number: number; title: string; body: string | null; html_url: string },
 ): Promise<void> {
-	if (existingTask(ctx.taskStore, ctx.repo, issue.number)) {
+	const existing = findTasksForIssue(ctx.taskStore, ctx.repo, issue.number)
+	if (existing.length > 0) {
+		const failed = existing.filter((t) => t.status === 'failed')
+		if (failed.length > 0) {
+			for (const task of failed) retryFailedTask(ctx, task)
+			ctx.dispatcher.tryDispatchAll()
+			return
+		}
 		ctx.logger.info(
 			{ repo: ctx.repo, issue: issue.number },
 			'task already exists for this issue',
@@ -194,12 +201,35 @@ function cancelForIssue(
 	}
 }
 
-function existingTask(store: TaskStore, repo: string, issueNumber: number): boolean {
-	const matches = store.list({ repo }).filter((t) => {
+function findTasksForIssue(
+	store: TaskStore,
+	repo: string,
+	issueNumber: number,
+): TaskRecord[] {
+	return store.list({ repo }).filter((t) => {
 		const meta = t.metadata as Record<string, unknown> | null
 		return meta?.['github_issue_number'] === issueNumber
 	})
-	return matches.length > 0
+}
+
+function retryFailedTask(ctx: IssuesEventCtx, task: TaskRecord): void {
+	const target: TaskRecord['status'] = task.estimateSize ? 'queued' : 'new'
+	const updated = ctx.taskStore.transition(task.id, ['failed'], target, {
+		failureReason: null,
+		retryCount: 0,
+	})
+	if (!updated) {
+		ctx.logger.warn(
+			{ taskId: task.id, target },
+			'retry transition failed for re-labeled issue',
+		)
+		return
+	}
+	ctx.taskStore.clearAssignment(task.id)
+	ctx.logger.info(
+		{ taskId: task.id, target, repo: ctx.repo },
+		'task retried via night label re-add',
+	)
 }
 
 function buildDescription(issue: {
