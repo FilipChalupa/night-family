@@ -7,6 +7,7 @@ interface DailyRow {
 	date: string
 	created: number
 	completed: number
+	failed: number
 }
 
 interface StatusRow {
@@ -17,6 +18,7 @@ interface StatusRow {
 interface MemberRow {
 	name: string
 	completed: number
+	failed: number
 }
 
 interface StatsResponse {
@@ -71,7 +73,9 @@ export function ActivityPanel() {
 				<Typography variant="body2" color="text.secondary" gutterBottom>
 					Tasks per day · last {data.windowDays} days
 				</Typography>
-				{data.daily.every((d) => d.created === 0 && d.completed === 0) ? (
+				{data.daily.every(
+					(d) => d.created === 0 && d.completed === 0 && d.failed === 0,
+				) ? (
 					<EmptyBox>No task activity in this window yet.</EmptyBox>
 				) : (
 					<BarChart
@@ -89,6 +93,11 @@ export function ActivityPanel() {
 								data: data.daily.map((d) => d.completed),
 								label: 'Completed',
 								color: '#6cd28a',
+							},
+							{
+								data: data.daily.map((d) => d.failed),
+								label: 'Failed',
+								color: '#ff8a8a',
 							},
 						]}
 						margin={{ left: 40, right: 16, top: 16, bottom: 32 }}
@@ -142,6 +151,11 @@ export function ActivityPanel() {
 									data: data.byMember.map((m) => m.completed),
 									label: 'Completed',
 									color: '#6cd28a',
+								},
+								{
+									data: data.byMember.map((m) => m.failed),
+									label: 'Failed',
+									color: '#ff8a8a',
 								},
 							]}
 							margin={{ left: 80, right: 16, top: 16, bottom: 32 }}

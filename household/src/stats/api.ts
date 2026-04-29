@@ -19,6 +19,7 @@ interface DailyRow {
 	date: string
 	created: number
 	completed: number
+	failed: number
 }
 
 interface StatusRow {
@@ -29,6 +30,7 @@ interface StatusRow {
 interface MemberRow {
 	name: string
 	completed: number
+	failed: number
 }
 
 const DEFAULT_DAYS = 30
@@ -70,8 +72,18 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			)
 			.all(cutoffMs) as Array<{ date: string; count: number }>
 
+		const failedByDay = deps.sqlite
+			.prepare(
+				`SELECT date(updated_at / 1000, 'unixepoch') AS date, COUNT(*) AS count
+				 FROM tasks
+				 WHERE status = 'failed' AND updated_at >= ?
+				 GROUP BY date
+				 ORDER BY date`,
+			)
+			.all(cutoffMs) as Array<{ date: string; count: number }>
+
 		// Build a continuous date series so the chart shows zero-days too.
-		const daily = buildDailySeries(days, createdByDay, completedByDay)
+		const daily = buildDailySeries(days, createdByDay, completedByDay, failedByDay)
 
 		// Current status snapshot (no time filter — current state).
 		const statusBreakdown = deps.sqlite
@@ -80,19 +92,26 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			)
 			.all() as StatusRow[]
 
-		// Per-member throughput: completed tasks within the window.
-		const byMember = deps.sqlite
+		// Per-member throughput: completed and failed tasks within the window.
+		const memberAggregates = deps.sqlite
 			.prepare(
-				`SELECT assigned_member_name AS name, COUNT(*) AS completed
+				`SELECT assigned_member_name AS name,
+				        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed,
+				        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
 				 FROM tasks
-				 WHERE status = 'done'
+				 WHERE status IN ('done', 'failed')
 				   AND assigned_member_name IS NOT NULL
 				   AND updated_at >= ?
 				 GROUP BY assigned_member_name
-				 ORDER BY completed DESC
+				 ORDER BY (completed + failed) DESC
 				 LIMIT 20`,
 			)
 			.all(cutoffMs) as MemberRow[]
+		const byMember = memberAggregates.map((r) => ({
+			name: r.name,
+			completed: Number(r.completed) || 0,
+			failed: Number(r.failed) || 0,
+		}))
 
 		return c.json({
 			windowDays: days,
@@ -107,9 +126,11 @@ function buildDailySeries(
 	days: number,
 	created: Array<{ date: string; count: number }>,
 	completed: Array<{ date: string; count: number }>,
+	failed: Array<{ date: string; count: number }>,
 ): DailyRow[] {
 	const createdMap = new Map(created.map((r) => [r.date, r.count]))
 	const completedMap = new Map(completed.map((r) => [r.date, r.count]))
+	const failedMap = new Map(failed.map((r) => [r.date, r.count]))
 
 	const out: DailyRow[] = []
 	const today = new Date()
@@ -122,6 +143,7 @@ function buildDailySeries(
 			date,
 			created: createdMap.get(date) ?? 0,
 			completed: completedMap.get(date) ?? 0,
+			failed: failedMap.get(date) ?? 0,
 		})
 	}
 	return out
