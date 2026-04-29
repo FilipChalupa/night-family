@@ -241,11 +241,9 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						</li>
 					</Typography>
 					<Typography variant="body2">
-						The PAT is technically optional (binding works without it), but{' '}
-						<em>implement</em> tasks will fail at <code>git push</code> /{' '}
-						<code>gh pr create</code> with a read-only or missing token. Read-only
-						access is enough only if you exclusively run <em>review</em>,{' '}
-						<em>respond</em>, or <em>summarize</em> tasks.
+						The PAT is required: without it Members cannot{' '}
+						<code>git push</code> commits or open pull requests, and{' '}
+						<em>implement</em> tasks will fail.
 					</Typography>
 				</Alert>
 				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -270,11 +268,12 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 						fullWidth
 					/>
 					<TextField
-						label="GitHub PAT (optional)"
+						label="GitHub PAT"
 						type="password"
 						placeholder="Fine-grained personal access token"
 						value={pat}
 						onChange={(e) => setPat(e.target.value)}
+						required
 						size="small"
 						fullWidth
 					/>

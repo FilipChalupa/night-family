@@ -38,14 +38,14 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 		if (typeof webhookSecret !== 'string' || webhookSecret.length === 0) {
 			return c.json({ error: 'invalid_webhook_secret' }, 400)
 		}
-		if (pat !== undefined && pat !== null && typeof pat !== 'string') {
-			return c.json({ error: 'invalid_pat' }, 400)
+		if (typeof pat !== 'string' || pat.length === 0) {
+			return c.json({ error: 'pat_required' }, 400)
 		}
 
 		const record = deps.bindings.upsert({
 			repo,
 			webhookSecret,
-			pat: typeof pat === 'string' && pat.length > 0 ? pat : null,
+			pat,
 		})
 		return c.json({ repo: record }, 200)
 	})
