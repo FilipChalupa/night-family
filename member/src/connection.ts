@@ -218,6 +218,7 @@ export class HouseholdConnection {
 				prUrl: task.pr_url ?? null,
 				githubToken,
 				repoUrl,
+				metadata: task.metadata ?? null,
 			})
 			.then((outcome) => {
 				if (outcome.type === 'completed') {

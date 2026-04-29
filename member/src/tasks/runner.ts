@@ -43,6 +43,7 @@ export interface AssignedTaskInput {
 	prUrl: string | null
 	githubToken: string
 	repoUrl: string
+	metadata: Record<string, unknown> | null
 }
 
 export interface TaskRunnerDeps {
@@ -263,6 +264,7 @@ export class TaskRunner {
 							model: this.deps.provider.model,
 							taskId: task.taskId,
 							stats,
+							issue: githubIssueRef(task.metadata),
 						})
 						const opened = await workspace.upsertDraftPr({
 							title: prTitleFor(task.title),
@@ -448,6 +450,18 @@ function prTitleFor(title: string): string {
 	return title.slice(0, 200)
 }
 
+function githubIssueRef(
+	metadata: Record<string, unknown> | null,
+): { number: number | null; url: string | null } | null {
+	if (!metadata) return null
+	const numberRaw = metadata['github_issue_number']
+	const urlRaw = metadata['github_issue_url']
+	const number = typeof numberRaw === 'number' ? numberRaw : null
+	const url = typeof urlRaw === 'string' ? urlRaw : null
+	if (number === null && url === null) return null
+	return { number, url }
+}
+
 function buildPrDescription(opts: {
 	title: string
 	summary: string
@@ -456,6 +470,7 @@ function buildPrDescription(opts: {
 	model: string
 	taskId: string
 	stats: RunStats
+	issue: { number: number | null; url: string | null } | null
 }): string {
 	const u = opts.stats.usage
 	const totalTokens = u.input + u.output
@@ -463,6 +478,10 @@ function buildPrDescription(opts: {
 	const files = opts.stats.filesEdited
 
 	const lines: string[] = []
+	if (opts.issue?.number != null) {
+		lines.push(`Closes #${opts.issue.number}`)
+		lines.push('')
+	}
 	lines.push('## Summary')
 	lines.push('')
 	lines.push(opts.summary.trim())
