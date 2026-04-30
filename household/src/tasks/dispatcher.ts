@@ -229,6 +229,67 @@ export class Dispatcher {
 		}
 	}
 
+	/**
+	 * Called when a Member's WS is replaced by a fresh handshake from the same
+	 * member_id — i.e. the Member reconnected before we noticed the previous
+	 * socket was dead. Tasks the new session declared via `resumes` are
+	 * re-linked to it (status preserved). Anything else owned by the old
+	 * session is treated as a regular disconnect: requeued.
+	 */
+	onMemberSuperseded(
+		oldSessionId: string,
+		newAssignment: { sessionId: string; memberId: string; memberName: string },
+		retainedTaskIds: ReadonlySet<string>,
+	): void {
+		const ownedTasks = this.deps.taskStore
+			.list({ status: ['estimating', 'assigned', 'in-progress'] })
+			.filter((t) => t.assignedSessionId === oldSessionId)
+		let requeued = 0
+		let retained = 0
+		for (const task of ownedTasks) {
+			if (retainedTaskIds.has(task.id)) {
+				this.clearTaskPending(task.id)
+				this.deps.taskStore.reassignSession(task.id, newAssignment)
+				this.deps.logger.info(
+					{ taskId: task.id, newSessionId: newAssignment.sessionId },
+					'task re-linked to resumed session',
+				)
+				retained++
+			} else {
+				this.clearTaskPending(task.id)
+				const target: TaskStatus = task.status === 'estimating' ? 'new' : 'queued'
+				this.deps.taskStore.transition(task.id, [task.status], target)
+				this.deps.taskStore.clearAssignment(task.id)
+				this.deps.logger.info(
+					{ taskId: task.id, target },
+					'requeued task after member supersede (not in resumes)',
+				)
+				requeued++
+			}
+		}
+
+		// Review jobs cannot resume across sockets — return them to pending.
+		const ownedJobs = this.deps.jobStore.listBySession(oldSessionId)
+		for (const job of ownedJobs) {
+			if (job.status === 'assigned' || job.status === 'in-progress') {
+				clearTimeout(this.pendingJobAck.get(job.id)?.timer)
+				this.pendingJobAck.delete(job.id)
+				this.deps.jobStore.clearAssignment(job.id)
+				this.deps.logger.info(
+					{ jobId: job.id },
+					'review job returned to pending after supersede',
+				)
+				requeued++
+			}
+		}
+
+		if (requeued > 0) this.tryDispatchAll()
+		this.deps.logger.debug(
+			{ oldSessionId, newSessionId: newAssignment.sessionId, retained, requeued },
+			'member supersede complete',
+		)
+	}
+
 	// ─── Private task helpers ─────────────────────────────────────────────────
 
 	private sendTask(conn: ConnectedMember, task: TaskRecord): void {

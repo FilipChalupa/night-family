@@ -25,10 +25,19 @@ interface Props {
 
 export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
 	const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
+	const [cancelError, setCancelError] = useState<{ taskId: string; message: string } | null>(
+		null,
+	)
 	const handleCancel = async (taskId: string) => {
 		setCancellingTaskId(taskId)
+		setCancelError(null)
 		try {
 			await onCancel(taskId)
+		} catch (err) {
+			setCancelError({
+				taskId,
+				message: err instanceof Error ? err.message : String(err),
+			})
 		} finally {
 			setCancellingTaskId(null)
 		}
@@ -120,19 +129,30 @@ export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
 											)
 										})()}
 										{canManage ? (
-											<Button
-												size="small"
-												variant="outlined"
-												color="error"
-												disabled={cancellingTaskId === m.currentTask}
-												onClick={() => {
-													void handleCancel(m.currentTask!)
-												}}
-											>
-												{cancellingTaskId === m.currentTask
-													? 'Cancelling…'
-													: 'Cancel'}
-											</Button>
+											<>
+												<Button
+													size="small"
+													variant="outlined"
+													color="error"
+													disabled={cancellingTaskId === m.currentTask}
+													onClick={() => {
+														void handleCancel(m.currentTask!)
+													}}
+												>
+													{cancellingTaskId === m.currentTask
+														? 'Cancelling…'
+														: 'Cancel'}
+												</Button>
+												{cancelError?.taskId === m.currentTask ? (
+													<Typography
+														variant="caption"
+														color="error"
+														sx={{ display: 'block' }}
+													>
+														{cancelError.message}
+													</Typography>
+												) : null}
+											</>
 										) : null}
 									</Stack>
 								) : null}

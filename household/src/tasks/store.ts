@@ -277,6 +277,32 @@ export class TaskStore {
 		return record
 	}
 
+	/**
+	 * Re-link an in-flight task's assignment to a new session for the same
+	 * member. Used when a Member reconnects under a fresh sessionId while
+	 * still working on the task it was assigned. Status is preserved.
+	 */
+	reassignSession(
+		id: string,
+		assignment: { sessionId: string; memberId: string; memberName: string },
+	): TaskRecord | null {
+		const existing = this.get(id)
+		if (!existing) return null
+		this.db
+			.update(tasks)
+			.set({
+				assignedSessionId: assignment.sessionId,
+				assignedMemberId: assignment.memberId,
+				assignedMemberName: assignment.memberName,
+				updatedAt: new Date(),
+			})
+			.where(eq(tasks.id, id))
+			.run()
+		const record = this.get(id)!
+		this.emit({ type: 'task.updated', task: record })
+		return record
+	}
+
 	storeEstimateResult(
 		id: string,
 		size: 'S' | 'M' | 'L' | 'XL',

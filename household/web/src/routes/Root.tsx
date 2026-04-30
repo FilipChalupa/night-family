@@ -88,7 +88,11 @@ export function RootLayout() {
 	}
 
 	const cancelTask = async (id: string) => {
-		await fetch(`/api/tasks/${id}/cancel`, { method: 'POST' })
+		const r = await fetch(`/api/tasks/${id}/cancel`, { method: 'POST' })
+		if (!r.ok) {
+			const b = (await r.json().catch(() => ({}))) as { error?: string }
+			throw new Error(b.error ?? `HTTP ${r.status}`)
+		}
 	}
 
 	const retryTask = async (id: string) => {

@@ -151,12 +151,26 @@ function handleHandshake(
 	// WS may linger in the registry until the watchdog notices, and the new
 	// connection would otherwise show up as a duplicate row in the dashboard.
 	// The new handshake is proof the old session is dead — evict it now.
+	//
+	// Tasks the new session declares via `resumes` are kept assigned (just
+	// re-linked to the new sessionId); anything else gets requeued so a
+	// healthy member can pick it up.
+	const retainedTaskIds = new Set((msg.resumes ?? []).map((r) => r.task_id))
+	const newAssignment = {
+		sessionId,
+		memberId: msg.member_id,
+		memberName: msg.member_name,
+	}
 	for (const stale of deps.registry.findByMemberId(msg.member_id)) {
 		deps.logger.info(
-			{ staleSessionId: stale.sessionId, memberId: msg.member_id },
+			{
+				staleSessionId: stale.sessionId,
+				memberId: msg.member_id,
+				retainedTaskIds: [...retainedTaskIds],
+			},
 			'superseding previous session for member',
 		)
-		deps.dispatcher.onMemberDisconnected(stale.sessionId)
+		deps.dispatcher.onMemberSuperseded(stale.sessionId, newAssignment, retainedTaskIds)
 		deps.registry.remove(stale.sessionId)
 		try {
 			stale.close(4409, 'superseded')
