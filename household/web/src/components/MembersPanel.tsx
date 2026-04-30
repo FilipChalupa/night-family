@@ -1,7 +1,9 @@
 import {
 	Box,
+	Button,
 	Chip,
 	Paper,
+	Stack,
 	Table,
 	TableBody,
 	TableCell,
@@ -11,14 +13,26 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
+import { useState } from 'react'
 import type { MemberSnapshot, TaskRecord } from '../types.ts'
 
 interface Props {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
+	canManage: boolean
+	onCancel: (taskId: string) => Promise<void>
 }
 
-export function MembersPanel({ members, tasks }: Props) {
+export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
+	const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
+	const handleCancel = async (taskId: string) => {
+		setCancellingTaskId(taskId)
+		try {
+			await onCancel(taskId)
+		} finally {
+			setCancellingTaskId(null)
+		}
+	}
 	const tasksById = new Map(tasks.map((t) => [t.id, t]))
 	return (
 		<TableContainer component={Paper} variant="outlined">
@@ -61,7 +75,7 @@ export function MembersPanel({ members, tasks }: Props) {
 									variant="outlined"
 								/>
 								{m.currentTask ? (
-									<Box sx={{ mt: 0.5 }}>
+									<Stack spacing={0.5} sx={{ mt: 0.5, alignItems: 'flex-start' }}>
 										{(() => {
 											const task = tasksById.get(m.currentTask)
 											if (!task) {
@@ -105,7 +119,22 @@ export function MembersPanel({ members, tasks }: Props) {
 												</Tooltip>
 											)
 										})()}
-									</Box>
+										{canManage ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												disabled={cancellingTaskId === m.currentTask}
+												onClick={() => {
+													void handleCancel(m.currentTask!)
+												}}
+											>
+												{cancellingTaskId === m.currentTask
+													? 'Cancelling…'
+													: 'Cancel'}
+											</Button>
+										) : null}
+									</Stack>
 								) : null}
 							</TableCell>
 							<TableCell>

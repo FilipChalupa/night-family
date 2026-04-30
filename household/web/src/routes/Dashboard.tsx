@@ -69,7 +69,12 @@ export function Dashboard() {
 						No connected members yet. Spin up a Member container to see it here.
 					</EmptyState>
 				) : (
-					<MembersPanel members={members} tasks={tasks} />
+					<MembersPanel
+						members={members}
+						tasks={tasks}
+						canManage={isAdmin}
+						onCancel={cancelTask}
+					/>
 				)}
 			</Section>
 
