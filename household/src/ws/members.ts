@@ -146,6 +146,25 @@ function handleHandshake(
 
 	const sessionId = randomUUID()
 
+	// Supersede any zombie sessions for the same member_id. When a Member is
+	// killed ungracefully (kill -9, network drop, dev-server restart) the old
+	// WS may linger in the registry until the watchdog notices, and the new
+	// connection would otherwise show up as a duplicate row in the dashboard.
+	// The new handshake is proof the old session is dead — evict it now.
+	for (const stale of deps.registry.findByMemberId(msg.member_id)) {
+		deps.logger.info(
+			{ staleSessionId: stale.sessionId, memberId: msg.member_id },
+			'superseding previous session for member',
+		)
+		deps.dispatcher.onMemberDisconnected(stale.sessionId)
+		deps.registry.remove(stale.sessionId)
+		try {
+			stale.close(4409, 'superseded')
+		} catch {
+			/* old socket already closed */
+		}
+	}
+
 	// Replay protocol: ask Member to resend any events Household hasn't seen.
 	for (const resume of msg.resumes ?? []) {
 		const persistedMax = deps.eventLog.maxSeq(resume.task_id)

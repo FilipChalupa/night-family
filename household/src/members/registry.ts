@@ -100,6 +100,10 @@ export class MemberRegistry {
 		return this.bySession.get(sessionId)
 	}
 
+	findByMemberId(memberId: string): ConnectedMember[] {
+		return [...this.bySession.values()].filter((m) => m.memberId === memberId)
+	}
+
 	list(): MemberSnapshot[] {
 		return [...this.bySession.values()].map(snapshot)
 	}
