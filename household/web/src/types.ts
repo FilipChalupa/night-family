@@ -9,6 +9,7 @@ export interface MemberSnapshot {
 	provider: string
 	model: string
 	workerProfile: string
+	protocolVersion: string
 	tokenId: string
 	connectedAt: string
 	status: 'idle' | 'busy' | 'offline'
@@ -69,7 +70,12 @@ export interface UserRecord {
 }
 
 export type UiEvent =
-	| { type: 'snapshot'; members: MemberSnapshot[]; tasks: TaskRecord[] }
+	| {
+			type: 'snapshot'
+			protocolVersion: string
+			members: MemberSnapshot[]
+			tasks: TaskRecord[]
+	  }
 	| { type: 'member.connected'; member: MemberSnapshot }
 	| { type: 'member.disconnected'; sessionId: string; memberId: string }
 	| { type: 'member.updated'; member: MemberSnapshot }

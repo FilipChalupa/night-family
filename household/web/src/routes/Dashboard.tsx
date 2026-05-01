@@ -13,8 +13,17 @@ import { EmptyState, Section } from './Root.tsx'
 const DASHBOARD_TASKS_LIMIT = 5
 
 export function Dashboard() {
-	const { me, members, tasks, isAdmin, canSeeUsers, createTask, cancelTask, retryTask } =
-		useAppData()
+	const {
+		me,
+		members,
+		tasks,
+		householdProtocolVersion,
+		isAdmin,
+		canSeeUsers,
+		createTask,
+		cancelTask,
+		retryTask,
+	} = useAppData()
 
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
 	const hiddenCount = Math.max(0, tasks.length - visibleTasks.length)
@@ -72,6 +81,7 @@ export function Dashboard() {
 					<MembersPanel
 						members={members}
 						tasks={tasks}
+						householdProtocolVersion={householdProtocolVersion}
 						canManage={isAdmin}
 						onCancel={cancelTask}
 					/>

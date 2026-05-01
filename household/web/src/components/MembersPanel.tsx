@@ -19,11 +19,18 @@ import type { MemberSnapshot, TaskRecord } from '../types.ts'
 interface Props {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
+	householdProtocolVersion: string | null
 	canManage: boolean
 	onCancel: (taskId: string) => Promise<void>
 }
 
-export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
+export function MembersPanel({
+	members,
+	tasks,
+	householdProtocolVersion,
+	canManage,
+	onCancel,
+}: Props) {
 	const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
 	const [cancelError, setCancelError] = useState<{ taskId: string; message: string } | null>(null)
 	const handleCancel = async (taskId: string) => {
@@ -51,6 +58,7 @@ export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
 						<TableCell>Provider · Model</TableCell>
 						<TableCell>Skills</TableCell>
 						<TableCell>Profile</TableCell>
+						<TableCell>Protocol</TableCell>
 						<TableCell>Connected</TableCell>
 					</TableRow>
 				</TableHead>
@@ -172,6 +180,12 @@ export function MembersPanel({ members, tasks, canManage, onCancel }: Props) {
 								</Typography>
 							</TableCell>
 							<TableCell>
+								<ProtocolCell
+									memberVersion={m.protocolVersion}
+									householdVersion={householdProtocolVersion}
+								/>
+							</TableCell>
+							<TableCell>
 								<Tooltip title={m.connectedAt}>
 									<Typography variant="body2" color="text.secondary">
 										{relativeTime(m.connectedAt)}
@@ -195,6 +209,49 @@ function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 
 		case 'offline':
 			return 'default'
 	}
+}
+
+type ProtocolSkew = 'unknown' | 'equal' | 'patch-skew' | 'minor-skew' | 'major-mismatch'
+
+function protocolSkew(member: string, household: string | null): ProtocolSkew {
+	if (!household) return 'unknown'
+	const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(member)
+	const h = /^(\d+)\.(\d+)\.(\d+)$/.exec(household)
+	if (!m || !h) return 'major-mismatch'
+	if (m[1] !== h[1]) return 'major-mismatch'
+	if (m[2] !== h[2]) return 'minor-skew'
+	if (m[3] !== h[3]) return 'patch-skew'
+	return 'equal'
+}
+
+function ProtocolCell({
+	memberVersion,
+	householdVersion,
+}: {
+	memberVersion: string
+	householdVersion: string | null
+}) {
+	const skew = protocolSkew(memberVersion, householdVersion)
+	if (skew === 'equal' || skew === 'unknown') {
+		return (
+			<Typography variant="body2" color="text.secondary">
+				{memberVersion}
+			</Typography>
+		)
+	}
+	const color =
+		skew === 'major-mismatch' ? 'error' : skew === 'minor-skew' ? 'warning' : 'default'
+	const tooltip =
+		skew === 'major-mismatch'
+			? `Major mismatch — household runs ${householdVersion}. This connection should have been rejected.`
+			: skew === 'minor-skew'
+				? `Minor skew — household runs ${householdVersion}. Connection accepted; expect a warning in logs on both sides.`
+				: `Patch difference — household runs ${householdVersion}. Harmless.`
+	return (
+		<Tooltip title={tooltip}>
+			<Chip label={memberVersion} size="small" color={color} variant="outlined" />
+		</Tooltip>
+	)
 }
 
 function relativeTime(iso: string): string {

@@ -4,8 +4,8 @@ import {
 	PING_INTERVAL_MS,
 	PROTOCOL_VERSION,
 	compareProtocolVersions,
-	decode,
 	encode,
+	parseMemberToHousehold,
 	type HouseholdToMember,
 	type MemberToHousehold,
 	type MsgHandshake,
@@ -85,13 +85,15 @@ export function createMemberWsHandler(deps: MemberWsDeps) {
 			onMessage: (evt: { data: unknown }, ws: WSContext<unknown>) => {
 				if (!tokenId) return
 
-				let msg: MemberToHousehold
-				try {
-					msg = decode<MemberToHousehold>(String(evt.data))
-				} catch {
-					deps.logger.warn('member sent invalid JSON')
+				const parsed = parseMemberToHousehold(String(evt.data))
+				if (!parsed.ok) {
+					deps.logger.warn(
+						{ error: parsed.error, sessionId: session?.sessionId },
+						'dropping malformed member message',
+					)
 					return
 				}
+				const msg: MemberToHousehold = parsed.msg
 
 				if (!session) {
 					if (msg.type !== 'handshake') {
@@ -223,6 +225,7 @@ function handleHandshake(
 		provider: msg.provider,
 		model: msg.model,
 		workerProfile: msg.worker_profile,
+		protocolVersion: msg.protocol_version,
 		tokenId,
 		connectedAt: new Date(),
 		status: 'idle',

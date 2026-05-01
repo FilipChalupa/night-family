@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@night/shared'
 import type { WSContext } from 'hono/ws'
 import type { Logger } from 'pino'
 import { getSessionIdFromCookieHeader } from '../auth/oauth.ts'
@@ -38,6 +39,7 @@ export function createUiWsHandler(deps: UiWsDeps) {
 				ws.send(
 					JSON.stringify({
 						type: 'snapshot',
+						protocolVersion: PROTOCOL_VERSION,
 						members: deps.registry.list(),
 						tasks: deps.taskStore.list(),
 					}),

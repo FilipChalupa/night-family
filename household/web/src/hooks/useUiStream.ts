@@ -5,10 +5,12 @@ export function useUiStream(enabled: boolean): {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
 	connected: boolean
+	householdProtocolVersion: string | null
 } {
 	const [members, setMembers] = useState<MemberSnapshot[]>([])
 	const [tasks, setTasks] = useState<TaskRecord[]>([])
 	const [connected, setConnected] = useState(false)
+	const [householdProtocolVersion, setHouseholdProtocolVersion] = useState<string | null>(null)
 	const wsRef = useRef<WebSocket | null>(null)
 	const reconnectTimer = useRef<number | null>(null)
 	const closedManually = useRef(false)
@@ -47,6 +49,7 @@ export function useUiStream(enabled: boolean): {
 					case 'snapshot':
 						setMembers(msg.members)
 						setTasks(msg.tasks)
+						setHouseholdProtocolVersion(msg.protocolVersion)
 						break
 					case 'member.connected':
 					case 'member.updated':
@@ -98,7 +101,7 @@ export function useUiStream(enabled: boolean): {
 		}
 	}, [enabled])
 
-	return { members, tasks, connected }
+	return { members, tasks, connected, householdProtocolVersion }
 }
 
 function upsert<T>(prev: T[], item: T, key: (x: T) => string): T[] {

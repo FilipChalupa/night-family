@@ -5,8 +5,8 @@ import {
 	HEARTBEAT_TIMEOUT_MS,
 	PROTOCOL_VERSION,
 	compareProtocolVersions,
-	decode,
 	encode,
+	parseHouseholdToMember,
 	type AssignedTask,
 	type HouseholdToMember,
 	type MemberStatus,
@@ -107,14 +107,15 @@ export class HouseholdConnection {
 
 			ws.on('message', (data) => {
 				this.state.lastServerActivity = Date.now()
-				let msg: HouseholdToMember
-				try {
-					msg = decode<HouseholdToMember>(data.toString())
-				} catch {
-					this.logger.warn('received non-JSON from household')
+				const parsed = parseHouseholdToMember(data.toString())
+				if (!parsed.ok) {
+					this.logger.warn(
+						{ error: parsed.error },
+						'dropping malformed household message',
+					)
 					return
 				}
-				void this.handleServerMessage(msg)
+				void this.handleServerMessage(parsed.msg)
 			})
 
 			ws.on('close', (code, reason) => {

@@ -14,6 +14,7 @@ export interface AppData {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
 	connected: boolean
+	householdProtocolVersion: string | null
 	isAdmin: boolean
 	canSeeUsers: boolean
 	createTask: (input: {

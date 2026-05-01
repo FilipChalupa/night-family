@@ -9,6 +9,7 @@ export interface ConnectedMember {
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
+	protocolVersion: string
 	tokenId: string
 	connectedAt: Date
 	status: MemberStatus
@@ -26,6 +27,7 @@ export interface MemberSnapshot {
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
+	protocolVersion: string
 	tokenId: string
 	connectedAt: string
 	status: MemberStatus
@@ -47,6 +49,7 @@ function snapshot(m: ConnectedMember): MemberSnapshot {
 		provider: m.provider,
 		model: m.model,
 		workerProfile: m.workerProfile,
+		protocolVersion: m.protocolVersion,
 		tokenId: m.tokenId,
 		connectedAt: m.connectedAt.toISOString(),
 		status: m.status,

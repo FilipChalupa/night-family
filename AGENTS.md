@@ -31,6 +31,8 @@ The Household ↔ Member wire protocol is versioned via semver `PROTOCOL_VERSION
 
 When in doubt, bump major. Silent breakage from a too-small bump is worse than an extra reject during deploy.
 
+When you add or change a message type/field, update both the TypeScript types in [shared/src/protocol.ts](shared/src/protocol.ts) **and** the runtime schemas in [shared/src/protocol.schema.ts](shared/src/protocol.schema.ts) — the types are for code that produces messages, the schemas validate everything that comes off the wire. A field that exists in the type but not the schema gets silently dropped; the other way around throws on every connection. After every bump add an entry to [docs/PROTOCOL.md](docs/PROTOCOL.md).
+
 ## Things to avoid
 
 - Adding documentation files unless the user asks. Update `README.md`.

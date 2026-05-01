@@ -133,6 +133,8 @@ Household and Member negotiate a semver-style `protocol_version` (string `"major
 
 For this to be safe, **a minor bump may only add things** — new optional fields, new message types, new enum values the peer can ignore. Anything that removes, renames, retypes, or changes the meaning of an existing field/message is a major bump. Patch bumps must not change the wire format at all (they're for fixes that happen to live in `shared/`).
 
+Per-version changelog lives in [docs/PROTOCOL.md](docs/PROTOCOL.md) — add an entry whenever you bump `PROTOCOL_VERSION`.
+
 ## Status
 
 Following the milestone plan in [plan.md §10](plan.md#10-fáze-milestones).

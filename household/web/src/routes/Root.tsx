@@ -23,7 +23,8 @@ export function RootLayout() {
 		},
 	})
 	const shouldConnectUiStream = me?.authenticated === true || me?.require_ui_login !== true
-	const { members, tasks, connected } = useUiStream(shouldConnectUiStream)
+	const { members, tasks, connected, householdProtocolVersion } =
+		useUiStream(shouldConnectUiStream)
 
 	const isAdmin =
 		(me?.authenticated === true && me.role === 'admin') || me?.oauth_configured === false
@@ -111,6 +112,7 @@ export function RootLayout() {
 				members,
 				tasks,
 				connected,
+				householdProtocolVersion,
 				isAdmin,
 				canSeeUsers,
 				createTask,

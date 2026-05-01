@@ -3,6 +3,7 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PROTOCOL_VERSION } from '@night/shared'
 import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
@@ -97,6 +98,7 @@ app.get('/health', (c) => {
 		household: config.householdName,
 		uptimeSec: Math.round((Date.now() - startedAt) / 1000),
 		members: registry.list().length,
+		protocolVersion: PROTOCOL_VERSION,
 		db: dbOk,
 	})
 })
