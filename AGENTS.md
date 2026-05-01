@@ -21,6 +21,16 @@ Guardrails for AI coding agents (Claude Code, Codex, etc.) working in this repo.
 - Env files (`.env.household`, `.env.member`) are loaded automatically by the dev scripts via Node's `--env-file-if-exists`. Don't reintroduce inline env-var prefixes in npm scripts.
 - Single source of truth for design and milestones is [plan.md](plan.md).
 
+## Protocol changes
+
+The Household ↔ Member wire protocol is versioned via semver `PROTOCOL_VERSION` in [shared/src/protocol.ts](shared/src/protocol.ts). When you touch protocol types or `PROTOCOL_VERSION`, pick the right level — Household rejects different majors, warns on different minors, ignores patches (see [README.md](README.md#protocol-versioning)).
+
+- **Patch** — change in `shared/` that doesn't alter the wire format (refactor, helper, comment).
+- **Minor** — purely additive: new optional field, new message type, new enum value the peer can ignore. Both old and new peers must still interoperate.
+- **Major** — anything else: removing/renaming/retyping a field, making an optional field required, changing semantics of an existing field, removing a message type.
+
+When in doubt, bump major. Silent breakage from a too-small bump is worse than an extra reject during deploy.
+
 ## Things to avoid
 
 - Adding documentation files unless the user asks. Update `README.md`.

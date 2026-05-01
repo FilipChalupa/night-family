@@ -3,6 +3,7 @@ import type { WSContext } from 'hono/ws'
 import {
 	PING_INTERVAL_MS,
 	PROTOCOL_VERSION,
+	compareProtocolVersions,
 	decode,
 	encode,
 	type HouseholdToMember,
@@ -135,13 +136,28 @@ function handleHandshake(
 	deps: MemberWsDeps,
 	send: (ws: WSContext<unknown>, msg: HouseholdToMember) => void,
 ): SessionState | null {
-	if (msg.protocol_version !== PROTOCOL_VERSION) {
+	const compat = compareProtocolVersions(PROTOCOL_VERSION, msg.protocol_version)
+	if (compat === 'major-mismatch') {
 		send(ws, {
 			type: 'handshake.reject',
-			reason: `protocol_version_mismatch (server=${PROTOCOL_VERSION}, client=${msg.protocol_version})`,
+			reason: `protocol_major_mismatch (server=${PROTOCOL_VERSION}, client=${msg.protocol_version})`,
 		})
-		ws.close(4400, 'protocol_version_mismatch')
+		ws.close(4400, 'protocol_major_mismatch')
 		return null
+	}
+	if (compat === 'minor-skew') {
+		// Minor bumps are contractually additive (see README §Protocol versioning),
+		// so the connection is safe — but we want this visible in production
+		// because it's the earliest signal that part of the fleet is lagging
+		// (or running ahead of) Household.
+		deps.logger.warn(
+			{
+				server: PROTOCOL_VERSION,
+				client: msg.protocol_version,
+				memberId: msg.member_id,
+			},
+			'protocol minor version skew between household and member',
+		)
 	}
 
 	const sessionId = randomUUID()
@@ -230,6 +246,7 @@ function handleHandshake(
 		type: 'handshake.ack',
 		household_name: deps.householdName,
 		session_id: sessionId,
+		protocol_version: PROTOCOL_VERSION,
 	})
 
 	deps.logger.info(

@@ -121,6 +121,18 @@ docker-compose.dev.yml
 plan.md      design doc — single source of truth
 ```
 
+## Protocol versioning
+
+Household and Member negotiate a semver-style `protocol_version` (string `"major.minor.patch"`) during the WebSocket handshake. The current value lives in [shared/src/protocol.ts](shared/src/protocol.ts).
+
+| skew between sides  | what happens                                                                         |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| different **major** | Household sends `handshake.reject` with `protocol_major_mismatch`; Member shuts down |
+| different **minor** | accepted; both sides log a warning so fleet skew is visible                          |
+| different **patch** | accepted silently                                                                    |
+
+For this to be safe, **a minor bump may only add things** — new optional fields, new message types, new enum values the peer can ignore. Anything that removes, renames, retypes, or changes the meaning of an existing field/message is a major bump. Patch bumps must not change the wire format at all (they're for fixes that happen to live in `shared/`).
+
 ## Status
 
 Following the milestone plan in [plan.md §10](plan.md#10-fáze-milestones).

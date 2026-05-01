@@ -1,9 +1,53 @@
 /**
  * WebSocket protocol between Household and Member.
- * Wire format: line-delimited JSON. Versioned via `protocol_version` in handshake.
+ * Wire format: line-delimited JSON. Versioned via semver-style
+ * `protocol_version` (string `"major.minor.patch"`) in handshake.
+ *
+ * Compatibility rules (see README and AGENTS.md):
+ *   - different major  → reject the handshake
+ *   - different minor  → accept, log a warning on both sides
+ *   - different patch  → accept silently
+ *
+ * Discipline: a minor bump may ONLY add things (new optional fields, new
+ * message types, new enum values the peer can ignore). Anything that
+ * removes, renames, retypes, or changes the meaning of an existing
+ * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = '1.0.0'
+
+export interface ParsedProtocolVersion {
+	major: number
+	minor: number
+	patch: number
+}
+
+export function parseProtocolVersion(raw: string): ParsedProtocolVersion | null {
+	const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(raw)
+	if (!m) return null
+	return {
+		major: Number(m[1]),
+		minor: Number(m[2]),
+		patch: Number(m[3]),
+	}
+}
+
+export type ProtocolCompat = 'equal' | 'patch-skew' | 'minor-skew' | 'major-mismatch'
+
+/**
+ * Compare two protocol-version strings. Returns the highest level at which
+ * they differ. Invalid input on either side is treated as `major-mismatch`
+ * (we don't speak the same language).
+ */
+export function compareProtocolVersions(a: string, b: string): ProtocolCompat {
+	const pa = parseProtocolVersion(a)
+	const pb = parseProtocolVersion(b)
+	if (!pa || !pb) return 'major-mismatch'
+	if (pa.major !== pb.major) return 'major-mismatch'
+	if (pa.minor !== pb.minor) return 'minor-skew'
+	if (pa.patch !== pb.patch) return 'patch-skew'
+	return 'equal'
+}
 
 export type Skill = 'implement' | 'review' | 'estimate' | 'respond' | 'summarize'
 
@@ -56,7 +100,7 @@ export interface AssignedTask {
 
 export interface MsgHandshake {
 	type: 'handshake'
-	protocol_version: number
+	protocol_version: string
 	member_id: string
 	member_name: string
 	skills: Skill[]
@@ -133,6 +177,7 @@ export interface MsgHandshakeAck {
 	type: 'handshake.ack'
 	household_name: string
 	session_id: string
+	protocol_version: string
 }
 
 export interface MsgHandshakeReject {

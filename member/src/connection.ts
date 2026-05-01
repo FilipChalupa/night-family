@@ -4,6 +4,7 @@ import {
 	HEARTBEAT_INTERVAL_MS,
 	HEARTBEAT_TIMEOUT_MS,
 	PROTOCOL_VERSION,
+	compareProtocolVersions,
 	decode,
 	encode,
 	type AssignedTask,
@@ -160,9 +161,21 @@ export class HouseholdConnection {
 		switch (msg.type) {
 			case 'handshake.ack':
 				this.logger.info(
-					{ household: msg.household_name, sessionId: msg.session_id },
+					{
+						household: msg.household_name,
+						sessionId: msg.session_id,
+						householdProtocol: msg.protocol_version,
+					},
 					'handshake accepted',
 				)
+				if (
+					compareProtocolVersions(PROTOCOL_VERSION, msg.protocol_version) === 'minor-skew'
+				) {
+					this.logger.warn(
+						{ member: PROTOCOL_VERSION, household: msg.protocol_version },
+						'protocol minor version skew between member and household',
+					)
+				}
 				this.startHeartbeat()
 				if (this.state.currentTask === null) {
 					this.send({ type: 'member.ready' })
