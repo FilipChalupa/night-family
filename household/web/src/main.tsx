@@ -26,6 +26,15 @@ const theme = createTheme({
 		fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
 	},
 	shape: { borderRadius: 8 },
+	components: {
+		MuiCssBaseline: {
+			styleOverrides: {
+				':root': {
+					scrollbarGutter: 'stable',
+				},
+			},
+		},
+	},
 })
 
 const root = document.getElementById('root')
