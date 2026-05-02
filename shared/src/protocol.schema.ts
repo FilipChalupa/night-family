@@ -66,6 +66,7 @@ const MsgHandshakeSchema = v.object({
 	protocol_version: v.string(),
 	member_id: v.string(),
 	member_name: v.string(),
+	display_name: v.string(),
 	skills: v.array(SkillSchema),
 	provider: ProviderSchema,
 	model: v.string(),
@@ -146,8 +147,6 @@ const MsgHandshakeRejectSchema = v.object({
 const MsgTaskAssignedSchema = v.object({
 	type: v.literal('task.assigned'),
 	task: AssignedTaskSchema,
-	github_token: v.string(),
-	repo_url: v.string(),
 })
 
 const MsgEventsReplayRequestSchema = v.object({

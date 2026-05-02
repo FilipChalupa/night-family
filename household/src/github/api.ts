@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import type { AdminGuard } from '../auth/guard.ts'
 import type { RepoBindingStore } from './bindings.ts'
@@ -16,6 +17,20 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 		return c.json({ repos: deps.bindings.list() })
 	})
 
+	app.post('/api/repos/draft', (c) => {
+		const guardResult = deps.guard.requireAdmin(c)
+		if (guardResult) return guardResult
+		const repo = c.req.query('repo')
+		if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
+			return c.json({ error: 'invalid_repo' }, 400)
+		}
+		const webhookSecret = randomBytes(32).toString('hex')
+		const url = new URL(c.req.url)
+		const payloadUrl = `${url.protocol}//${url.host}/webhooks/github`
+		const hooksSettingsUrl = `https://github.com/${repo}/settings/hooks/new`
+		return c.json({ repo, webhook_secret: webhookSecret, payload_url: payloadUrl, hooks_settings_url: hooksSettingsUrl })
+	})
+
 	app.post('/api/repos', async (c) => {
 		const guardResult = deps.guard.requireAdmin(c)
 		if (guardResult) return guardResult
@@ -31,22 +46,14 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 
 		const repo = b['repo']
 		const webhookSecret = b['webhook_secret']
-		const pat = b['pat']
 		if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
 			return c.json({ error: 'invalid_repo' }, 400)
 		}
 		if (typeof webhookSecret !== 'string' || webhookSecret.length === 0) {
 			return c.json({ error: 'invalid_webhook_secret' }, 400)
 		}
-		if (typeof pat !== 'string' || pat.length === 0) {
-			return c.json({ error: 'pat_required' }, 400)
-		}
 
-		const record = deps.bindings.upsert({
-			repo,
-			webhookSecret,
-			pat,
-		})
+		const record = deps.bindings.upsert({ repo, webhookSecret })
 		return c.json({ repo: record }, 200)
 	})
 

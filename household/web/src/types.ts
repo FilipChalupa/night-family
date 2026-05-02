@@ -5,6 +5,7 @@ export interface MemberSnapshot {
 	sessionId: string
 	memberId: string
 	memberName: string
+	displayName: string
 	skills: string[]
 	provider: string
 	model: string

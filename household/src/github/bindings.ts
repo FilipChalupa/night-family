@@ -1,7 +1,7 @@
 /**
- * Repo bindings — per-repo (`org/name`) configuration: GitHub PAT and webhook
- * secret. Both are stored encrypted via `SecretCipher`. PAT is shared with
- * Members during dispatch; webhook secret is used to validate inbound HMAC.
+ * Repo bindings — per-repo (`org/name`) configuration. Holds only the
+ * webhook secret used to validate inbound HMAC. GitHub PATs are no longer
+ * household-side; each member supplies its own via env (`GITHUB_PAT`).
  */
 
 import { eq } from 'drizzle-orm'
@@ -21,7 +21,7 @@ export class RepoBindingStore {
 		private readonly cipher: SecretCipher,
 	) {}
 
-	upsert(input: { repo: string; webhookSecret: string; pat: string }): RepoBinding {
+	upsert(input: { repo: string; webhookSecret: string }): RepoBinding {
 		const existing = this.db
 			.select()
 			.from(repoBindings)
@@ -29,13 +29,12 @@ export class RepoBindingStore {
 			.all()[0]
 
 		const webhookSecretEnc = this.cipher.encrypt(input.webhookSecret)
-		const githubPatEnc = this.cipher.encrypt(input.pat)
 
 		const now = new Date()
 		if (existing) {
 			this.db
 				.update(repoBindings)
-				.set({ webhookSecretEnc, githubPatEnc, updatedAt: now })
+				.set({ webhookSecretEnc, updatedAt: now })
 				.where(eq(repoBindings.repo, input.repo))
 				.run()
 		} else {
@@ -44,7 +43,6 @@ export class RepoBindingStore {
 				.values({
 					repo: input.repo,
 					webhookSecretEnc,
-					githubPatEnc,
 					createdAt: now,
 					updatedAt: now,
 				})
@@ -84,11 +82,5 @@ export class RepoBindingStore {
 		const r = this.db.select().from(repoBindings).where(eq(repoBindings.repo, repo)).all()[0]
 		if (!r) return null
 		return this.cipher.decrypt(r.webhookSecretEnc)
-	}
-
-	getPat(repo: string): string | null {
-		const r = this.db.select().from(repoBindings).where(eq(repoBindings.repo, repo)).all()[0]
-		if (!r) return null
-		return this.cipher.decrypt(r.githubPatEnc)
 	}
 }

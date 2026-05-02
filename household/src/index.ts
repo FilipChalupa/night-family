@@ -68,7 +68,6 @@ const dispatcher = new Dispatcher({
 	taskStore,
 	jobStore,
 	registry,
-	bindings: repoBindings,
 	notifSender,
 	logger: logger.child({ component: 'dispatcher' }),
 })

@@ -4,7 +4,10 @@ import type { MemberStatus, Provider, Skill, WorkerProfile } from '@night/shared
 export interface ConnectedMember {
 	sessionId: string
 	memberId: string
+	/** GitHub login of the user whose PAT this Member runs under. */
 	memberName: string
+	/** Pretty display name (`name ?? login` from /user). UI-only. */
+	displayName: string
 	skills: Skill[]
 	provider: Provider
 	model: string
@@ -24,6 +27,7 @@ export interface MemberSnapshot {
 	sessionId: string
 	memberId: string
 	memberName: string
+	displayName: string
 	skills: Skill[]
 	provider: Provider
 	model: string
@@ -47,6 +51,7 @@ function snapshot(m: ConnectedMember): MemberSnapshot {
 		sessionId: m.sessionId,
 		memberId: m.memberId,
 		memberName: m.memberName,
+		displayName: m.displayName,
 		skills: m.skills,
 		provider: m.provider,
 		model: m.model,

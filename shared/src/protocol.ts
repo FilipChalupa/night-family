@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '1.1.0'
+export const PROTOCOL_VERSION = '2.0.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -102,7 +102,10 @@ export interface MsgHandshake {
 	type: 'handshake'
 	protocol_version: string
 	member_id: string
+	/** GitHub login of the user whose PAT this Member runs under. */
 	member_name: string
+	/** Pretty display name (`name ?? login` from /user). UI-only. */
+	display_name: string
 	skills: Skill[]
 	provider: Provider
 	model: string
@@ -188,8 +191,6 @@ export interface MsgHandshakeReject {
 export interface MsgTaskAssigned {
 	type: 'task.assigned'
 	task: AssignedTask
-	github_token: string
-	repo_url: string
 }
 
 export interface MsgEventsReplayRequest {

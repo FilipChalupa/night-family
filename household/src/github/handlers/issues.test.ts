@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../db/schema.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import { TaskStore, type TaskRecord } from '../../tasks/store.ts'
-import type { RepoBindingStore } from '../bindings.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
 import { handleIssuesEvent } from './issues.ts'
 
@@ -37,7 +36,6 @@ interface Rig {
 	store: TaskStore
 	tryDispatchAll: ReturnType<typeof vi.fn>
 	registryGet: ReturnType<typeof vi.fn>
-	bindingsGetPat: ReturnType<typeof vi.fn>
 	cleanup: () => void
 }
 
@@ -52,13 +50,11 @@ function createRig(): Rig {
 	const store = new TaskStore(db)
 	const tryDispatchAll = vi.fn()
 	const registryGet = vi.fn().mockReturnValue(null)
-	const bindingsGetPat = vi.fn().mockReturnValue(null)
 
 	return {
 		store,
 		tryDispatchAll,
 		registryGet,
-		bindingsGetPat,
 		cleanup: () => {
 			sqlite.close()
 			rmSync(dir, { recursive: true, force: true })
@@ -73,7 +69,6 @@ function ctxFor(rig: Rig, repo: string, body: Record<string, unknown>) {
 		taskStore: rig.store,
 		dispatcher: { tryDispatchAll: rig.tryDispatchAll } as unknown as Dispatcher,
 		registry: { get: rig.registryGet } as unknown as MemberRegistry,
-		bindings: { getPat: rig.bindingsGetPat } as unknown as RepoBindingStore,
 		logger: silentLogger,
 	}
 }

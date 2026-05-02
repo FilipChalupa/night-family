@@ -14,7 +14,6 @@ import type { Logger } from 'pino'
 import type { MemberRegistry } from '../../members/registry.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
-import type { RepoBindingStore } from '../bindings.ts'
 
 const NIGHT_LABEL = 'night'
 
@@ -24,7 +23,6 @@ interface IssuesEventCtx {
 	taskStore: TaskStore
 	dispatcher: Dispatcher
 	registry: MemberRegistry
-	bindings: RepoBindingStore
 	logger: Logger
 }
 
@@ -108,54 +106,6 @@ async function importIssue(
 		'imported issue as task',
 	)
 	ctx.dispatcher.tryDispatchAll()
-
-	// Acknowledge the import on the issue itself with an 👀 reaction so anyone
-	// looking at the issue on GitHub can see Night Family picked it up. Best
-	// effort — never let a reaction failure abort the import.
-	void addEyesReaction(ctx, issue.number)
-}
-
-async function addEyesReaction(ctx: IssuesEventCtx, issueNumber: number): Promise<void> {
-	const pat = ctx.bindings.getPat(ctx.repo)
-	if (!pat) {
-		ctx.logger.debug(
-			{ repo: ctx.repo, issue: issueNumber },
-			'eyes reaction skipped (no PAT for repo)',
-		)
-		return
-	}
-	try {
-		const res = await fetch(
-			`https://api.github.com/repos/${ctx.repo}/issues/${issueNumber}/reactions`,
-			{
-				method: 'POST',
-				headers: {
-					accept: 'application/vnd.github+json',
-					authorization: `Bearer ${pat}`,
-					'content-type': 'application/json',
-					'x-github-api-version': '2022-11-28',
-				},
-				body: JSON.stringify({ content: 'eyes' }),
-			},
-		)
-		if (!res.ok && res.status !== 200) {
-			const body = await res.text().catch(() => '')
-			ctx.logger.warn(
-				{
-					repo: ctx.repo,
-					issue: issueNumber,
-					status: res.status,
-					body: body.slice(0, 200),
-				},
-				'eyes reaction failed',
-			)
-		}
-	} catch (err) {
-		ctx.logger.warn(
-			{ err: err instanceof Error ? err.message : String(err) },
-			'eyes reaction errored',
-		)
-	}
 }
 
 /**

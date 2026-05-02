@@ -5,9 +5,10 @@ describe('parseMemberToHousehold', () => {
 	it('accepts a well-formed handshake', () => {
 		const raw = JSON.stringify({
 			type: 'handshake',
-			protocol_version: '1.0.0',
+			protocol_version: '2.0.0',
 			member_id: 'm1',
-			member_name: 'Member One',
+			member_name: 'memberone',
+			display_name: 'Member One',
 			skills: ['implement', 'review'],
 			provider: 'anthropic',
 			model: 'claude-opus-4-7',
@@ -65,7 +66,7 @@ describe('parseHouseholdToMember', () => {
 			type: 'handshake.ack',
 			household_name: 'home',
 			session_id: 'sess-1',
-			protocol_version: '1.0.0',
+			protocol_version: '2.0.0',
 		})
 		const out = parseHouseholdToMember(raw)
 		expect(out.ok).toBe(true)

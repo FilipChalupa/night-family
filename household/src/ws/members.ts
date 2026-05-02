@@ -224,6 +224,7 @@ function handleHandshake(
 		sessionId,
 		memberId: msg.member_id,
 		memberName: msg.member_name,
+		displayName: msg.display_name,
 		skills: msg.skills,
 		provider: msg.provider,
 		model: msg.model,

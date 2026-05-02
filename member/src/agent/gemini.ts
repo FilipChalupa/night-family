@@ -3,7 +3,13 @@
  */
 
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '@google/genai'
-import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
+import type {
+	AgentTask,
+	Provider,
+	RunAgentOptions,
+	RunAgentResult,
+	TokenUsage,
+} from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192
@@ -59,12 +65,7 @@ export class GeminiProvider implements Provider {
 				role: 'user',
 				parts: [
 					{
-						text: buildKickoffPrompt(
-							task.title,
-							task.description,
-							task.kind,
-							task.prUrl,
-						),
+						text: buildKickoffPrompt(task),
 					},
 				],
 			},
@@ -191,12 +192,10 @@ export class GeminiProvider implements Provider {
 	}
 }
 
-function buildKickoffPrompt(
-	title: string,
-	description: string,
-	kind: string,
-	prUrl: string | null,
-): string {
+function buildKickoffPrompt(task: AgentTask): string {
+	const { title, description, kind, prUrl, repo, metadata } = task
+	const issueNumber = readIssueNumber(metadata)
+
 	if (kind === 'review' && prUrl) {
 		return [
 			`# Code Review: ${title}`,
@@ -210,7 +209,15 @@ function buildKickoffPrompt(
 			`Review the pull request at the URL above. Use the bash tool to:`,
 			`1. Run \`gh pr diff ${prUrl}\` to read the changes.`,
 			`2. Run \`gh pr view ${prUrl}\` to read the PR description.`,
-			`3. Post your review with \`gh pr review ${prUrl} --approve/-b/--request-changes\`.`,
+			`3. Post your review with one of:`,
+			`   - \`gh pr review ${prUrl} --approve -b "<comment>"\``,
+			`   - \`gh pr review ${prUrl} --request-changes -b "<comment>"\``,
+			`   - \`gh pr review ${prUrl} --comment -b "<comment>"\``,
+			``,
+			`If \`--approve\` (or \`--request-changes\`) fails because GitHub forbids`,
+			`acting on your own pull request, fall back to \`gh pr review --comment\``,
+			`with the same body and still report your verdict accurately in the JSON`,
+			`block — the household tracks approvals internally.`,
 			``,
 			`End your summary with a JSON block on its own line:`,
 			`{"verdict":"approved"} or {"verdict":"changes_requested"} or {"verdict":"commented"}`,
@@ -236,11 +243,22 @@ function buildKickoffPrompt(
 	}
 
 	if (kind === 'estimate') {
+		const ackLines =
+			repo && issueNumber !== null
+				? [
+						``,
+						`## Acknowledge the issue first`,
+						`Before doing anything else, post an 👀 reaction on the source issue:`,
+						`\`gh api -X POST /repos/${repo}/issues/${issueNumber}/reactions -f content=eyes\``,
+						`Best-effort — log and continue if it fails.`,
+					]
+				: []
 		return [
 			`# Estimate: ${title}`,
 			``,
 			`## Task description`,
 			description.trim(),
+			...ackLines,
 			``,
 			`## Instructions`,
 			`Estimate the size of this task. **Do not modify any files** — this is a sizing pass only; an `,
@@ -277,6 +295,12 @@ function buildKickoffPrompt(
 		``,
 		`Apply this change by editing files in the working tree. Use \`read_file\` / \`bash\` to find what to change, \`write_file\` to apply each edit (full new contents per file), and \`bash\` to run any sanity checks the repo offers (tests, build, linter). When the files on disk look right, briefly summarize what you did and stop calling tools.`,
 	].join('\n')
+}
+
+function readIssueNumber(metadata: Record<string, unknown> | null): number | null {
+	if (!metadata) return null
+	const v = metadata['github_issue_number']
+	return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 function extractText(parts: Part[]): string | null {

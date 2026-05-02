@@ -7,7 +7,13 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
+import type {
+	AgentTask,
+	Provider,
+	RunAgentOptions,
+	RunAgentResult,
+	TokenUsage,
+} from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 16_000
@@ -47,12 +53,7 @@ export class AnthropicProvider implements Provider {
 				content: [
 					{
 						type: 'text',
-						text: buildKickoffPrompt(
-							task.title,
-							task.description,
-							task.kind,
-							task.prUrl,
-						),
+						text: buildKickoffPrompt(task),
 					},
 				],
 			},
@@ -195,12 +196,10 @@ export class AnthropicProvider implements Provider {
 	}
 }
 
-function buildKickoffPrompt(
-	title: string,
-	description: string,
-	kind: string,
-	prUrl: string | null,
-): string {
+function buildKickoffPrompt(task: AgentTask): string {
+	const { title, description, kind, prUrl, repo, metadata } = task
+	const issueNumber = readIssueNumber(metadata)
+
 	if (kind === 'review' && prUrl) {
 		return [
 			`# Code Review: ${title}`,
@@ -219,6 +218,12 @@ function buildKickoffPrompt(
 			`   - \`gh pr review ${prUrl} --approve -b "<comment>"\``,
 			`   - \`gh pr review ${prUrl} --request-changes -b "<comment>"\``,
 			`   - \`gh pr review ${prUrl} --comment -b "<comment>"\``,
+			``,
+			`If \`--approve\` (or \`--request-changes\`) fails because GitHub forbids`,
+			`acting on your own pull request, fall back to \`gh pr review --comment\``,
+			`with the same body and still report your verdict accurately in the JSON`,
+			`block — the household tracks approvals internally regardless of what the`,
+			`GitHub UI shows.`,
 			``,
 			`When done, write a brief summary of your findings and end with a JSON block`,
 			`on its own line — for example:`,
@@ -253,11 +258,26 @@ function buildKickoffPrompt(
 	}
 
 	if (kind === 'estimate') {
+		const ackLines =
+			repo && issueNumber !== null
+				? [
+						``,
+						`## Acknowledge the issue first`,
+						`Before doing anything else, post an 👀 reaction on the source issue so`,
+						`anyone watching it on GitHub knows the bot picked it up:`,
+						``,
+						`\`gh api -X POST /repos/${repo}/issues/${issueNumber}/reactions -f content=eyes\``,
+						``,
+						`If the request fails (e.g. permission denied) log it and continue —`,
+						`the reaction is best-effort, never block the estimate on it.`,
+					]
+				: []
 		return [
 			`# Estimate: ${title}`,
 			``,
 			`## Task description`,
 			description.trim(),
+			...ackLines,
 			``,
 			`## Instructions`,
 			`Estimate the size of this task. **Do not modify any files** — this is a sizing pass only; an `,
@@ -299,6 +319,12 @@ function buildKickoffPrompt(
 		``,
 		`Apply this change by editing files in the working tree. Use \`read_file\` / \`bash\` to find what to change, \`write_file\` to apply each edit (full new contents per file), and \`bash\` to run any sanity checks the repo offers (tests, build, linter). When the files on disk look right, briefly summarize what you did and stop calling tools.`,
 	].join('\n')
+}
+
+function readIssueNumber(metadata: Record<string, unknown> | null): number | null {
+	if (!metadata) return null
+	const v = metadata['github_issue_number']
+	return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 /**

@@ -115,6 +115,7 @@ export const taskJobs = sqliteTable(
 		assignedSessionId: text('assigned_session_id'),
 		assignedMemberId: text('assigned_member_id'),
 		assignedMemberName: text('assigned_member_name'),
+		prAuthorLogin: text('pr_author_login'), // GitHub login of the PR author at job-creation time
 		verdict: text('verdict'), // approved | changes_requested | commented
 		result: text('result'), // JSON
 		failureReason: text('failure_reason'),
@@ -154,7 +155,6 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
 export const repoBindings = sqliteTable('repo_bindings', {
 	repo: text('repo').primaryKey(), // org/name
 	webhookSecretEnc: text('webhook_secret_enc').notNull(),
-	githubPatEnc: text('github_pat_enc').notNull(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.notNull()
 		.default(sql`(unixepoch() * 1000)`),

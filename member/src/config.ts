@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { hostname, userInfo } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ALL_SKILLS, type Provider, type Skill, type WorkerProfile } from '@night/shared'
@@ -9,6 +8,8 @@ export interface MemberConfig {
 	householdAccessToken: string
 	memberId: string
 	memberName: string
+	displayName: string
+	githubPat: string
 	skills: Skill[]
 	provider: Provider
 	model: string
@@ -50,7 +51,7 @@ function parseSkills(raw: string): Skill[] {
 		.filter(Boolean) as Skill[]
 	for (const p of parts) {
 		if (!ALL_SKILLS.includes(p)) {
-			throw new Error(`Unknown skill in MEMBER_SKILLS: ${p}`)
+			throw new Error(`Unknown skill in SKILLS: ${p}`)
 		}
 	}
 	return parts
@@ -70,10 +71,6 @@ function parseProfile(raw: string): WorkerProfile {
 	return raw
 }
 
-/**
- * Load (or generate) a persistent member_id from <workspace>/.member-id.
- * Reset of the workspace volume = new id = Household sees a fresh Member.
- */
 function loadOrCreateMemberId(workspaceDir: string): string {
 	const path = join(workspaceDir, '.member-id')
 	if (existsSync(path)) {
@@ -86,27 +83,46 @@ function loadOrCreateMemberId(workspaceDir: string): string {
 	return id
 }
 
-function defaultMemberName(): string {
-	try {
-		return userInfo().username + '@' + hostname()
-	} catch {
-		return hostname()
-	}
+export interface GithubIdentity {
+	login: string
+	displayName: string
 }
 
-export function loadConfig(): MemberConfig {
+export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> {
+	const res = await fetch('https://api.github.com/user', {
+		headers: {
+			authorization: `Bearer ${pat}`,
+			accept: 'application/vnd.github+json',
+			'x-github-api-version': '2022-11-28',
+		},
+	})
+	if (!res.ok) {
+		const body = await res.text().catch(() => '')
+		throw new Error(
+			`GITHUB_PAT rejected by GitHub (${res.status}): ${body.slice(0, 200) || res.statusText}`,
+		)
+	}
+	const json = (await res.json()) as { login?: unknown; name?: unknown }
+	const login = typeof json.login === 'string' ? json.login : null
+	if (!login) {
+		throw new Error('GitHub /user response did not include a `login` field')
+	}
+	const name = typeof json.name === 'string' && json.name.length > 0 ? json.name : login
+	return { login, displayName: name }
+}
+
+interface PartialConfig extends Omit<MemberConfig, 'memberName' | 'displayName'> {}
+
+function loadEnvConfig(): PartialConfig {
 	const workspaceDirRaw = optional('WORKSPACE_DIR', '/workspace')
-	// Always store an absolute path: Workspace.create runs `git` with overridden
-	// cwd, and a relative `workspaceDir` would land the bare clone in the wrong
-	// place (resolved relative to git's cwd, not the process cwd).
 	const workspaceDir = isAbsolute(workspaceDirRaw) ? workspaceDirRaw : resolve(workspaceDirRaw)
-	const skillsRaw = optional('MEMBER_SKILLS', ALL_SKILLS.join(','))
+	const skillsRaw = optional('SKILLS', ALL_SKILLS.join(','))
 
 	return {
 		householdUrl: required('HOUSEHOLD_URL'),
 		householdAccessToken: required('HOUSEHOLD_ACCESS_TOKEN'),
 		memberId: loadOrCreateMemberId(workspaceDir),
-		memberName: optional('MEMBER_NAME', defaultMemberName()),
+		githubPat: required('GITHUB_PAT'),
 		skills: parseSkills(skillsRaw),
 		provider: parseProvider(required('AI_PROVIDER')),
 		model: required('AI_MODEL'),
@@ -119,5 +135,17 @@ export function loadConfig(): MemberConfig {
 			maxTaskDurationMinutes: optionalNumber('MAX_TASK_DURATION_MINUTES') ?? 120,
 		},
 		logLevel: optional('LOG_LEVEL', 'info'),
+	}
+}
+
+export async function loadConfig(
+	resolveIdentity: (pat: string) => Promise<GithubIdentity> = fetchGithubIdentity,
+): Promise<MemberConfig> {
+	const partial = loadEnvConfig()
+	const identity = await resolveIdentity(partial.githubPat)
+	return {
+		...partial,
+		memberName: identity.login,
+		displayName: identity.displayName,
 	}
 }

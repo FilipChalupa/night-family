@@ -5,12 +5,13 @@ import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts
 import { gcStaleCaches } from './tasks/workspace.ts'
 import type { MsgEvent } from '@night/shared'
 
-const config = loadConfig()
+const config = await loadConfig()
 
 logger.info(
 	{
 		memberId: config.memberId,
 		memberName: config.memberName,
+		displayName: config.displayName,
 		household: config.householdUrl,
 		provider: config.provider,
 		model: config.model,

@@ -186,11 +186,12 @@
 
 			<p>
 				A central <strong>Household</strong> orchestrates everything: it imports
-				issues, dispatches work, holds GitHub credentials, and serves a live
-				dashboard. Around it, any number of <strong>Members</strong> connect over
-				WebSocket, each running its own LLM (Anthropic, Gemini, or OpenAI) inside
-				a sandboxed container. Members clone the repo, write code, open draft PRs,
-				and review each other. The final merge is always a human's call.
+				issues, dispatches work, and serves a live dashboard. Around it, any
+				number of <strong>Members</strong> connect over WebSocket, each running
+				its own LLM (Anthropic, Gemini, or OpenAI) inside a sandboxed container
+				and acting under its own GitHub identity (one PAT per Member). Members
+				clone the repo, write code, open draft PRs, and review each other. The
+				final merge is always a human's call.
 			</p>
 
 			<h2>What it does</h2>
@@ -209,7 +210,7 @@
 				</div>
 				<div class="card">
 					<strong>You hold the keys</strong>
-					<span>Self-hosted. Encrypted PATs in your DB. Members in sandboxed containers on your VMs.</span>
+					<span>Self-hosted. Each Member carries its own GitHub PAT — Household never holds your credentials. Members run in sandboxed containers on your VMs.</span>
 				</div>
 			</div>
 
@@ -228,9 +229,9 @@
 				</li>
 				<li>
 					Household dispatches the task to an idle Member that matches its
-					skills. The Member clones the repo (using the per-repo PAT held by
-					Household) and creates a worktree on a branch named
-					<code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
+					skills. The Member clones the repo using its own GitHub PAT (set
+					locally as <code>GITHUB_PAT</code>) and creates a worktree on a branch
+					named <code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
 				</li>
 				<li>
 					The Member's agent loop edits files, runs commands, and commits as
@@ -255,6 +256,53 @@
 					merge — Members never self-merge.
 				</li>
 			</ol>
+
+			<h2>Recommended branch protection</h2>
+			<p>
+				Branch protection isn't required for Night Family to track approvals —
+				the <em>verdict</em> a reviewer Member emits is recorded internally — but
+				it's how you keep humans in control of what actually merges. Suggested
+				ruleset on the target branch (typically <code>main</code>):
+			</p>
+			<ul>
+				<li>
+					<strong>Require pull request reviews before merging</strong>, with at
+					least <strong>1</strong> approving review. GitHub forbids approving
+					your own PR, so a Member can only satisfy this rule for a PR opened
+					by a different GitHub account — i.e. another Member running under a
+					different PAT, or a human reviewer.
+				</li>
+				<li>
+					<strong>Dismiss stale reviews on push</strong> — when a Member
+					responds to feedback and pushes, the prior approval should not
+					silently carry over.
+				</li>
+				<li>
+					Optionally <strong>require status checks</strong> (CI green) before
+					merging. Members can run tests in their sandbox, but CI is the
+					authoritative gate.
+				</li>
+			</ul>
+			<p>
+				Solo single-PAT setups can't satisfy "1 approving review" — same-account
+				reviews can only be of type <em>Comment</em>, never <em>Approve</em>.
+				You have two clean options:
+			</p>
+			<ul>
+				<li>
+					<strong>Run a second Member under a second GitHub account</strong>
+					(e.g. a <code>+alias</code> Gmail address) and use it as a dedicated
+					reviewer. Branch protection works fully.
+				</li>
+				<li>
+					<strong>Skip branch protection</strong> for solo setups and rely on
+					Household's internal verdict — Member approvals still drive
+					<code>awaiting-merge</code>, you just merge manually as the owner. Do
+					not require approval if your only Member is the same GitHub account
+					that opens PRs, or the loop deadlocks waiting for an approval that
+					can never happen.
+				</li>
+			</ul>
 
 			<h2>Conventions to know</h2>
 			<ul>

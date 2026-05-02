@@ -20,19 +20,18 @@
 import type { Logger } from 'pino'
 import { TASK_ACK_TIMEOUT_MS, type TaskKind, type TaskStatus } from '@night/shared'
 import type { ConnectedMember, MemberRegistry, MemberSnapshot } from '../members/registry.ts'
-import type { RepoBindingStore } from '../github/bindings.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from './store.ts'
 import type { TaskJobRecord, TaskJobStore, ReviewVerdict } from './jobStore.ts'
 
 const RETRY_BACKOFFS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const
 const MAX_REVIEW_JOBS = 2 // per task, per dispatch wave
+const SELF_REVIEW_FALLBACK_MS = 10 * 60_000 // wait this long for a different-login reviewer before falling back to self-review
 
 export interface DispatcherDeps {
 	taskStore: TaskStore
 	jobStore: TaskJobStore
 	registry: MemberRegistry
-	bindings: RepoBindingStore | null
 	notifSender?: NotificationSender
 	logger: Logger
 	/** Optional: prefer members with this provider when dispatching review jobs. */
@@ -51,6 +50,7 @@ interface PendingJob {
 export class Dispatcher {
 	private readonly pendingTaskAck = new Map<string, PendingTask>()
 	private readonly pendingJobAck = new Map<string, PendingJob>()
+	private readonly selfReviewWakeups = new Map<string, NodeJS.Timeout>()
 
 	constructor(private readonly deps: DispatcherDeps) {}
 
@@ -92,19 +92,56 @@ export class Dispatcher {
 			return
 		}
 
-		// 3. Pending review jobs.
+		// 3. Pending review jobs — pick the oldest one this member is allowed to take.
 		if (member.skills.includes('review')) {
-			const job = this.deps.jobStore.claimNextPending(assignment)
-			if (job) {
+			const pending = this.deps.jobStore.listPending()
+			for (const candidate of pending) {
+				if (!this.canMemberClaimReview(member, candidate)) continue
+				const job = this.deps.jobStore.tryClaim(candidate.id, assignment)
+				if (!job) continue // raced against another claimer
 				const parentTask = this.deps.taskStore.get(job.taskId)
 				if (parentTask) {
 					this.sendReviewJob(conn, job, parentTask)
 				} else {
-					// Parent task gone — mark job failed and move on.
 					this.deps.jobStore.fail(job.id, 'parent_task_missing')
 				}
+				return
 			}
 		}
+	}
+
+	/**
+	 * Is this member allowed to claim the given pending review job?
+	 *
+	 * A self-review (reviewer login == PR author login) is only allowed when
+	 *   (a) no different-login reviewer is currently connected, OR
+	 *   (b) the job has been waiting longer than SELF_REVIEW_FALLBACK_MS and
+	 *       all different-login reviewers are still busy.
+	 */
+	private scheduleSelfReviewWakeup(jobId: string): void {
+		const existing = this.selfReviewWakeups.get(jobId)
+		if (existing) clearTimeout(existing)
+		const timer = setTimeout(() => {
+			this.selfReviewWakeups.delete(jobId)
+			this.tryDispatchAll()
+		}, SELF_REVIEW_FALLBACK_MS).unref()
+		this.selfReviewWakeups.set(jobId, timer)
+	}
+
+	private canMemberClaimReview(member: MemberSnapshot, job: TaskJobRecord): boolean {
+		const author = job.prAuthorLogin
+		if (!author || author !== member.memberName) return true
+
+		const others = this.deps.registry
+			.list()
+			.filter((m) => m.skills.includes('review') && m.memberName !== author)
+
+		if (others.length === 0) return true // self-review is the only option
+		if (others.some((m) => m.status === 'idle')) return false // a different-login member is free, let them take it
+
+		// All different-login reviewers are busy — fall back after the timeout.
+		const ageMs = Date.now() - new Date(job.createdAt).getTime()
+		return ageMs >= SELF_REVIEW_FALLBACK_MS
 	}
 
 	/**
@@ -119,39 +156,71 @@ export class Dispatcher {
 			return
 		}
 
-		const idleReviewers = this.deps.registry
-			.list()
-			.filter((m) => m.status === 'idle' && m.skills.includes('review'))
-
-		// Sort priority: preferred provider > non-implementor > implementor.
+		const prAuthorLogin = task.assignedMemberName ?? null
+		const reviewers = this.deps.registry.list().filter((m) => m.skills.includes('review'))
+		const idleReviewers = reviewers.filter((m) => m.status === 'idle')
 		const pref = this.deps.reviewProviderPreference ?? null
-		const sorted = idleReviewers.slice().sort((a, b) => {
-			const aScore =
-				(pref && a.provider === pref ? 2 : 0) +
-				(a.memberId !== task.assignedMemberId ? 1 : 0)
-			const bScore =
-				(pref && b.provider === pref ? 2 : 0) +
-				(b.memberId !== task.assignedMemberId ? 1 : 0)
-			return bScore - aScore
-		})
 
-		const toDispatch = sorted.slice(0, MAX_REVIEW_JOBS)
+		const score = (m: MemberSnapshot): number =>
+			(pref && m.provider === pref ? 4 : 0) +
+			(prAuthorLogin && m.memberName !== prAuthorLogin ? 2 : 0) +
+			(m.memberId !== task.assignedMemberId ? 1 : 0)
+
+		// Prefer different-login reviewers when we have a PR author login to compare.
+		const idleDifferentLogin = idleReviewers.filter(
+			(m) => !prAuthorLogin || m.memberName !== prAuthorLogin,
+		)
+		const idleSameLogin = idleReviewers.filter(
+			(m) => prAuthorLogin && m.memberName === prAuthorLogin,
+		)
+		const anyDifferentLoginConnected = reviewers.some(
+			(m) => !prAuthorLogin || m.memberName !== prAuthorLogin,
+		)
+
+		const sorted = (xs: MemberSnapshot[]): MemberSnapshot[] =>
+			xs.slice().sort((a, b) => score(b) - score(a))
+
+		// Pick reviewers to dispatch right now:
+		//   - If different-login idle members exist, take from there.
+		//   - Else if NO different-login member is even connected, fall back to
+		//     same-login self-review immediately (the "solo member" case).
+		//   - Otherwise queue pending and let the 10-min fallback decide later.
+		let toDispatch: MemberSnapshot[]
+		if (idleDifferentLogin.length > 0) {
+			toDispatch = sorted(idleDifferentLogin).slice(0, MAX_REVIEW_JOBS)
+		} else if (!anyDifferentLoginConnected && idleSameLogin.length > 0) {
+			toDispatch = sorted(idleSameLogin).slice(0, MAX_REVIEW_JOBS)
+		} else {
+			toDispatch = []
+		}
 
 		if (toDispatch.length === 0) {
-			// No idle reviewers — create one pending job; picked up on next member.ready.
-			this.deps.jobStore.create(task.id)
+			const job = this.deps.jobStore.create(task.id, { prAuthorLogin })
 			this.deps.logger.info(
-				{ taskId: task.id },
-				'no idle reviewers; review job queued as pending',
+				{ taskId: task.id, prAuthorLogin, jobId: job.id },
+				'no eligible idle reviewers; review job queued as pending',
 			)
+			// If only same-login reviewers are connected and they're all busy,
+			// the registry won't fire another tryDispatchAll until somebody goes
+			// idle. Wake up after the self-review fallback window so a same-login
+			// reviewer can pick this up if a different-login one never frees up.
+			if (prAuthorLogin && idleSameLogin.length === 0) {
+				this.scheduleSelfReviewWakeup(job.id)
+			}
 			return
 		}
 
 		for (const reviewer of toDispatch) {
 			const conn = this.deps.registry.get(reviewer.sessionId)
 			if (!conn || reviewer.status !== 'idle') continue
-			const job = this.deps.jobStore.create(task.id)
-			this.sendReviewJob(conn, job, task)
+			const job = this.deps.jobStore.create(task.id, { prAuthorLogin })
+			const claimed = this.deps.jobStore.tryClaim(job.id, {
+				sessionId: conn.sessionId,
+				memberId: conn.memberId,
+				memberName: conn.memberName,
+			})
+			if (!claimed) continue
+			this.sendReviewJob(conn, claimed, task)
 		}
 	}
 
@@ -294,20 +363,6 @@ export class Dispatcher {
 
 	private sendTask(conn: ConnectedMember, task: TaskRecord): void {
 		const wireKind: TaskKind = task.status === 'estimating' ? 'estimate' : task.kind
-		const githubToken = task.repo ? this.getToken(task.repo) : ''
-
-		if (task.repo && !githubToken) {
-			this.deps.taskStore.transition(task.id, [task.status], 'failed', {
-				failureReason: 'repo_not_bound',
-			})
-			this.deps.taskStore.clearAssignment(task.id)
-			this.deps.logger.warn(
-				{ taskId: task.id, repo: task.repo },
-				'task failed: repo has no binding (add one in Repos)',
-			)
-			this.tryDispatchAll()
-			return
-		}
 
 		conn.send({
 			type: 'task.assigned',
@@ -319,8 +374,6 @@ export class Dispatcher {
 				...(task.repo ? { repo: task.repo } : {}),
 				...(task.metadata ? { metadata: task.metadata } : {}),
 			},
-			github_token: githubToken,
-			repo_url: task.repo ? `https://github.com/${task.repo}` : '',
 		})
 
 		this.deps.registry.updateStatus(conn.sessionId, 'busy', task.id)
@@ -448,17 +501,6 @@ export class Dispatcher {
 	// ─── Private job helpers ──────────────────────────────────────────────────
 
 	private sendReviewJob(conn: ConnectedMember, job: TaskJobRecord, task: TaskRecord): void {
-		const githubToken = task.repo ? this.getToken(task.repo) : ''
-
-		if (task.repo && !githubToken) {
-			this.deps.jobStore.fail(job.id, 'repo_not_bound')
-			this.deps.logger.warn(
-				{ jobId: job.id, taskId: task.id, repo: task.repo },
-				'review job failed: repo has no binding',
-			)
-			return
-		}
-
 		conn.send({
 			type: 'task.assigned',
 			task: {
@@ -470,8 +512,6 @@ export class Dispatcher {
 				...(task.prUrl ? { pr_url: task.prUrl } : {}),
 				metadata: { parent_task_id: task.id },
 			},
-			github_token: githubToken,
-			repo_url: task.repo ? `https://github.com/${task.repo}` : '',
 		})
 
 		this.deps.registry.updateStatus(conn.sessionId, 'busy', job.id)
@@ -497,6 +537,7 @@ export class Dispatcher {
 	private onJobCompleted(jobId: string, result: unknown): void {
 		clearTimeout(this.pendingJobAck.get(jobId)?.timer)
 		this.pendingJobAck.delete(jobId)
+		this.clearSelfReviewWakeup(jobId)
 
 		const verdict = parseReviewVerdict(result)
 		this.deps.jobStore.complete(jobId, verdict, result)
@@ -507,16 +548,20 @@ export class Dispatcher {
 	private onJobFailed(jobId: string, reason: string): void {
 		clearTimeout(this.pendingJobAck.get(jobId)?.timer)
 		this.pendingJobAck.delete(jobId)
+		this.clearSelfReviewWakeup(jobId)
 		this.deps.jobStore.fail(jobId, reason)
 		this.deps.logger.warn({ jobId, reason }, 'review job failed')
 		this.tryDispatchAll()
 	}
 
-	// ─── Utility ─────────────────────────────────────────────────────────────
-
-	private getToken(repo: string | null): string {
-		return repo && this.deps.bindings ? (this.deps.bindings.getPat(repo) ?? '') : ''
+	private clearSelfReviewWakeup(jobId: string): void {
+		const t = this.selfReviewWakeups.get(jobId)
+		if (t) {
+			clearTimeout(t)
+			this.selfReviewWakeups.delete(jobId)
+		}
 	}
+
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────

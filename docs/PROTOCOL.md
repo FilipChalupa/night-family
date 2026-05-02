@@ -9,6 +9,22 @@ discipline for choosing a level when changing the protocol is in
 This file records what changed in each version. Add an entry whenever
 `PROTOCOL_VERSION` is bumped. Newest first.
 
+## 2.0.0
+
+Per-member GitHub identity. The single Household-side PAT (sent to Members
+via `task.assigned.github_token`) is replaced by per-Member PATs in Member
+env. Wire impact:
+
+- `task.assigned` no longer carries `github_token` or `repo_url`. Members
+  read their own PAT from env (`GITHUB_PAT`) and derive the repo URL from
+  `task.repo`.
+- `handshake` adds a required `display_name` (pretty name from GitHub
+  `/user`). `member_name` is now constrained to be the GitHub login.
+
+Old Households reject new Members because the handshake schema differs;
+old Members reject new Households for the same reason. There's no
+graceful fallback — operators must update both sides together.
+
 ## 1.1.0
 
 Added `firstConnectedAt` to the `MemberSnapshot` payload pushed over `/ws/ui`

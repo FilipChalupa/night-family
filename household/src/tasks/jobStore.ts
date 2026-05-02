@@ -14,6 +14,7 @@ export interface TaskJobRecord {
 	assignedSessionId: string | null
 	assignedMemberId: string | null
 	assignedMemberName: string | null
+	prAuthorLogin: string | null
 	verdict: ReviewVerdict | null
 	result: unknown | null
 	failureReason: string | null
@@ -30,6 +31,7 @@ function rowToRecord(row: typeof taskJobs.$inferSelect): TaskJobRecord {
 		assignedSessionId: row.assignedSessionId,
 		assignedMemberId: row.assignedMemberId,
 		assignedMemberName: row.assignedMemberName,
+		prAuthorLogin: row.prAuthorLogin,
 		verdict: (row.verdict as ReviewVerdict) ?? null,
 		result: row.result ? (JSON.parse(row.result) as unknown) : null,
 		failureReason: row.failureReason,
@@ -41,12 +43,20 @@ function rowToRecord(row: typeof taskJobs.$inferSelect): TaskJobRecord {
 export class TaskJobStore {
 	constructor(private readonly db: Db) {}
 
-	create(taskId: string, kind = 'review'): TaskJobRecord {
+	create(taskId: string, opts: { prAuthorLogin: string | null; kind?: string } = { prAuthorLogin: null }): TaskJobRecord {
 		const id = randomUUID()
 		const now = new Date()
 		this.db
 			.insert(taskJobs)
-			.values({ id, taskId, kind, status: 'pending', createdAt: now, updatedAt: now })
+			.values({
+				id,
+				taskId,
+				kind: opts.kind ?? 'review',
+				status: 'pending',
+				prAuthorLogin: opts.prAuthorLogin,
+				createdAt: now,
+				updatedAt: now,
+			})
 			.run()
 		return this.get(id)!
 	}
@@ -74,25 +84,24 @@ export class TaskJobStore {
 			.map(rowToRecord)
 	}
 
-	/**
-	 * Atomically claim the oldest pending job. Returns null if none available
-	 * or if lost the race (SQLite single-writer makes races extremely rare).
-	 */
-	claimNextPending(assignment: {
-		sessionId: string
-		memberId: string
-		memberName: string
-	}): TaskJobRecord | null {
-		const candidates = this.db
-			.select({ id: taskJobs.id })
+	listPending(): TaskJobRecord[] {
+		return this.db
+			.select()
 			.from(taskJobs)
 			.where(eq(taskJobs.status, 'pending'))
 			.orderBy(taskJobs.createdAt)
-			.limit(1)
 			.all()
-		const candidate = candidates[0]
-		if (!candidate) return null
+			.map(rowToRecord)
+	}
 
+	/**
+	 * Atomically claim a specific pending job. Returns null if it's been
+	 * snapped up by another claimer first.
+	 */
+	tryClaim(
+		jobId: string,
+		assignment: { sessionId: string; memberId: string; memberName: string },
+	): TaskJobRecord | null {
 		const result = this.db
 			.update(taskJobs)
 			.set({
@@ -102,11 +111,11 @@ export class TaskJobStore {
 				assignedMemberName: assignment.memberName,
 				updatedAt: new Date(),
 			})
-			.where(and(eq(taskJobs.id, candidate.id), eq(taskJobs.status, 'pending')))
+			.where(and(eq(taskJobs.id, jobId), eq(taskJobs.status, 'pending')))
 			.run()
 
 		if (result.changes === 0) return null
-		return this.get(candidate.id)!
+		return this.get(jobId)
 	}
 
 	setInProgress(id: string): void {

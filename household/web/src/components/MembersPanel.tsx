@@ -68,16 +68,19 @@ export function MembersPanel({
 						<TableRow key={m.sessionId} hover>
 							<TableCell>
 								<Box>
-									<Typography
-										component="span"
-										color="text.secondary"
-										variant="body2"
-									>
-										Night{' '}
-									</Typography>
 									<Typography component="span" sx={{ fontWeight: 600 }}>
-										{m.memberName}
+										{m.displayName || m.memberName}
 									</Typography>
+									{m.displayName && m.displayName !== m.memberName ? (
+										<Typography
+											component="span"
+											color="text.secondary"
+											variant="body2"
+										>
+											{' '}
+											@{m.memberName}
+										</Typography>
+									) : null}
 								</Box>
 								<Typography variant="caption" color="text.secondary">
 									{m.memberId.slice(0, 8)}…

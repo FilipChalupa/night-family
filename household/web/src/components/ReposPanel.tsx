@@ -2,8 +2,12 @@ import {
 	Alert,
 	Box,
 	Button,
+	IconButton,
 	Paper,
 	Stack,
+	Step,
+	StepLabel,
+	Stepper,
 	Table,
 	TableBody,
 	TableCell,
@@ -15,6 +19,8 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { EmptyState } from '../routes/Root.tsx'
@@ -26,9 +32,16 @@ interface RepoBinding {
 	updatedAt: string
 }
 
+interface RepoDraft {
+	repo: string
+	webhook_secret: string
+	payload_url: string
+	hooks_settings_url: string
+}
+
 export function ReposPanel({ canManage }: { canManage: boolean }) {
 	const queryClient = useQueryClient()
-	const [showForm, setShowForm] = useState(false)
+	const [showWizard, setShowWizard] = useState(false)
 	const confirm = useConfirm()
 
 	const reposQuery = useQuery<RepoBinding[]>({
@@ -76,13 +89,13 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	return (
 		<Stack spacing={2}>
 			{canManage ? (
-				showForm ? (
-					<RepoForm
+				showWizard ? (
+					<RepoWizard
 						onCreated={() => {
-							setShowForm(false)
+							setShowWizard(false)
 							refresh()
 						}}
-						onCancel={() => setShowForm(false)}
+						onCancel={() => setShowWizard(false)}
 					/>
 				) : (
 					<Box>
@@ -90,7 +103,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 							variant="outlined"
 							size="small"
 							startIcon={<AddIcon />}
-							onClick={() => setShowForm(true)}
+							onClick={() => setShowWizard(true)}
 						>
 							Add repo binding
 						</Button>
@@ -164,26 +177,44 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	)
 }
 
-function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+function RepoWizard({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+	const [step, setStep] = useState<0 | 1>(0)
 	const [repo, setRepo] = useState('')
-	const [secret, setSecret] = useState('')
-	const [pat, setPat] = useState('')
-	const [submitting, setSubmitting] = useState(false)
+	const [draft, setDraft] = useState<RepoDraft | null>(null)
+	const [pending, setPending] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
-	const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
+	const requestDraft = async (e: React.FormEvent<HTMLFormElement>) => {
 		e.preventDefault()
 		setError(null)
-		setSubmitting(true)
+		setPending(true)
+		try {
+			const res = await fetch(`/api/repos/draft?repo=${encodeURIComponent(repo.trim())}`, {
+				method: 'POST',
+			})
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { error?: string }
+				throw new Error(body.error ?? `HTTP ${res.status}`)
+			}
+			const d = (await res.json()) as RepoDraft
+			setDraft(d)
+			setStep(1)
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err))
+		} finally {
+			setPending(false)
+		}
+	}
+
+	const finalize = async () => {
+		if (!draft) return
+		setError(null)
+		setPending(true)
 		try {
 			const res = await fetch('/api/repos', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					repo: repo.trim(),
-					webhook_secret: secret,
-					pat: pat.trim(),
-				}),
+				body: JSON.stringify({ repo: draft.repo, webhook_secret: draft.webhook_secret }),
 			})
 			if (!res.ok) {
 				const body = (await res.json().catch(() => ({}))) as { error?: string }
@@ -193,99 +224,154 @@ function RepoForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: ()
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err))
 		} finally {
-			setSubmitting(false)
+			setPending(false)
 		}
 	}
 
 	return (
-		<Paper variant="outlined" sx={{ p: 2 }} component="form" onSubmit={submit}>
+		<Paper variant="outlined" sx={{ p: 2 }}>
 			<Stack spacing={2}>
-				<Alert severity="info" variant="outlined">
-					<Typography variant="body2" gutterBottom>
-						<strong>Webhook secret:</strong> In the GitHub repo, go to{' '}
-						<em>Settings → Webhooks → Add webhook</em>. Set Payload URL to{' '}
-						<Typography component="code" sx={{ fontFamily: 'monospace' }}>
-							{`${window.location.origin}/webhooks/github`}
+				<Stepper activeStep={step}>
+					<Step>
+						<StepLabel>Repository</StepLabel>
+					</Step>
+					<Step>
+						<StepLabel>Configure GitHub webhook</StepLabel>
+					</Step>
+				</Stepper>
+
+				{step === 0 ? (
+					<form onSubmit={requestDraft}>
+						<Stack spacing={2}>
+							<Typography variant="body2" color="text.secondary">
+								Enter the repository in <code>org/name</code> form. After this we'll
+								generate a webhook secret and walk you through adding it on GitHub.
+							</Typography>
+							<TextField
+								label="GitHub repository"
+								placeholder="org/name"
+								value={repo}
+								onChange={(e) => setRepo(e.target.value)}
+								required
+								slotProps={{ htmlInput: { pattern: '[^/]+/[^/]+' } }}
+								size="small"
+								autoFocus
+							/>
+							<Stack
+								direction="row"
+								spacing={2}
+								sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
+							>
+								{error ? (
+									<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+										{error}
+									</Typography>
+								) : null}
+								<Button variant="outlined" onClick={onCancel} disabled={pending}>
+									Cancel
+								</Button>
+								<Button type="submit" variant="contained" disabled={pending}>
+									{pending ? 'Generating…' : 'Next'}
+								</Button>
+							</Stack>
+						</Stack>
+					</form>
+				) : draft ? (
+					<Stack spacing={2}>
+						<Alert severity="warning" variant="outlined">
+							The webhook secret below is shown once. Copy it before confirming —
+							you'll need it on GitHub, and re-adding the binding will rotate it.
+						</Alert>
+						<CopyField label="Payload URL" value={draft.payload_url} />
+						<CopyField label="Webhook secret" value={draft.webhook_secret} secret />
+						<Box>
+							<Button
+								variant="outlined"
+								size="small"
+								endIcon={<OpenInNewIcon />}
+								href={draft.hooks_settings_url}
+								target="_blank"
+								rel="noreferrer noopener"
+							>
+								Open GitHub webhook settings
+							</Button>
+						</Box>
+						<Typography variant="body2" color="text.secondary">
+							In GitHub: paste the payload URL, paste the secret, set <em>Content
+							type</em> to <code>application/json</code>, and select these events —
+							<em> Issues</em>, <em>Issue comments</em>, <em>Pull requests</em>,
+							<em> Pull request reviews</em>. Save the webhook, then come back and
+							confirm.
 						</Typography>
-						, content type to <em>application/json</em>, and choose any secret — paste
-						it here.
-					</Typography>
-					<Typography variant="body2">
-						<strong>GitHub PAT:</strong> In GitHub, go to{' '}
-						<em>
-							Settings → Developer settings → Fine-grained tokens → Generate new token
-						</em>
-						. Pick this repository and grant the following{' '}
-						<strong>Repository permissions</strong>:
-					</Typography>
-					<Typography variant="body2" component="ul" sx={{ my: 0, pl: 3 }}>
-						<li>
-							<strong>Contents: Read and write</strong> — Members push commits to task
-							branches.
-						</li>
-						<li>
-							<strong>Pull requests: Read and write</strong> — Members open PRs and
-							update PR status.
-						</li>
-						<li>
-							<strong>Issues: Read-only</strong> — used for issue import.
-						</li>
-					</Typography>
-					<Typography variant="body2">
-						The PAT is required: without it Members cannot <code>git push</code> commits
-						or open pull requests, and <em>implement</em> tasks will fail.
-					</Typography>
-				</Alert>
-				<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-					<TextField
-						label="GitHub repository"
-						placeholder="org/name"
-						value={repo}
-						onChange={(e) => setRepo(e.target.value)}
-						required
-						slotProps={{ htmlInput: { pattern: '[^/]+/[^/]+' } }}
-						size="small"
-						fullWidth
-					/>
-					<TextField
-						label="Webhook secret"
-						type="password"
-						placeholder="Secret from GitHub webhook settings"
-						value={secret}
-						onChange={(e) => setSecret(e.target.value)}
-						required
-						size="small"
-						fullWidth
-					/>
-					<TextField
-						label="GitHub PAT"
-						type="password"
-						placeholder="Fine-grained personal access token"
-						value={pat}
-						onChange={(e) => setPat(e.target.value)}
-						required
-						size="small"
-						fullWidth
-					/>
-				</Stack>
-				<Stack
-					direction="row"
-					spacing={2}
-					sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
-				>
-					{error ? (
-						<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
-							{error}
-						</Typography>
-					) : null}
-					<Button variant="outlined" onClick={onCancel}>
-						Cancel
-					</Button>
-					<Button type="submit" variant="contained" disabled={submitting}>
-						{submitting ? 'Saving…' : 'Save'}
-					</Button>
-				</Stack>
+						<Stack
+							direction="row"
+							spacing={2}
+							sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
+						>
+							{error ? (
+								<Typography color="error" variant="body2" sx={{ mr: 'auto' }}>
+									{error}
+								</Typography>
+							) : null}
+							<Button variant="outlined" onClick={onCancel} disabled={pending}>
+								Cancel
+							</Button>
+							<Button
+								variant="contained"
+								disabled={pending}
+								onClick={() => {
+									void finalize()
+								}}
+							>
+								{pending ? 'Saving…' : "I've added the webhook"}
+							</Button>
+						</Stack>
+					</Stack>
+				) : null}
 			</Stack>
 		</Paper>
+	)
+}
+
+function CopyField({
+	label,
+	value,
+	secret,
+}: {
+	label: string
+	value: string
+	secret?: boolean
+}) {
+	const [copied, setCopied] = useState(false)
+	const copy = async () => {
+		await navigator.clipboard.writeText(value)
+		setCopied(true)
+		setTimeout(() => setCopied(false), 1500)
+	}
+	return (
+		<TextField
+			label={label}
+			value={value}
+			type={secret ? 'password' : 'text'}
+			size="small"
+			fullWidth
+			slotProps={{
+				input: {
+					readOnly: true,
+					endAdornment: (
+						<Tooltip title={copied ? 'Copied' : 'Copy'}>
+							<IconButton
+								size="small"
+								onClick={() => {
+									void copy()
+								}}
+							>
+								<ContentCopyIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+					),
+				},
+			}}
+		/>
 	)
 }

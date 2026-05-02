@@ -170,6 +170,7 @@ export class TaskRunner {
 				description: task.description,
 				repo: task.repo,
 				prUrl: task.prUrl,
+				metadata: task.metadata ?? null,
 				systemPromptAddition: projectInstructions,
 			}
 

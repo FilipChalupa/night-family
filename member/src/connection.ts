@@ -149,6 +149,7 @@ export class HouseholdConnection {
 			protocol_version: PROTOCOL_VERSION,
 			member_id: this.config.memberId,
 			member_name: this.config.memberName,
+			display_name: this.config.displayName,
 			skills: this.config.skills,
 			provider: this.config.provider,
 			model: this.config.model,
@@ -199,7 +200,7 @@ export class HouseholdConnection {
 				this.send({ type: 'task.ack', task_id: msg.task.task_id })
 				this.state.status = 'busy'
 				this.state.currentTask = msg.task.task_id
-				this.startTaskRun(msg.task, msg.github_token, msg.repo_url)
+				this.startTaskRun(msg.task)
 				break
 			case 'task.cancel':
 				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel received')
@@ -221,7 +222,8 @@ export class HouseholdConnection {
 		}
 	}
 
-	private startTaskRun(task: AssignedTask, githubToken: string, repoUrl: string): void {
+	private startTaskRun(task: AssignedTask): void {
+		const repoUrl = task.repo ? `https://github.com/${task.repo}` : ''
 		const runPromise = this.deps.taskRunner
 			.run({
 				taskId: task.task_id,
@@ -230,7 +232,7 @@ export class HouseholdConnection {
 				description: task.description,
 				repo: task.repo ?? null,
 				prUrl: task.pr_url ?? null,
-				githubToken,
+				githubToken: this.config.githubPat,
 				repoUrl,
 				metadata: task.metadata ?? null,
 			})

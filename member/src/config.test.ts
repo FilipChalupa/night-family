@@ -2,11 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig } from './config.ts'
+import { loadConfig, type GithubIdentity } from './config.ts'
 
 const REQUIRED_ENV = [
 	'HOUSEHOLD_URL',
 	'HOUSEHOLD_ACCESS_TOKEN',
+	'GITHUB_PAT',
 	'AI_PROVIDER',
 	'AI_MODEL',
 	'AI_API_KEY',
@@ -14,14 +15,18 @@ const REQUIRED_ENV = [
 
 const OPTIONAL_ENV = [
 	'WORKSPACE_DIR',
-	'MEMBER_NAME',
-	'MEMBER_SKILLS',
+	'SKILLS',
 	'WORKER_PROFILE',
 	'MAX_TOKENS_PER_TASK',
 	'MAX_TOKENS_PER_DAY',
 	'MAX_TASK_DURATION_MINUTES',
 	'LOG_LEVEL',
 ] as const
+
+const stubIdentity = async (_pat: string): Promise<GithubIdentity> => ({
+	login: 'stubuser',
+	displayName: 'Stub User',
+})
 
 describe('loadConfig', () => {
 	let workspace: string
@@ -34,9 +39,9 @@ describe('loadConfig', () => {
 			snapshot[k] = process.env[k]
 			delete process.env[k]
 		}
-		// Sensible defaults for the happy path; tests override individual values.
 		process.env.HOUSEHOLD_URL = 'http://localhost:8080'
 		process.env.HOUSEHOLD_ACCESS_TOKEN = 'token-abc'
+		process.env.GITHUB_PAT = 'ghp_test'
 		process.env.AI_PROVIDER = 'anthropic'
 		process.env.AI_MODEL = 'claude-opus-4-7'
 		process.env.AI_API_KEY = 'fake'
@@ -51,10 +56,13 @@ describe('loadConfig', () => {
 		await rm(workspace, { recursive: true, force: true })
 	})
 
-	it('loads a minimal happy-path config', () => {
-		const cfg = loadConfig()
+	it('loads a minimal happy-path config', async () => {
+		const cfg = await loadConfig(stubIdentity)
 		expect(cfg.householdUrl).toBe('http://localhost:8080')
 		expect(cfg.householdAccessToken).toBe('token-abc')
+		expect(cfg.githubPat).toBe('ghp_test')
+		expect(cfg.memberName).toBe('stubuser')
+		expect(cfg.displayName).toBe('Stub User')
 		expect(cfg.provider).toBe('anthropic')
 		expect(cfg.model).toBe('claude-opus-4-7')
 		expect(cfg.aiApiKey).toBe('fake')
@@ -67,72 +75,80 @@ describe('loadConfig', () => {
 		expect(cfg.skills).toEqual(['implement', 'review', 'estimate', 'respond', 'summarize'])
 	})
 
-	it.each(REQUIRED_ENV)('throws when required env %s is missing', (key) => {
+	it.each(REQUIRED_ENV)('throws when required env %s is missing', async (key) => {
 		delete process.env[key]
-		expect(() => loadConfig()).toThrow(new RegExp(`Missing required env var: ${key}`))
+		await expect(loadConfig(stubIdentity)).rejects.toThrow(
+			new RegExp(`Missing required env var: ${key}`),
+		)
 	})
 
-	it.each(['anthropic', 'gemini', 'openai'])('accepts AI_PROVIDER=%s', (p) => {
+	it.each(['anthropic', 'gemini', 'openai'])('accepts AI_PROVIDER=%s', async (p) => {
 		process.env.AI_PROVIDER = p
-		expect(loadConfig().provider).toBe(p)
+		const cfg = await loadConfig(stubIdentity)
+		expect(cfg.provider).toBe(p)
 	})
 
-	it('rejects unknown AI_PROVIDER', () => {
+	it('rejects unknown AI_PROVIDER', async () => {
 		process.env.AI_PROVIDER = 'cohere'
-		expect(() => loadConfig()).toThrow(/AI_PROVIDER must be/)
+		await expect(loadConfig(stubIdentity)).rejects.toThrow(/AI_PROVIDER must be/)
 	})
 
-	it.each(['hard', 'medium', 'lazy'])('accepts WORKER_PROFILE=%s', (p) => {
+	it.each(['hard', 'medium', 'lazy'])('accepts WORKER_PROFILE=%s', async (p) => {
 		process.env.WORKER_PROFILE = p
-		expect(loadConfig().workerProfile).toBe(p)
+		const cfg = await loadConfig(stubIdentity)
+		expect(cfg.workerProfile).toBe(p)
 	})
 
-	it('rejects unknown WORKER_PROFILE', () => {
+	it('rejects unknown WORKER_PROFILE', async () => {
 		process.env.WORKER_PROFILE = 'turbo'
-		expect(() => loadConfig()).toThrow(/WORKER_PROFILE must be/)
+		await expect(loadConfig(stubIdentity)).rejects.toThrow(/WORKER_PROFILE must be/)
 	})
 
-	it('parses MEMBER_SKILLS, trimming whitespace and dropping empties', () => {
-		process.env.MEMBER_SKILLS = ' implement , review ,, '
-		expect(loadConfig().skills).toEqual(['implement', 'review'])
+	it('parses SKILLS, trimming whitespace and dropping empties', async () => {
+		process.env.SKILLS = ' implement , review ,, '
+		const cfg = await loadConfig(stubIdentity)
+		expect(cfg.skills).toEqual(['implement', 'review'])
 	})
 
-	it('rejects an unknown skill (typo guard)', () => {
-		process.env.MEMBER_SKILLS = 'implement,implemnt'
-		expect(() => loadConfig()).toThrow(/Unknown skill in MEMBER_SKILLS: implemnt/)
+	it('rejects an unknown skill (typo guard)', async () => {
+		process.env.SKILLS = 'implement,implemnt'
+		await expect(loadConfig(stubIdentity)).rejects.toThrow(/Unknown skill in SKILLS: implemnt/)
 	})
 
-	it('parses numeric limits and falls back when missing or unparseable', () => {
+	it('parses numeric limits and falls back when missing or unparseable', async () => {
 		process.env.MAX_TOKENS_PER_TASK = '5000'
 		process.env.MAX_TOKENS_PER_DAY = 'not-a-number'
 		process.env.MAX_TASK_DURATION_MINUTES = '30'
-		const cfg = loadConfig()
+		const cfg = await loadConfig(stubIdentity)
 		expect(cfg.limits.maxTokensPerTask).toBe(5000)
 		expect(cfg.limits.maxTokensPerDay).toBeNull()
 		expect(cfg.limits.maxTaskDurationMinutes).toBe(30)
 	})
 
-	it('resolves a relative WORKSPACE_DIR to an absolute path', () => {
+	it('resolves a relative WORKSPACE_DIR to an absolute path', async () => {
 		process.env.WORKSPACE_DIR = './relative-workspace'
-		const cfg = loadConfig()
+		const cfg = await loadConfig(stubIdentity)
 		expect(cfg.workspaceDir.startsWith('/')).toBe(true)
 		expect(cfg.workspaceDir.endsWith('relative-workspace')).toBe(true)
 	})
 
-	it('persists member id across calls (load-or-create)', () => {
-		const a = loadConfig().memberId
-		const b = loadConfig().memberId
+	it('persists member id across calls (load-or-create)', async () => {
+		const a = (await loadConfig(stubIdentity)).memberId
+		const b = (await loadConfig(stubIdentity)).memberId
 		expect(a).toBe(b)
 		expect(a).toMatch(/^[0-9a-f-]{36}$/)
 	})
 
-	it('honors a custom MEMBER_NAME', () => {
-		process.env.MEMBER_NAME = 'custom-name'
-		expect(loadConfig().memberName).toBe('custom-name')
+	it('uses display name fallback to login when GitHub returns no name', async () => {
+		const cfg = await loadConfig(async () => ({ login: 'noname', displayName: 'noname' }))
+		expect(cfg.memberName).toBe('noname')
+		expect(cfg.displayName).toBe('noname')
 	})
 
-	it('falls back to a default MEMBER_NAME when unset', () => {
-		const cfg = loadConfig()
-		expect(cfg.memberName.length).toBeGreaterThan(0)
+	it('propagates an identity-fetch failure', async () => {
+		const fail = async (): Promise<GithubIdentity> => {
+			throw new Error('GITHUB_PAT rejected by GitHub (401): Bad credentials')
+		}
+		await expect(loadConfig(fail)).rejects.toThrow(/GITHUB_PAT rejected by GitHub/)
 	})
 })
