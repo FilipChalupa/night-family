@@ -60,6 +60,7 @@ export function MembersPanel({
 						<TableCell>Profile</TableCell>
 						<TableCell>Protocol</TableCell>
 						<TableCell>Connected</TableCell>
+						<TableCell>First seen</TableCell>
 					</TableRow>
 				</TableHead>
 				<TableBody>
@@ -189,6 +190,13 @@ export function MembersPanel({
 								<Tooltip title={m.connectedAt}>
 									<Typography variant="body2" color="text.secondary">
 										{relativeTime(m.connectedAt)}
+									</Typography>
+								</Tooltip>
+							</TableCell>
+							<TableCell>
+								<Tooltip title={m.firstConnectedAt}>
+									<Typography variant="body2" color="text.secondary">
+										{relativeTime(m.firstConnectedAt)}
 									</Typography>
 								</Tooltip>
 							</TableCell>

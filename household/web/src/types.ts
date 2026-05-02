@@ -12,6 +12,7 @@ export interface MemberSnapshot {
 	protocolVersion: string
 	tokenId: string
 	connectedAt: string
+	firstConnectedAt: string
 	status: 'idle' | 'busy' | 'offline'
 	currentTask: string | null
 	lastHeartbeat: string

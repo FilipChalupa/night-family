@@ -12,6 +12,7 @@ export interface ConnectedMember {
 	protocolVersion: string
 	tokenId: string
 	connectedAt: Date
+	firstConnectedAt: Date
 	status: MemberStatus
 	currentTask: string | null
 	lastHeartbeat: Date
@@ -30,6 +31,7 @@ export interface MemberSnapshot {
 	protocolVersion: string
 	tokenId: string
 	connectedAt: string
+	firstConnectedAt: string
 	status: MemberStatus
 	currentTask: string | null
 	lastHeartbeat: string
@@ -52,6 +54,7 @@ function snapshot(m: ConnectedMember): MemberSnapshot {
 		protocolVersion: m.protocolVersion,
 		tokenId: m.tokenId,
 		connectedAt: m.connectedAt.toISOString(),
+		firstConnectedAt: m.firstConnectedAt.toISOString(),
 		status: m.status,
 		currentTask: m.currentTask,
 		lastHeartbeat: m.lastHeartbeat.toISOString(),

@@ -91,6 +91,24 @@ export class TokenStore {
 	}
 
 	/**
+	 * Earliest known connection timestamp for a given member_id, scanned across
+	 * all token usage logs. Used to surface "first seen" in the dashboard so
+	 * stale stored state from an earlier life of the same member_id is visible.
+	 */
+	findFirstConnectionForMember(memberId: string): Date | null {
+		let earliest: Date | null = null
+		for (const t of this.load().tokens) {
+			for (const u of t.usage ?? []) {
+				if (u.member_id !== memberId) continue
+				const d = new Date(u.connected_at)
+				if (Number.isNaN(d.getTime())) continue
+				if (!earliest || d < earliest) earliest = d
+			}
+		}
+		return earliest
+	}
+
+	/**
 	 * Create a new token. Returns the raw token (only chance to see it) and
 	 * the stored record.
 	 */

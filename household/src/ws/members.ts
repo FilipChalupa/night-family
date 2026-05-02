@@ -217,6 +217,9 @@ function handleHandshake(
 		)
 	}
 
+	const now = new Date()
+	const firstConnectedAt = deps.tokens.findFirstConnectionForMember(msg.member_id) ?? now
+
 	deps.registry.add({
 		sessionId,
 		memberId: msg.member_id,
@@ -227,10 +230,11 @@ function handleHandshake(
 		workerProfile: msg.worker_profile,
 		protocolVersion: msg.protocol_version,
 		tokenId,
-		connectedAt: new Date(),
+		connectedAt: now,
+		firstConnectedAt,
 		status: 'idle',
 		currentTask: null,
-		lastHeartbeat: new Date(),
+		lastHeartbeat: now,
 		send: (raw) => {
 			ws.send(typeof raw === 'string' ? raw : JSON.stringify(raw))
 		},
@@ -242,7 +246,7 @@ function handleHandshake(
 	deps.tokens.recordUsage(tokenId, {
 		member_id: msg.member_id,
 		member_name: msg.member_name,
-		connected_at: new Date().toISOString(),
+		connected_at: now.toISOString(),
 	})
 
 	send(ws, {
