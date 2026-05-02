@@ -9,6 +9,13 @@ discipline for choosing a level when changing the protocol is in
 This file records what changed in each version. Add an entry whenever
 `PROTOCOL_VERSION` is bumped. Newest first.
 
+## 1.1.0
+
+Added `firstConnectedAt` to the `MemberSnapshot` payload pushed over `/ws/ui`
+(earliest known connection for a member_id, scanned across all token usage
+logs). Old UI clients ignore the field; old Households simply omit it.
+Member↔Household wire messages unchanged.
+
 ## 1.0.0
 
 Initial semver-tracked release. Switched `protocol_version` from a single
