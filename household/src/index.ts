@@ -176,7 +176,7 @@ mountTasksApi(app, {
 	logger: logger.child({ component: 'tasks.api' }),
 })
 
-mountRepoBindingsApi(app, { bindings: repoBindings, guard })
+mountRepoBindingsApi(app, { bindings: repoBindings, registry, guard })
 mountStatsApi(app, { sqlite: dbHandles.sqlite, guard })
 mountTokensApi(app, { tokens, guard, notifSender })
 mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })

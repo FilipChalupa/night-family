@@ -1,20 +1,28 @@
 import { randomBytes } from 'node:crypto'
 import type { Hono } from 'hono'
 import type { AdminGuard } from '../auth/guard.ts'
+import type { MemberRegistry } from '../members/registry.ts'
 import type { RepoBindingStore } from './bindings.ts'
 
 export interface RepoApiDeps {
 	bindings: RepoBindingStore
+	registry: MemberRegistry
 	guard: AdminGuard
 }
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
+interface SuggestedRepo {
+	repo: string
+	members: { memberId: string; memberName: string; displayName: string }[]
+}
+
 export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 	app.get('/api/repos', (c) => {
 		const guardResult = deps.guard.requireAuthenticated(c)
 		if (guardResult) return guardResult
-		return c.json({ repos: deps.bindings.list() })
+		const repos = deps.bindings.list()
+		return c.json({ repos, suggested: collectSuggestions(deps.registry, repos) })
 	})
 
 	app.post('/api/repos/draft', async (c) => {
@@ -78,4 +86,40 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 		if (!ok) return c.json({ error: 'not_found' }, 404)
 		return c.json({ ok: true })
 	})
+}
+
+/**
+ * Build the "suggested" list: every repo any connected member's PAT can
+ * reach, minus repos already bound. Members with `repos: null` (PAT is
+ * unconstrained) contribute nothing — we'd have to enumerate the whole
+ * GitHub account from the member side to know what's reachable, and the
+ * member-side config already does that for `repos: string[]`. Suggestions
+ * are sorted alphabetically; member attribution is preserved so the UI
+ * can show who proposed each one.
+ */
+function collectSuggestions(
+	registry: MemberRegistry,
+	bound: { repo: string }[],
+): SuggestedRepo[] {
+	const boundSet = new Set(bound.map((b) => b.repo))
+	const byRepo = new Map<string, SuggestedRepo>()
+	for (const m of registry.list()) {
+		if (m.repos === null) continue
+		for (const repo of m.repos) {
+			if (boundSet.has(repo)) continue
+			let entry = byRepo.get(repo)
+			if (!entry) {
+				entry = { repo, members: [] }
+				byRepo.set(repo, entry)
+			}
+			if (!entry.members.some((x) => x.memberId === m.memberId)) {
+				entry.members.push({
+					memberId: m.memberId,
+					memberName: m.memberName,
+					displayName: m.displayName,
+				})
+			}
+		}
+	}
+	return [...byRepo.values()].sort((a, b) => a.repo.localeCompare(b.repo))
 }

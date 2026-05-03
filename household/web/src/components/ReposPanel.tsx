@@ -32,6 +32,16 @@ interface RepoBinding {
 	updatedAt: string
 }
 
+interface SuggestedRepo {
+	repo: string
+	members: { memberId: string; memberName: string; displayName: string }[]
+}
+
+interface ReposResponse {
+	repos: RepoBinding[]
+	suggested: SuggestedRepo[]
+}
+
 interface RepoDraft {
 	repo: string
 	webhook_secret: string
@@ -42,15 +52,15 @@ interface RepoDraft {
 export function ReposPanel({ canManage }: { canManage: boolean }) {
 	const queryClient = useQueryClient()
 	const [showWizard, setShowWizard] = useState(false)
+	const [prefillRepo, setPrefillRepo] = useState('')
 	const confirm = useConfirm()
 
-	const reposQuery = useQuery<RepoBinding[]>({
+	const reposQuery = useQuery<ReposResponse>({
 		queryKey: ['repos'],
 		queryFn: async () => {
 			const r = await fetch('/api/repos')
 			if (!r.ok) throw new Error(`HTTP ${r.status}`)
-			const body = (await r.json()) as { repos: RepoBinding[] }
-			return body.repos
+			return (await r.json()) as ReposResponse
 		},
 	})
 
@@ -84,13 +94,20 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	if (reposQuery.isLoading) return <EmptyState>Loading repos…</EmptyState>
 	if (reposQuery.error)
 		return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
-	const repos = reposQuery.data ?? []
+	const repos = reposQuery.data?.repos ?? []
+	const suggested = reposQuery.data?.suggested ?? []
+
+	const startWizard = (initialRepo = '') => {
+		setPrefillRepo(initialRepo)
+		setShowWizard(true)
+	}
 
 	return (
 		<Stack spacing={2}>
 			{canManage ? (
 				showWizard ? (
 					<RepoWizard
+						initialRepo={prefillRepo}
 						onCreated={() => {
 							setShowWizard(false)
 							refresh()
@@ -103,7 +120,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 							variant="outlined"
 							size="small"
 							startIcon={<AddIcon />}
-							onClick={() => setShowWizard(true)}
+							onClick={() => startWizard()}
 						>
 							Add repo binding
 						</Button>
@@ -173,13 +190,77 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 					</Table>
 				</TableContainer>
 			)}
+
+			{suggested.length > 0 ? (
+				<Stack spacing={1}>
+					<Typography variant="subtitle2" color="text.secondary">
+						Suggested by connected members
+					</Typography>
+					<Typography variant="caption" color="text.secondary">
+						These repos are reachable by at least one member's PAT but aren't bound
+						yet. Bind them to receive issue/PR webhooks.
+					</Typography>
+					<TableContainer component={Paper} variant="outlined">
+						<Table size="small">
+							<TableHead>
+								<TableRow>
+									<TableCell>Repo</TableCell>
+									<TableCell>Suggested by</TableCell>
+									<TableCell />
+								</TableRow>
+							</TableHead>
+							<TableBody>
+								{suggested.map((s) => (
+									<TableRow key={s.repo} hover>
+										<TableCell>
+											<Typography
+												component="code"
+												sx={{ fontFamily: 'monospace' }}
+											>
+												{s.repo}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{s.members
+													.map((m) => m.displayName || m.memberName)
+													.join(', ')}
+											</Typography>
+										</TableCell>
+										<TableCell align="right">
+											{canManage ? (
+												<Button
+													size="small"
+													variant="outlined"
+													startIcon={<AddIcon />}
+													onClick={() => startWizard(s.repo)}
+												>
+													Bind
+												</Button>
+											) : null}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</TableContainer>
+				</Stack>
+			) : null}
 		</Stack>
 	)
 }
 
-function RepoWizard({ onCreated, onCancel }: { onCreated: () => void; onCancel: () => void }) {
+function RepoWizard({
+	initialRepo,
+	onCreated,
+	onCancel,
+}: {
+	initialRepo: string
+	onCreated: () => void
+	onCancel: () => void
+}) {
 	const [step, setStep] = useState<0 | 1>(0)
-	const [repo, setRepo] = useState('')
+	const [repo, setRepo] = useState(initialRepo)
 	const [draft, setDraft] = useState<RepoDraft | null>(null)
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState<string | null>(null)
