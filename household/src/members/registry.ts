@@ -1,5 +1,14 @@
 import { EventEmitter } from 'node:events'
 import type { MemberStatus, Provider, Skill, WorkerProfile } from '@night/shared'
+import type { MemberStateStore } from './store.ts'
+
+/**
+ * UI-facing status of a member snapshot. `offline` is never emitted by a
+ * Member over the wire (only `idle` / `busy` are valid `MemberStatus`); it's
+ * synthesized server-side for persisted-but-disconnected members surfaced
+ * by the dashboard.
+ */
+export type MemberSnapshotStatus = MemberStatus | 'offline'
 
 export interface ConnectedMember {
 	sessionId: string
@@ -39,7 +48,7 @@ export interface MemberSnapshot {
 	tokenId: string
 	connectedAt: string
 	firstConnectedAt: string
-	status: MemberStatus
+	status: MemberSnapshotStatus
 	currentTask: string | null
 	lastHeartbeat: string
 }
@@ -74,8 +83,23 @@ export class MemberRegistry {
 	private readonly bySession = new Map<string, ConnectedMember>()
 	private readonly emitter = new EventEmitter()
 
+	constructor(private readonly persistence: MemberStateStore | null = null) {}
+
 	add(m: ConnectedMember): void {
 		this.bySession.set(m.sessionId, m)
+		this.persistence?.upsertOnConnect({
+			memberId: m.memberId,
+			memberName: m.memberName,
+			displayName: m.displayName,
+			skills: m.skills,
+			repos: m.repos,
+			provider: m.provider,
+			model: m.model,
+			workerProfile: m.workerProfile,
+			protocolVersion: m.protocolVersion,
+			tokenId: m.tokenId,
+			connectedAt: m.connectedAt,
+		})
 		this.emitter.emit('event', {
 			type: 'member.connected',
 			member: snapshot(m),
@@ -86,6 +110,7 @@ export class MemberRegistry {
 		const m = this.bySession.get(sessionId)
 		if (!m) return
 		this.bySession.delete(sessionId)
+		this.persistence?.markDisconnected(m.memberId)
 		this.emitter.emit('event', {
 			type: 'member.disconnected',
 			sessionId,
@@ -99,6 +124,7 @@ export class MemberRegistry {
 		m.status = status
 		m.currentTask = currentTask
 		m.lastHeartbeat = new Date()
+		this.persistence?.touch(m.memberId, m.lastHeartbeat)
 		this.emitter.emit('event', {
 			type: 'member.updated',
 			member: snapshot(m),
@@ -109,6 +135,7 @@ export class MemberRegistry {
 		const m = this.bySession.get(sessionId)
 		if (!m) return
 		m.lastHeartbeat = new Date()
+		this.persistence?.touch(m.memberId, m.lastHeartbeat)
 	}
 
 	get(sessionId: string): ConnectedMember | undefined {

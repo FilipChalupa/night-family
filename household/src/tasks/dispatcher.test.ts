@@ -9,6 +9,7 @@ import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../db/schema.ts'
 import { MemberRegistry, type ConnectedMember } from '../members/registry.ts'
+import { MemberStateStore } from '../members/store.ts'
 import { Dispatcher } from './dispatcher.ts'
 import { TaskJobStore } from './jobStore.ts'
 import { TaskStore } from './store.ts'
@@ -30,6 +31,7 @@ interface Rig {
 	taskStore: TaskStore
 	jobStore: TaskJobStore
 	registry: MemberRegistry
+	memberStore: MemberStateStore
 	dispatcher: Dispatcher
 	cleanup: () => void
 }
@@ -44,7 +46,8 @@ function createRig(): Rig {
 
 	const taskStore = new TaskStore(db)
 	const jobStore = new TaskJobStore(db)
-	const registry = new MemberRegistry()
+	const memberStore = new MemberStateStore(db)
+	const registry = new MemberRegistry(memberStore)
 	const dispatcher = new Dispatcher({
 		taskStore,
 		jobStore,
@@ -55,6 +58,7 @@ function createRig(): Rig {
 		taskStore,
 		jobStore,
 		registry,
+		memberStore,
 		dispatcher,
 		cleanup: () => {
 			sqlite.close()
@@ -100,27 +104,17 @@ function createReadyImplementTask(rig: Rig, opts: { repo: string; assignedMember
 		repo: opts.repo,
 		skipEstimate: true,
 	})
-	rig.taskStore.transition(task.id, ['queued'], 'assigned', {})
-	rig.taskStore.transition(task.id, ['assigned'], 'in-progress', {})
-	// Stash the assigned member name so dispatchReviewJobsFor can derive prAuthorLogin.
-	const session = `sess-${opts.assignedMemberName}`
-	rig.registry.add(fakeMember({ memberName: opts.assignedMemberName, status: 'busy' }))
-	// Write assignment to DB so prAuthorLogin fallback works.
-	const ts = rig.registry.list().find((m) => m.memberName === opts.assignedMemberName)!
-	rig.taskStore.transition(task.id, ['in-progress'], 'in-progress', {})
-	rig.taskStore as unknown as { db: { update: typeof drizzle } } // no-op narrowing
-	// Use private DB through schema directly:
-	rig.dispatcher // touch to keep var alive
-	void session
-	void ts
-	// Simpler: re-create with an explicit DB raw update. Actually TaskStore exposes assigned fields only via claim functions.
-	// Use claimNextFor with a fresh assignment to set assignedMemberName.
-	rig.taskStore.transition(task.id, ['in-progress'], 'queued', {})
-	rig.taskStore.clearAssignment(task.id)
+	// Add the implementer to the registry so the FK target row in `members`
+	// exists when claimNextFor writes assigned_member_id, and so the JOIN-based
+	// `assignedMemberName` resolves for prAuthorLogin fallback in the dispatcher.
+	const existing = rig.registry.list().find((m) => m.memberName === opts.assignedMemberName)
+	if (!existing) {
+		rig.registry.add(fakeMember({ memberName: opts.assignedMemberName, status: 'busy' }))
+	}
+	const member = rig.registry.list().find((m) => m.memberName === opts.assignedMemberName)!
 	const claimed = rig.taskStore.claimNextFor(['implement'], {
-		sessionId: session,
-		memberId: `mid-${session}`,
-		memberName: opts.assignedMemberName,
+		sessionId: member.sessionId,
+		memberId: member.memberId,
 	})
 	if (!claimed) throw new Error('failed to set up claimed task')
 	rig.taskStore.transition(claimed.id, ['assigned'], 'in-progress', {
@@ -252,10 +246,10 @@ describe('Dispatcher review picker', () => {
 			metadata: { pr_author_login: 'a' },
 		})
 		rig.taskStore.clearAssignment(task.id)
+		const b = rig.registry.list().find((m) => m.memberName === 'b')!
 		const claimed = rig.taskStore.claimNextFor(['implement'], {
-			sessionId: 'sess-b',
-			memberId: 'mid-b',
-			memberName: 'b',
+			sessionId: b.sessionId,
+			memberId: b.memberId,
 		})!
 		rig.taskStore.transition(claimed.id, ['assigned'], 'in-progress', {
 			prUrl: `https://github.com/o/r/pull/1`,

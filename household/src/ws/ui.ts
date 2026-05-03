@@ -3,11 +3,15 @@ import type { WSContext } from 'hono/ws'
 import type { Logger } from 'pino'
 import { getSessionIdFromCookieHeader } from '../auth/oauth.ts'
 import type { SessionStore } from '../auth/sessions.ts'
-import type { MemberRegistry } from '../members/registry.ts'
+import type { MemberRegistry, MemberSnapshot } from '../members/registry.ts'
+import type { MemberStateStore } from '../members/store.ts'
 import type { TaskStore } from '../tasks/store.ts'
+
+const OFFLINE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface UiWsDeps {
 	registry: MemberRegistry
+	memberStore: MemberStateStore
 	taskStore: TaskStore
 	sessions: SessionStore
 	requireUiLogin: boolean
@@ -40,7 +44,7 @@ export function createUiWsHandler(deps: UiWsDeps) {
 					JSON.stringify({
 						type: 'snapshot',
 						protocolVersion: PROTOCOL_VERSION,
-						members: deps.registry.list(),
+						members: buildMembersSnapshot(deps),
 						tasks: deps.taskStore.list(),
 					}),
 				)
@@ -60,4 +64,19 @@ export function createUiWsHandler(deps: UiWsDeps) {
 			},
 		}
 	}
+}
+
+/**
+ * Live members from the registry plus persisted members that disconnected
+ * within the last OFFLINE_WINDOW_MS — so the dashboard can show recently
+ * active members across reloads, not just the currently connected ones.
+ */
+function buildMembersSnapshot(deps: UiWsDeps): MemberSnapshot[] {
+	const live = deps.registry.list()
+	const liveIds = new Set(live.map((m) => m.memberId))
+	const cutoff = new Date(Date.now() - OFFLINE_WINDOW_MS)
+	const offline = deps.memberStore
+		.listOfflineSince(cutoff)
+		.filter((m) => !liveIds.has(m.memberId))
+	return [...live, ...offline]
 }

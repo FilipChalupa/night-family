@@ -177,7 +177,6 @@ function handleHandshake(
 	const newAssignment = {
 		sessionId,
 		memberId: msg.member_id,
-		memberName: msg.member_name,
 	}
 	for (const stale of deps.registry.findByMemberId(msg.member_id)) {
 		deps.logger.info(

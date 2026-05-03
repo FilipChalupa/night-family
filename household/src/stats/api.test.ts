@@ -68,12 +68,25 @@ function insertTask(
 	sqlite: Database.Database,
 	opts: { id: string; status: string; member: string | null; updatedAt: number },
 ): void {
+	let memberId: string | null = null
+	if (opts.member !== null) {
+		// Member name → stable synthetic member_id. Insert OR IGNORE so multiple
+		// tasks for the same member share the same row.
+		memberId = `mid-${opts.member}`
+		sqlite
+			.prepare(
+				`INSERT OR IGNORE INTO members
+				 (member_id, member_name, display_name, first_connected_at, last_connected_at, last_seen_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+			)
+			.run(memberId, opts.member, opts.member, opts.updatedAt, opts.updatedAt, opts.updatedAt)
+	}
 	sqlite
 		.prepare(
-			`INSERT INTO tasks (id, kind, title, description, status, assigned_member_name, created_at, updated_at, retry_count)
+			`INSERT INTO tasks (id, kind, title, description, status, assigned_member_id, created_at, updated_at, retry_count)
 			 VALUES (?, 'implement', 'test', '', ?, ?, ?, ?, 0)`,
 		)
-		.run(opts.id, opts.status, opts.member, opts.updatedAt, opts.updatedAt)
+		.run(opts.id, opts.status, memberId, opts.updatedAt, opts.updatedAt)
 }
 
 function insertUsage(

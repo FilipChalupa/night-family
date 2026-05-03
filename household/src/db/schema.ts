@@ -2,6 +2,45 @@ import { sql } from 'drizzle-orm'
 import { sqliteTable, text, integer, primaryKey, index } from 'drizzle-orm/sqlite-core'
 
 /**
+ * Members — canonical record per known Member (keyed by member_id, the UUID a
+ * Member generates and reuses across reconnects). Holds the latest snapshot
+ * of identity/skills/profile metadata plus connection-lifecycle timestamps.
+ *
+ * Rows are never deleted: they outlive any individual session and are the FK
+ * target for `tasks.assigned_member_id`, `task_events.member_id`, and
+ * `task_jobs.assigned_member_id`. Disconnected members can be surfaced by the
+ * UI for as long as `last_seen_at` is fresh enough.
+ */
+export const members = sqliteTable(
+	'members',
+	{
+		memberId: text('member_id').primaryKey(),
+		memberName: text('member_name').notNull(),
+		displayName: text('display_name').notNull(),
+		skills: text('skills').notNull().default('[]'), // JSON array
+		repos: text('repos'), // JSON array; null = unconstrained
+		provider: text('provider').notNull().default(''),
+		model: text('model').notNull().default(''),
+		workerProfile: text('worker_profile').notNull().default(''),
+		protocolVersion: text('protocol_version').notNull().default(''),
+		tokenId: text('token_id'),
+		firstConnectedAt: integer('first_connected_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.default(sql`(unixepoch() * 1000)`),
+		lastConnectedAt: integer('last_connected_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.default(sql`(unixepoch() * 1000)`),
+		lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' })
+			.notNull()
+			.default(sql`(unixepoch() * 1000)`),
+		lastDisconnectedAt: integer('last_disconnected_at', { mode: 'timestamp_ms' }),
+	},
+	(table) => ({
+		lastSeenIdx: index('members_last_seen_idx').on(table.lastSeenAt),
+	}),
+)
+
+/**
  * Tasks — one row per Night Family task. PR/review jobs are tracked
  * separately in `task_jobs` so a single task can have multiple parallel
  * review jobs (per plan §6).
@@ -19,8 +58,9 @@ export const tasks = sqliteTable(
 		estimateBlockers: text('estimate_blockers'), // JSON array
 		prUrl: text('pr_url'),
 		assignedSessionId: text('assigned_session_id'),
-		assignedMemberId: text('assigned_member_id'),
-		assignedMemberName: text('assigned_member_name'),
+		assignedMemberId: text('assigned_member_id').references(() => members.memberId, {
+			onDelete: 'set null',
+		}),
 		failureReason: text('failure_reason'),
 		retryCount: integer('retry_count').notNull().default(0),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -50,7 +90,7 @@ export const taskEvents = sqliteTable(
 		seq: integer('seq').notNull(),
 		ts: integer('ts', { mode: 'timestamp_ms' }).notNull(),
 		sessionId: text('session_id'),
-		memberId: text('member_id'),
+		memberId: text('member_id').references(() => members.memberId, { onDelete: 'set null' }),
 		kind: text('kind').notNull(), // tool_call | file_edited | commit | usage | log | rebase
 		payload: text('payload').notNull(), // JSON
 	},
@@ -113,8 +153,9 @@ export const taskJobs = sqliteTable(
 		kind: text('kind').notNull().default('review'),
 		status: text('status').notNull(), // pending | assigned | in-progress | completed | failed
 		assignedSessionId: text('assigned_session_id'),
-		assignedMemberId: text('assigned_member_id'),
-		assignedMemberName: text('assigned_member_name'),
+		assignedMemberId: text('assigned_member_id').references(() => members.memberId, {
+			onDelete: 'set null',
+		}),
 		prAuthorLogin: text('pr_author_login'), // GitHub login of the PR author at job-creation time
 		verdict: text('verdict'), // approved | changes_requested | commented
 		result: text('result'), // JSON

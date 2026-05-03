@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { Db } from '../db/index.ts'
-import { taskJobs } from '../db/schema.ts'
+import { members, taskJobs } from '../db/schema.ts'
 
 export type JobStatus = 'pending' | 'assigned' | 'in-progress' | 'completed' | 'failed'
 export type ReviewVerdict = 'approved' | 'changes_requested' | 'commented'
@@ -22,21 +22,27 @@ export interface TaskJobRecord {
 	updatedAt: string
 }
 
-function rowToRecord(row: typeof taskJobs.$inferSelect): TaskJobRecord {
+interface JobJoinRow {
+	job: typeof taskJobs.$inferSelect
+	memberName: string | null
+}
+
+function rowToRecord(row: JobJoinRow): TaskJobRecord {
+	const j = row.job
 	return {
-		id: row.id,
-		taskId: row.taskId,
-		kind: row.kind,
-		status: row.status as JobStatus,
-		assignedSessionId: row.assignedSessionId,
-		assignedMemberId: row.assignedMemberId,
-		assignedMemberName: row.assignedMemberName,
-		prAuthorLogin: row.prAuthorLogin,
-		verdict: (row.verdict as ReviewVerdict) ?? null,
-		result: row.result ? (JSON.parse(row.result) as unknown) : null,
-		failureReason: row.failureReason,
-		createdAt: row.createdAt.toISOString(),
-		updatedAt: row.updatedAt.toISOString(),
+		id: j.id,
+		taskId: j.taskId,
+		kind: j.kind,
+		status: j.status as JobStatus,
+		assignedSessionId: j.assignedSessionId,
+		assignedMemberId: j.assignedMemberId,
+		assignedMemberName: row.memberName,
+		prAuthorLogin: j.prAuthorLogin,
+		verdict: (j.verdict as ReviewVerdict) ?? null,
+		result: j.result ? (JSON.parse(j.result) as unknown) : null,
+		failureReason: j.failureReason,
+		createdAt: j.createdAt.toISOString(),
+		updatedAt: j.updatedAt.toISOString(),
 	}
 }
 
@@ -64,33 +70,31 @@ export class TaskJobStore {
 		return this.get(id)!
 	}
 
+	private selectJoin() {
+		return this.db
+			.select({ job: taskJobs, memberName: members.memberName })
+			.from(taskJobs)
+			.leftJoin(members, eq(members.memberId, taskJobs.assignedMemberId))
+	}
+
 	get(id: string): TaskJobRecord | null {
-		const rows = this.db.select().from(taskJobs).where(eq(taskJobs.id, id)).all()
+		const rows = this.selectJoin().where(eq(taskJobs.id, id)).all()
 		return rows[0] ? rowToRecord(rows[0]) : null
 	}
 
 	listByTask(taskId: string): TaskJobRecord[] {
-		return this.db
-			.select()
-			.from(taskJobs)
-			.where(eq(taskJobs.taskId, taskId))
-			.all()
-			.map(rowToRecord)
+		return this.selectJoin().where(eq(taskJobs.taskId, taskId)).all().map(rowToRecord)
 	}
 
 	listBySession(sessionId: string): TaskJobRecord[] {
-		return this.db
-			.select()
-			.from(taskJobs)
+		return this.selectJoin()
 			.where(eq(taskJobs.assignedSessionId, sessionId))
 			.all()
 			.map(rowToRecord)
 	}
 
 	listPending(): TaskJobRecord[] {
-		return this.db
-			.select()
-			.from(taskJobs)
+		return this.selectJoin()
 			.where(eq(taskJobs.status, 'pending'))
 			.orderBy(taskJobs.createdAt)
 			.all()
@@ -103,7 +107,7 @@ export class TaskJobStore {
 	 */
 	tryClaim(
 		jobId: string,
-		assignment: { sessionId: string; memberId: string; memberName: string },
+		assignment: { sessionId: string; memberId: string },
 	): TaskJobRecord | null {
 		const result = this.db
 			.update(taskJobs)
@@ -111,7 +115,6 @@ export class TaskJobStore {
 				status: 'assigned',
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
-				assignedMemberName: assignment.memberName,
 				updatedAt: new Date(),
 			})
 			.where(and(eq(taskJobs.id, jobId), eq(taskJobs.status, 'pending')))
@@ -157,7 +160,6 @@ export class TaskJobStore {
 				status: 'pending',
 				assignedSessionId: null,
 				assignedMemberId: null,
-				assignedMemberName: null,
 				updatedAt: new Date(),
 			})
 			.where(eq(taskJobs.id, id))

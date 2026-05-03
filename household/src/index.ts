@@ -15,6 +15,7 @@ import { RepoBindingStore } from './github/bindings.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
+import { MemberStateStore } from './members/store.ts'
 import { mountNotificationsApi } from './notifications/api.ts'
 import { NotificationSender } from './notifications/sender.ts'
 import { NotificationStore } from './notifications/store.ts'
@@ -38,8 +39,24 @@ const startedAt = Date.now()
 const dbHandles = openDb(config.dataDir)
 logger.info({ dataDir: config.dataDir }, 'database opened, migrations applied')
 
-const registry = new MemberRegistry()
+const memberStore = new MemberStateStore(dbHandles.db)
+const registry = new MemberRegistry(memberStore)
 const tokens = new TokenStore(join(config.configDir, 'tokens.yaml'))
+
+// Backfill historic first/last connect timestamps from the tokens.yaml usage
+// log into the persisted members table, so members from before this table
+// existed have realistic connection timeline data.
+{
+	const usage: Array<{ memberId: string; memberName: string; connectedAt: Date }> = []
+	for (const t of tokens.list()) {
+		for (const u of t.usage ?? []) {
+			const d = new Date(u.connected_at)
+			if (Number.isNaN(d.getTime())) continue
+			usage.push({ memberId: u.member_id, memberName: u.member_name, connectedAt: d })
+		}
+	}
+	memberStore.bootstrapFromTokenUsage(usage)
+}
 const users = config.primaryAdminGithubUsername
 	? new UserStore(join(config.configDir, 'users.yaml'), config.primaryAdminGithubUsername)
 	: null
@@ -117,6 +134,7 @@ setInterval(() => sessionStore.purgeExpired(), 60 * 60 * 1000).unref()
 
 const uiHandler = createUiWsHandler({
 	registry,
+	memberStore,
 	taskStore,
 	sessions: sessionStore,
 	requireUiLogin: config.requireUiLogin,

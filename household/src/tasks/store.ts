@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { EventEmitter } from 'node:events'
 import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Db } from '../db/index.ts'
-import { tasks } from '../db/schema.ts'
+import { members, tasks } from '../db/schema.ts'
 
 export interface TaskRecord {
 	id: string
@@ -45,27 +45,31 @@ export interface PatchTaskInput {
 	estimateBlockers?: string[] | null
 }
 
-function rowToRecord(row: typeof tasks.$inferSelect): TaskRecord {
+interface TaskJoinRow {
+	task: typeof tasks.$inferSelect
+	memberName: string | null
+}
+
+function rowToRecord(row: TaskJoinRow): TaskRecord {
+	const t = row.task
 	return {
-		id: row.id,
-		repo: row.repo,
-		kind: row.kind as TaskKind,
-		title: row.title,
-		description: row.description,
-		status: row.status as TaskStatus,
-		estimateSize: (row.estimateSize as TaskRecord['estimateSize']) ?? null,
-		estimateBlockers: row.estimateBlockers
-			? (JSON.parse(row.estimateBlockers) as string[])
-			: null,
-		prUrl: row.prUrl,
-		assignedSessionId: row.assignedSessionId,
-		assignedMemberId: row.assignedMemberId,
-		assignedMemberName: row.assignedMemberName,
-		failureReason: row.failureReason,
-		retryCount: row.retryCount,
-		createdAt: row.createdAt.toISOString(),
-		updatedAt: row.updatedAt.toISOString(),
-		metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null,
+		id: t.id,
+		repo: t.repo,
+		kind: t.kind as TaskKind,
+		title: t.title,
+		description: t.description,
+		status: t.status as TaskStatus,
+		estimateSize: (t.estimateSize as TaskRecord['estimateSize']) ?? null,
+		estimateBlockers: t.estimateBlockers ? (JSON.parse(t.estimateBlockers) as string[]) : null,
+		prUrl: t.prUrl,
+		assignedSessionId: t.assignedSessionId,
+		assignedMemberId: t.assignedMemberId,
+		assignedMemberName: row.memberName,
+		failureReason: t.failureReason,
+		retryCount: t.retryCount,
+		createdAt: t.createdAt.toISOString(),
+		updatedAt: t.updatedAt.toISOString(),
+		metadata: t.metadata ? (JSON.parse(t.metadata) as Record<string, unknown>) : null,
 	}
 }
 
@@ -103,7 +107,12 @@ export class TaskStore {
 	}
 
 	get(id: string): TaskRecord | null {
-		const rows = this.db.select().from(tasks).where(eq(tasks.id, id)).all()
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(eq(tasks.id, id))
+			.all()
 		return rows[0] ? rowToRecord(rows[0]) : null
 	}
 
@@ -116,7 +125,13 @@ export class TaskStore {
 			conditions.push(eq(tasks.repo, filter.repo))
 		}
 		const where = conditions.length > 0 ? and(...conditions) : undefined
-		const rows = this.db.select().from(tasks).where(where).orderBy(desc(tasks.createdAt)).all()
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(where)
+			.orderBy(desc(tasks.createdAt))
+			.all()
 		return rows.map(rowToRecord)
 	}
 
@@ -176,7 +191,7 @@ export class TaskStore {
 	 */
 	claimNextFor(
 		acceptableKinds: TaskKind[],
-		assignment: { sessionId: string; memberId: string; memberName: string },
+		assignment: { sessionId: string; memberId: string },
 		repoAllowlist: string[] | null = null,
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
@@ -214,7 +229,6 @@ export class TaskStore {
 				status: 'assigned',
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
-				assignedMemberName: assignment.memberName,
 				updatedAt: new Date(),
 			})
 			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
@@ -234,7 +248,7 @@ export class TaskStore {
 	 * Atomically claim a `new` task for an estimate dispatch.
 	 */
 	claimNextForEstimate(
-		assignment: { sessionId: string; memberId: string; memberName: string },
+		assignment: { sessionId: string; memberId: string },
 		repoAllowlist: string[] | null = null,
 	): TaskRecord | null {
 		const conds: ReturnType<typeof eq>[] = [eq(tasks.status, 'new')]
@@ -261,7 +275,6 @@ export class TaskStore {
 				status: 'estimating',
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
-				assignedMemberName: assignment.memberName,
 				updatedAt: new Date(),
 			})
 			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'new')))
@@ -302,7 +315,6 @@ export class TaskStore {
 			.set({
 				assignedSessionId: null,
 				assignedMemberId: null,
-				assignedMemberName: null,
 				updatedAt: new Date(),
 			})
 			.where(eq(tasks.id, id))
@@ -319,7 +331,7 @@ export class TaskStore {
 	 */
 	reassignSession(
 		id: string,
-		assignment: { sessionId: string; memberId: string; memberName: string },
+		assignment: { sessionId: string; memberId: string },
 	): TaskRecord | null {
 		const existing = this.get(id)
 		if (!existing) return null
@@ -328,7 +340,6 @@ export class TaskStore {
 			.set({
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
-				assignedMemberName: assignment.memberName,
 				updatedAt: new Date(),
 			})
 			.where(eq(tasks.id, id))

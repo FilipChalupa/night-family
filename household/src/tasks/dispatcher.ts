@@ -70,7 +70,6 @@ export class Dispatcher {
 		const assignment = {
 			sessionId: member.sessionId,
 			memberId: member.memberId,
-			memberName: member.memberName,
 		}
 
 		// 1. Estimate tasks (highest priority — unblocks the queue).
@@ -226,7 +225,6 @@ export class Dispatcher {
 			const claimed = this.deps.jobStore.tryClaim(job.id, {
 				sessionId: conn.sessionId,
 				memberId: conn.memberId,
-				memberName: conn.memberName,
 			})
 			if (!claimed) continue
 			this.sendReviewJob(conn, claimed, task)
@@ -316,7 +314,7 @@ export class Dispatcher {
 	 */
 	onMemberSuperseded(
 		oldSessionId: string,
-		newAssignment: { sessionId: string; memberId: string; memberName: string },
+		newAssignment: { sessionId: string; memberId: string },
 		retainedTaskIds: ReadonlySet<string>,
 	): void {
 		const ownedTasks = this.deps.taskStore

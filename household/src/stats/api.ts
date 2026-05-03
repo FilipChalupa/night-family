@@ -119,6 +119,8 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			.all() as StatusRow[]
 
 		// Per-member throughput: completed and failed tasks plus tokens spent.
+		// Joins through `members` (FK target of `tasks.assigned_member_id`) so a
+		// member rename in `members.member_name` is reflected here automatically.
 		const memberAggregates = deps.sqlite
 			.prepare(
 				`WITH task_tokens AS (
@@ -129,16 +131,16 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 					WHERE kind = 'usage'
 					GROUP BY task_id
 				 )
-				 SELECT t.assigned_member_name AS name,
+				 SELECT m.member_name AS name,
 				        SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
 				        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
 				        COALESCE(SUM(tt.tokens), 0) AS tokens
 				 FROM tasks t
+				 JOIN members m ON m.member_id = t.assigned_member_id
 				 LEFT JOIN task_tokens tt ON tt.task_id = t.id
 				 WHERE t.status IN ('done', 'failed')
-				   AND t.assigned_member_name IS NOT NULL
 				   AND t.updated_at >= ?
-				 GROUP BY t.assigned_member_name
+				 GROUP BY m.member_name
 				 ORDER BY (completed + failed) DESC
 				 LIMIT 20`,
 			)
