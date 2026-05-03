@@ -49,6 +49,12 @@ export interface AssignedTaskInput {
 export interface TaskRunnerDeps {
 	memberName: string
 	memberId: string
+	/**
+	 * Public-facing URL of the Household — same value the Member uses to
+	 * reach the WS endpoint, but referenced here only to embed deep links
+	 * (member/task pages) inside Markdown emitted to GitHub PRs.
+	 */
+	householdUrl: string
 	provider: Provider
 	limits: MemberLimits
 	dailyUsage: { tokensToday(): number; record(usage: TokenUsage): void }
@@ -261,6 +267,8 @@ export class TaskRunner {
 							title: task.title,
 							summary: providerResult.summary,
 							memberName: this.deps.memberName,
+							memberId: this.deps.memberId,
+							householdUrl: this.deps.householdUrl,
 							provider: this.deps.provider.name,
 							model: this.deps.provider.model,
 							taskId: task.taskId,
@@ -467,6 +475,8 @@ function buildPrDescription(opts: {
 	title: string
 	summary: string
 	memberName: string
+	memberId: string
+	householdUrl: string
 	provider: string
 	model: string
 	taskId: string
@@ -517,8 +527,11 @@ function buildPrDescription(opts: {
 	lines.push('')
 
 	lines.push('---')
+	const base = opts.householdUrl.replace(/\/$/, '')
+	const memberUrl = `${base}/members/${encodeURIComponent(opts.memberId)}`
+	const taskUrl = `${base}/tasks/${encodeURIComponent(opts.taskId)}`
 	lines.push(
-		`🤖 Authored by Night Family member \`${opts.memberName}\` · task \`${opts.taskId.slice(0, 8)}\``,
+		`🤖 Authored by Night Family member [\`${opts.memberName}\`](${memberUrl}) · task [\`${opts.taskId.slice(0, 8)}\`](${taskUrl})`,
 	)
 	return lines.join('\n')
 }

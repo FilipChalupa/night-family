@@ -25,6 +25,7 @@ import {
 import HistoryIcon from '@mui/icons-material/History'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery } from '@tanstack/react-query'
+import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
 
@@ -270,28 +271,28 @@ function TasksTable({
 											spacing={1}
 											sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
 										>
+											<RouterLink
+												to="/tasks/$taskId"
+												params={{ taskId: t.id }}
+												style={{
+													color: 'inherit',
+													textDecoration: 'none',
+													fontWeight: 600,
+												}}
+											>
+												{t.title}
+											</RouterLink>
 											{issue?.url ? (
 												<Link
 													href={issue.url}
 													target="_blank"
 													rel="noopener noreferrer"
 													underline="hover"
-													sx={{ fontWeight: 600 }}
-												>
-													{t.title}
-												</Link>
-											) : (
-												<Typography sx={{ fontWeight: 600 }}>
-													{t.title}
-												</Typography>
-											)}
-											{issue?.number != null ? (
-												<Typography
 													variant="caption"
 													color="text.secondary"
 												>
-													#{issue.number}
-												</Typography>
+													#{issue.number ?? 'issue'} ↗
+												</Link>
 											) : null}
 										</Stack>
 									)
@@ -316,9 +317,24 @@ function TasksTable({
 								/>
 							</TableCell>
 							<TableCell>
-								<Typography variant="body2" color="text.secondary">
-									{t.assignedMemberName ?? '—'}
-								</Typography>
+								{t.assignedMemberId ? (
+									<RouterLink
+										to="/members/$memberId"
+										params={{ memberId: t.assignedMemberId }}
+										style={{
+											color: 'inherit',
+											textDecoration: 'underline',
+											textDecorationStyle: 'dotted',
+											fontSize: '0.875rem',
+										}}
+									>
+										{t.assignedMemberName ?? t.assignedMemberId.slice(0, 8)}
+									</RouterLink>
+								) : (
+									<Typography variant="body2" color="text.secondary">
+										—
+									</Typography>
+								)}
 							</TableCell>
 							<TableCell>
 								{t.repo ? (

@@ -15,6 +15,7 @@ import { RepoBindingStore } from './github/bindings.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
+import { buildMembersSnapshot, getMemberSnapshotById } from './members/snapshot.ts'
 import { MemberStateStore } from './members/store.ts'
 import { mountNotificationsApi } from './notifications/api.ts'
 import { NotificationSender } from './notifications/sender.ts'
@@ -149,7 +150,15 @@ const guard = new AdminGuard(sessionStore, config.requireUiLogin, !!config.githu
 app.get('/api/members', (c) => {
 	const guardResult = guard.requireAuthenticated(c)
 	if (guardResult) return guardResult
-	return c.json({ members: registry.list() })
+	return c.json({ members: buildMembersSnapshot(registry, memberStore) })
+})
+
+app.get('/api/members/:memberId', (c) => {
+	const guardResult = guard.requireAuthenticated(c)
+	if (guardResult) return guardResult
+	const member = getMemberSnapshotById(c.req.param('memberId'), registry, memberStore)
+	if (!member) return c.json({ error: 'not_found' }, 404)
+	return c.json({ member })
 })
 
 mountWhoAmI(app, {

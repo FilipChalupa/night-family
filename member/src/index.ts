@@ -48,6 +48,7 @@ const usageTracker = new DailyUsageTracker()
 const taskRunner = new TaskRunner({
 	memberName: config.memberName,
 	memberId: config.memberId,
+	householdUrl: config.householdUrl,
 	provider,
 	limits: config.limits,
 	dailyUsage: usageTracker,

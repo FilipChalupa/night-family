@@ -13,6 +13,7 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import type { MemberSnapshot, TaskRecord } from '../types.ts'
 
@@ -67,31 +68,37 @@ export function MembersPanel({
 					{members.map((m) => (
 						<TableRow key={m.sessionId} hover>
 							<TableCell>
-								<Box>
-									<Typography
-										component="span"
-										color="text.secondary"
-										variant="body2"
-									>
-										Night{' '}
-									</Typography>
-									<Typography component="span" sx={{ fontWeight: 600 }}>
-										{m.displayName || m.memberName}
-									</Typography>
-									{m.displayName && m.displayName !== m.memberName ? (
+								<Link
+									to="/members/$memberId"
+									params={{ memberId: m.memberId }}
+									style={{ color: 'inherit', textDecoration: 'none' }}
+								>
+									<Box>
 										<Typography
 											component="span"
 											color="text.secondary"
 											variant="body2"
 										>
-											{' '}
-											@{m.memberName}
+											Night{' '}
 										</Typography>
-									) : null}
-								</Box>
-								<Typography variant="caption" color="text.secondary">
-									{m.memberId.slice(0, 8)}…
-								</Typography>
+										<Typography component="span" sx={{ fontWeight: 600 }}>
+											{m.displayName || m.memberName}
+										</Typography>
+										{m.displayName && m.displayName !== m.memberName ? (
+											<Typography
+												component="span"
+												color="text.secondary"
+												variant="body2"
+											>
+												{' '}
+												@{m.memberName}
+											</Typography>
+										) : null}
+									</Box>
+									<Typography variant="caption" color="text.secondary">
+										{m.memberId.slice(0, 8)}…
+									</Typography>
+								</Link>
 							</TableCell>
 							<TableCell>
 								<Chip

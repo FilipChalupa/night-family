@@ -105,6 +105,16 @@ export class MemberStateStore {
 	}
 
 	/**
+	 * Return the persisted snapshot for a single member (any age). Used by
+	 * deep-link API handlers so old PR-description URLs still resolve to a
+	 * page even if the member hasn't been seen for a long time.
+	 */
+	getById(memberId: string): OfflineMemberSnapshot | null {
+		const row = this.db.select().from(members).where(eq(members.memberId, memberId)).get()
+		return row ? rowToOfflineSnapshot(row) : null
+	}
+
+	/**
 	 * Return persisted offline members whose `last_seen_at` is at or after
 	 * the given cutoff. Caller is responsible for filtering out members
 	 * currently in the live registry.

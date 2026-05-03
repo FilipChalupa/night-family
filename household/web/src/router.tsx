@@ -6,7 +6,9 @@ import {
 	type ErrorComponentProps,
 } from '@tanstack/react-router'
 import { Dashboard } from './routes/Dashboard.tsx'
+import { MemberDetailPage } from './routes/MemberDetailPage.tsx'
 import { RootLayout } from './routes/Root.tsx'
+import { TaskDetailPage } from './routes/TaskDetailPage.tsx'
 import { TasksPage } from './routes/TasksPage.tsx'
 
 const rootRoute = createRootRoute({ component: RootLayout })
@@ -40,7 +42,24 @@ export const tasksRoute = createRoute({
 	},
 })
 
-const routeTree = rootRoute.addChildren([dashboardRoute, tasksRoute])
+export const taskDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/tasks/$taskId',
+	component: TaskDetailPage,
+})
+
+export const memberDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/members/$memberId',
+	component: MemberDetailPage,
+})
+
+const routeTree = rootRoute.addChildren([
+	dashboardRoute,
+	tasksRoute,
+	taskDetailRoute,
+	memberDetailRoute,
+])
 
 function RouteError({ error, reset }: ErrorComponentProps) {
 	return (
