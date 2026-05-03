@@ -15,6 +15,7 @@ import {
 } from '@mui/material'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { relativeTime } from '../time.ts'
 import type { MemberSnapshot, TaskRecord } from '../types.ts'
 
 interface Props {
@@ -277,11 +278,4 @@ function ProtocolCell({
 			<Chip label={memberVersion} size="small" color={color} variant="outlined" />
 		</Tooltip>
 	)
-}
-
-function relativeTime(iso: string): string {
-	const ms = Date.now() - new Date(iso).getTime()
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
-	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
-	return `${Math.floor(ms / 3_600_000)}h ago`
 }

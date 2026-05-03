@@ -14,6 +14,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { taskDetailRoute } from '../router.tsx'
+import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
@@ -425,11 +426,3 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 	}
 }
 
-function relativeTime(iso: string): string {
-	const ms = Date.now() - new Date(iso).getTime()
-	if (ms < 0) return 'in the future'
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
-	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
-	if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`
-	return `${Math.floor(ms / 86_400_000)}d ago`
-}

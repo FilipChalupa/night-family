@@ -27,6 +27,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
+import { relativeTime } from '../time.ts'
 import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
 
 export interface PaginationControl {
@@ -672,9 +673,3 @@ function formatTokens(value: number): string {
 	return value.toLocaleString()
 }
 
-function relativeTime(iso: string): string {
-	const ms = Date.now() - new Date(iso).getTime()
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`
-	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
-	return `${Math.floor(ms / 3_600_000)}h ago`
-}
