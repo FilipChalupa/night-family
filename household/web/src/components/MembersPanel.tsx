@@ -68,6 +68,13 @@ export function MembersPanel({
 						<TableRow key={m.sessionId} hover>
 							<TableCell>
 								<Box>
+									<Typography
+										component="span"
+										color="text.secondary"
+										variant="body2"
+									>
+										Night{' '}
+									</Typography>
 									<Typography component="span" sx={{ fontWeight: 600 }}>
 										{m.displayName || m.memberName}
 									</Typography>
