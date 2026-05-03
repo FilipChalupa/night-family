@@ -1,0 +1,8 @@
+# Drizzle-kit generated artifacts. Owned by `npm run db:generate`; reformatting
+# them just causes a churn loop on the next regeneration.
+household/src/db/migrations/
+
+# Build outputs and dependency dirs (prettier ignores these by default for
+# common names, but be explicit for our packages).
+**/dist/
+**/node_modules/

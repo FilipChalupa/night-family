@@ -13,12 +13,7 @@ import { Dispatcher } from './dispatcher.ts'
 import { TaskJobStore } from './jobStore.ts'
 import { TaskStore } from './store.ts'
 
-const migrationsFolder = join(
-	dirname(fileURLToPath(import.meta.url)),
-	'..',
-	'db',
-	'migrations',
-)
+const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'migrations')
 
 const silentLogger = {
 	info: () => {},
@@ -97,10 +92,7 @@ function fakeMember(opts: {
 	}
 }
 
-function createReadyImplementTask(
-	rig: Rig,
-	opts: { repo: string; assignedMemberName: string },
-) {
+function createReadyImplementTask(rig: Rig, opts: { repo: string; assignedMemberName: string }) {
 	const task = rig.taskStore.create({
 		kind: 'implement',
 		title: 't',
@@ -112,13 +104,11 @@ function createReadyImplementTask(
 	rig.taskStore.transition(task.id, ['assigned'], 'in-progress', {})
 	// Stash the assigned member name so dispatchReviewJobsFor can derive prAuthorLogin.
 	const session = `sess-${opts.assignedMemberName}`
-	rig.registry.add(
-		fakeMember({ memberName: opts.assignedMemberName, status: 'busy' }),
-	)
+	rig.registry.add(fakeMember({ memberName: opts.assignedMemberName, status: 'busy' }))
 	// Write assignment to DB so prAuthorLogin fallback works.
 	const ts = rig.registry.list().find((m) => m.memberName === opts.assignedMemberName)!
 	rig.taskStore.transition(task.id, ['in-progress'], 'in-progress', {})
-	;(rig.taskStore as unknown as { db: { update: typeof drizzle } }) // no-op narrowing
+	rig.taskStore as unknown as { db: { update: typeof drizzle } } // no-op narrowing
 	// Use private DB through schema directly:
 	rig.dispatcher // touch to keep var alive
 	void session
@@ -184,7 +174,7 @@ describe('Dispatcher review picker', () => {
 		expect(sends.length).toBeGreaterThan(0)
 	})
 
-	it("queues pending and lets same-login claim only after 10 min when a different-login reviewer exists but is busy", () => {
+	it('queues pending and lets same-login claim only after 10 min when a different-login reviewer exists but is busy', () => {
 		vi.useFakeTimers({ now: new Date('2026-05-03T00:00:00Z') })
 		const aSent = vi.fn()
 		const bSent = vi.fn()

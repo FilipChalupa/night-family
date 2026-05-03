@@ -299,11 +299,11 @@ function RepoWizard({ onCreated, onCancel }: { onCreated: () => void; onCancel: 
 							</Button>
 						</Box>
 						<Typography variant="body2" color="text.secondary">
-							In GitHub: paste the payload URL, paste the secret, set <em>Content
-							type</em> to <code>application/json</code>, and select these events —
-							<em> Issues</em>, <em>Issue comments</em>, <em>Pull requests</em>,
-							<em> Pull request reviews</em>. Save the webhook, then come back and
-							confirm.
+							In GitHub: paste the payload URL, paste the secret, set{' '}
+							<em>Content type</em> to <code>application/json</code>, and select these
+							events —<em> Issues</em>, <em>Issue comments</em>,{' '}
+							<em>Pull requests</em>,<em> Pull request reviews</em>. Save the webhook,
+							then come back and confirm.
 						</Typography>
 						<Stack
 							direction="row"
@@ -335,15 +335,7 @@ function RepoWizard({ onCreated, onCancel }: { onCreated: () => void; onCancel: 
 	)
 }
 
-function CopyField({
-	label,
-	value,
-	secret,
-}: {
-	label: string
-	value: string
-	secret?: boolean
-}) {
+function CopyField({ label, value, secret }: { label: string; value: string; secret?: boolean }) {
 	const [copied, setCopied] = useState(false)
 	const copy = async () => {
 		await navigator.clipboard.writeText(value)

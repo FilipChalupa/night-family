@@ -7,13 +7,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type {
-	AgentTask,
-	Provider,
-	RunAgentOptions,
-	RunAgentResult,
-	TokenUsage,
-} from './types.ts'
+import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 16_000

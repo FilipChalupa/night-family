@@ -43,7 +43,10 @@ function rowToRecord(row: typeof taskJobs.$inferSelect): TaskJobRecord {
 export class TaskJobStore {
 	constructor(private readonly db: Db) {}
 
-	create(taskId: string, opts: { prAuthorLogin: string | null; kind?: string } = { prAuthorLogin: null }): TaskJobRecord {
+	create(
+		taskId: string,
+		opts: { prAuthorLogin: string | null; kind?: string } = { prAuthorLogin: null },
+	): TaskJobRecord {
 		const id = randomUUID()
 		const now = new Date()
 		this.db

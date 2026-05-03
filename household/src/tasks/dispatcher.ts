@@ -584,7 +584,6 @@ export class Dispatcher {
 			this.selfReviewWakeups.delete(jobId)
 		}
 	}
-
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────

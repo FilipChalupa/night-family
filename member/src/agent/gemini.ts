@@ -3,13 +3,7 @@
  */
 
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '@google/genai'
-import type {
-	AgentTask,
-	Provider,
-	RunAgentOptions,
-	RunAgentResult,
-	TokenUsage,
-} from './types.ts'
+import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192
