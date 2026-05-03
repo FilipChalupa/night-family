@@ -1,13 +1,4 @@
-import {
-	Alert,
-	Box,
-	Button,
-	Chip,
-	Link as MuiLink,
-	Paper,
-	Stack,
-	Typography,
-} from '@mui/material'
+import { Alert, Box, Button, Chip, Link as MuiLink, Paper, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
@@ -143,7 +134,11 @@ function TaskDetailCard({
 	return (
 		<Paper variant="outlined" sx={{ p: 2 }}>
 			<Stack spacing={2}>
-				<Stack direction="row" spacing={1.5} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
+				<Stack
+					direction="row"
+					spacing={1.5}
+					sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+				>
 					<Typography variant="h6" sx={{ fontWeight: 600 }}>
 						{task.title}
 					</Typography>
@@ -215,8 +210,14 @@ function TaskDetailCard({
 				/>
 				<Field label="Estimate" value={estimateLabel(task)} />
 				<Field label="Retries" value={String(task.retryCount)} />
-				<Field label="Created" value={`${relativeTime(task.createdAt)} (${task.createdAt})`} />
-				<Field label="Updated" value={`${relativeTime(task.updatedAt)} (${task.updatedAt})`} />
+				<Field
+					label="Created"
+					value={`${relativeTime(task.createdAt)} (${task.createdAt})`}
+				/>
+				<Field
+					label="Updated"
+					value={`${relativeTime(task.updatedAt)} (${task.updatedAt})`}
+				/>
 
 				{task.description ? (
 					<Box>
@@ -358,15 +359,7 @@ function TaskEventsList({ taskId }: { taskId: string }) {
 	)
 }
 
-function Field({
-	label,
-	value,
-	mono,
-}: {
-	label: string
-	value: React.ReactNode
-	mono?: boolean
-}) {
+function Field({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
 	return (
 		<Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.25, sm: 2 }}>
 			<Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
@@ -425,4 +418,3 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 			return 'default'
 	}
 }
-

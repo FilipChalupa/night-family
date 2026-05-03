@@ -197,8 +197,8 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 						Suggested by connected members
 					</Typography>
 					<Typography variant="caption" color="text.secondary">
-						These repos are reachable by at least one member's PAT but aren't bound
-						yet. Bind them to receive issue/PR webhooks.
+						These repos are reachable by at least one member's PAT but aren't bound yet.
+						Bind them to receive issue/PR webhooks.
 					</Typography>
 					<TableContainer component={Paper} variant="outlined">
 						<Table size="small">

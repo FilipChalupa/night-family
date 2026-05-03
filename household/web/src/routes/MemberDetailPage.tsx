@@ -53,7 +53,9 @@ export function MemberDetailPage() {
 
 			{!member ? (
 				error ? (
-					<Alert severity="error">Failed to load member: {(error as Error).message}</Alert>
+					<Alert severity="error">
+						Failed to load member: {(error as Error).message}
+					</Alert>
 				) : fromStream === null && fetched === null ? (
 					<EmptyState>Member not found.</EmptyState>
 				) : (
@@ -99,7 +101,11 @@ function MemberDetailCard({
 	return (
 		<Paper variant="outlined" sx={{ p: 2 }}>
 			<Stack spacing={2}>
-				<Stack direction="row" spacing={1.5} sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}>
+				<Stack
+					direction="row"
+					spacing={1.5}
+					sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+				>
 					<Typography variant="h6" sx={{ fontWeight: 600 }}>
 						<Typography component="span" color="text.secondary" variant="body2">
 							Night{' '}
@@ -133,9 +139,18 @@ function MemberDetailCard({
 					}
 				/>
 				<Field label="Current task" value={member.currentTask ?? '—'} mono />
-				<Field label="Connected" value={`${relativeTime(member.connectedAt)} (${member.connectedAt})`} />
-				<Field label="Last heartbeat" value={`${relativeTime(member.lastHeartbeat)} (${member.lastHeartbeat})`} />
-				<Field label="First seen" value={`${relativeTime(member.firstConnectedAt)} (${member.firstConnectedAt})`} />
+				<Field
+					label="Connected"
+					value={`${relativeTime(member.connectedAt)} (${member.connectedAt})`}
+				/>
+				<Field
+					label="Last heartbeat"
+					value={`${relativeTime(member.lastHeartbeat)} (${member.lastHeartbeat})`}
+				/>
+				<Field
+					label="First seen"
+					value={`${relativeTime(member.firstConnectedAt)} (${member.firstConnectedAt})`}
+				/>
 			</Stack>
 		</Paper>
 	)
@@ -166,9 +181,7 @@ function reposLabel(repos: string[] | null): string {
 	return repos.join(', ')
 }
 
-function statusColor(
-	status: MemberSnapshot['status'],
-): 'success' | 'warning' | 'default' {
+function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 'default' {
 	switch (status) {
 		case 'idle':
 			return 'success'
@@ -183,4 +196,3 @@ function compareProtocol(member: string, household: string | null): 'equal' | 's
 	if (!household) return 'unknown'
 	return member === household ? 'equal' : 'skew'
 }
-

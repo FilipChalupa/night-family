@@ -97,10 +97,7 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
  * are sorted alphabetically; member attribution is preserved so the UI
  * can show who proposed each one.
  */
-function collectSuggestions(
-	registry: MemberRegistry,
-	bound: { repo: string }[],
-): SuggestedRepo[] {
+function collectSuggestions(registry: MemberRegistry, bound: { repo: string }[]): SuggestedRepo[] {
 	const boundSet = new Set(bound.map((b) => b.repo))
 	const byRepo = new Map<string, SuggestedRepo>()
 	for (const m of registry.list()) {
