@@ -142,6 +142,7 @@ export class TaskRunner {
 			if (task.repo && !isNoWorkspace) {
 				workspace = await Workspace.create({
 					taskId: task.taskId,
+					taskTitle: task.title,
 					repo: task.repo,
 					githubToken: task.githubToken,
 					workspaceDir: this.deps.workspaceDir,

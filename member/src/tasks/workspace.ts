@@ -20,6 +20,13 @@ export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface WorkspaceOpts {
 	taskId: string
+	/**
+	 * Task title — used as the descriptive ("soft") suffix of the branch
+	 * name for human readability. The unique prefix (`pr/night/<8 hex>`) is
+	 * what the household uses to look the task back up, so this part is
+	 * free-form and may be empty.
+	 */
+	taskTitle: string
 	repo: string // org/name
 	githubToken: string
 	workspaceDir: string
@@ -39,13 +46,13 @@ export class Workspace {
 	) {}
 
 	static async create(opts: WorkspaceOpts): Promise<Workspace> {
-		const { taskId, repo, githubToken, workspaceDir, logger } = opts
+		const { taskId, taskTitle, repo, githubToken, workspaceDir, logger } = opts
 		const cachePath = join(workspaceDir, '.cache', repo + '.git')
 		await ensureBareClone(cachePath, repo, githubToken, logger)
 		await touch(cachePath)
 
 		const baseBranch = await detectDefaultBranch(cachePath)
-		const branch = `pr/night/${taskId.slice(0, 8)}-${slug(taskId)}`
+		const branch = buildBranchName(taskId, taskTitle)
 		const taskPath = join(workspaceDir, taskId, 'work')
 
 		await rm(taskPath, { recursive: true, force: true })
@@ -327,6 +334,20 @@ function slug(s: string): string {
 			.replace(/^-+|-+$/g, '')
 			.slice(0, 40) || 'task'
 	)
+}
+
+/**
+ * Branch layout: `pr/night/<8 hex>-<title-slug>`.
+ *
+ * The `<8 hex>` prefix is the load-bearing part — the household parses it
+ * out of incoming PR webhooks (see github/handlers/pulls.ts) to map a PR
+ * back to its task, and `Workspace.create` reuses the same name on retry
+ * so the existing branch is reset rather than duplicated. The title slug
+ * is purely cosmetic; if the title is missing or unslugifiable we fall
+ * back to the literal `task`, which matches the legacy default.
+ */
+export function buildBranchName(taskId: string, taskTitle: string): string {
+	return `pr/night/${taskId.slice(0, 8)}-${slug(taskTitle)}`
 }
 
 async function touch(path: string): Promise<void> {
