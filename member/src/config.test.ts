@@ -26,6 +26,7 @@ const OPTIONAL_ENV = [
 const stubIdentity = async (_pat: string): Promise<GithubIdentity> => ({
 	login: 'stubuser',
 	displayName: 'Stub User',
+	repos: ['acme/foo', 'acme/bar'],
 })
 
 describe('loadConfig', () => {
@@ -63,6 +64,7 @@ describe('loadConfig', () => {
 		expect(cfg.githubPat).toBe('ghp_test')
 		expect(cfg.memberName).toBe('stubuser')
 		expect(cfg.displayName).toBe('Stub User')
+		expect(cfg.repos).toEqual(['acme/foo', 'acme/bar'])
 		expect(cfg.provider).toBe('anthropic')
 		expect(cfg.model).toBe('claude-opus-4-7')
 		expect(cfg.aiApiKey).toBe('fake')
@@ -140,9 +142,14 @@ describe('loadConfig', () => {
 	})
 
 	it('uses display name fallback to login when GitHub returns no name', async () => {
-		const cfg = await loadConfig(async () => ({ login: 'noname', displayName: 'noname' }))
+		const cfg = await loadConfig(async () => ({
+			login: 'noname',
+			displayName: 'noname',
+			repos: [],
+		}))
 		expect(cfg.memberName).toBe('noname')
 		expect(cfg.displayName).toBe('noname')
+		expect(cfg.repos).toEqual([])
 	})
 
 	it('propagates an identity-fetch failure', async () => {

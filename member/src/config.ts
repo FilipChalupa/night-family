@@ -12,10 +12,11 @@ export interface MemberConfig {
 	githubPat: string
 	skills: Skill[]
 	/**
-	 * Optional `org/name` allowlist. `null` = unconstrained (any repo).
-	 * Empty array = explicitly accept no repos (soft offline for repo work).
+	 * Repos this Member can work on, derived from `GET /user/repos` with
+	 * the configured PAT. Empty = PAT has no repo access (Member can
+	 * still handle non-repo tasks like `summarize`).
 	 */
-	repos: string[] | null
+	repos: string[]
 	provider: Provider
 	model: string
 	aiApiKey: string
@@ -47,22 +48,6 @@ function optionalNumber(name: string): number | null {
 	const n = Number.parseInt(v, 10)
 	if (!Number.isFinite(n)) return null
 	return n
-}
-
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
-
-function parseRepos(raw: string | undefined): string[] | null {
-	if (raw === undefined) return null
-	const parts = raw
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean)
-	for (const r of parts) {
-		if (!REPO_RE.test(r)) {
-			throw new Error(`Invalid repo in REPOS (expected org/name): ${r}`)
-		}
-	}
-	return parts
 }
 
 function parseSkills(raw: string): Skill[] {
@@ -107,16 +92,18 @@ function loadOrCreateMemberId(workspaceDir: string): string {
 export interface GithubIdentity {
 	login: string
 	displayName: string
+	repos: string[]
 }
 
+const GH_API = 'https://api.github.com'
+const GH_HEADERS = (pat: string) => ({
+	authorization: `Bearer ${pat}`,
+	accept: 'application/vnd.github+json',
+	'x-github-api-version': '2022-11-28',
+})
+
 export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> {
-	const res = await fetch('https://api.github.com/user', {
-		headers: {
-			authorization: `Bearer ${pat}`,
-			accept: 'application/vnd.github+json',
-			'x-github-api-version': '2022-11-28',
-		},
-	})
+	const res = await fetch(`${GH_API}/user`, { headers: GH_HEADERS(pat) })
 	if (!res.ok) {
 		const body = await res.text().catch(() => '')
 		throw new Error(
@@ -129,10 +116,39 @@ export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> 
 		throw new Error('GitHub /user response did not include a `login` field')
 	}
 	const name = typeof json.name === 'string' && json.name.length > 0 ? json.name : login
-	return { login, displayName: name }
+	const repos = await fetchAccessibleRepos(pat)
+	return { login, displayName: name, repos }
 }
 
-interface PartialConfig extends Omit<MemberConfig, 'memberName' | 'displayName'> {}
+/**
+ * Enumerate every repo this PAT can access, via paginated `/user/repos`.
+ * For fine-grained PATs the API filters down to the token's selected repos
+ * automatically; for classic PATs it returns everything the user can reach.
+ * Either way the return is the operator's effective allowlist.
+ */
+async function fetchAccessibleRepos(pat: string): Promise<string[]> {
+	const PER_PAGE = 100
+	const MAX_PAGES = 10 // 1000 repos cap; way past realistic Night Family setups
+	const all: string[] = []
+	for (let page = 1; page <= MAX_PAGES; page++) {
+		const url = `${GH_API}/user/repos?per_page=${PER_PAGE}&page=${page}&affiliation=owner,collaborator,organization_member`
+		const res = await fetch(url, { headers: GH_HEADERS(pat) })
+		if (!res.ok) {
+			const body = await res.text().catch(() => '')
+			throw new Error(
+				`GitHub /user/repos failed (${res.status}): ${body.slice(0, 200) || res.statusText}`,
+			)
+		}
+		const items = (await res.json()) as Array<{ full_name?: unknown }>
+		for (const r of items) {
+			if (typeof r.full_name === 'string') all.push(r.full_name)
+		}
+		if (items.length < PER_PAGE) break
+	}
+	return all
+}
+
+interface PartialConfig extends Omit<MemberConfig, 'memberName' | 'displayName' | 'repos'> {}
 
 function loadEnvConfig(): PartialConfig {
 	const workspaceDirRaw = optional('WORKSPACE_DIR', '/workspace')
@@ -145,7 +161,6 @@ function loadEnvConfig(): PartialConfig {
 		memberId: loadOrCreateMemberId(workspaceDir),
 		githubPat: required('GITHUB_PAT'),
 		skills: parseSkills(skillsRaw),
-		repos: parseRepos(process.env['REPOS']),
 		provider: parseProvider(required('AI_PROVIDER')),
 		model: required('AI_MODEL'),
 		aiApiKey: required('AI_API_KEY'),
@@ -169,5 +184,6 @@ export async function loadConfig(
 		...partial,
 		memberName: identity.login,
 		displayName: identity.displayName,
+		repos: identity.repos,
 	}
 }

@@ -180,7 +180,6 @@ export class TaskStore {
 		repoAllowlist: string[] | null = null,
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
-		if (repoAllowlist && repoAllowlist.length === 0) return null
 
 		// Find candidate — skip tasks whose retry delay hasn't elapsed yet.
 		const now = new Date()
@@ -190,8 +189,12 @@ export class TaskStore {
 			or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
 		]
 		if (repoAllowlist) {
-			// Repo-less tasks (e.g. summarize) are always allowed.
-			const repoCond = or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
+			// Repo-less tasks (e.g. summarize) are always allowed; repo tasks must
+			// match the allowlist. Empty allowlist still permits repo-less tasks.
+			const repoCond =
+				repoAllowlist.length === 0
+					? isNull(tasks.repo)
+					: or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
 			if (repoCond) baseConds.push(repoCond)
 		}
 		const candidates = this.db
@@ -234,10 +237,12 @@ export class TaskStore {
 		assignment: { sessionId: string; memberId: string; memberName: string },
 		repoAllowlist: string[] | null = null,
 	): TaskRecord | null {
-		if (repoAllowlist && repoAllowlist.length === 0) return null
 		const conds: ReturnType<typeof eq>[] = [eq(tasks.status, 'new')]
 		if (repoAllowlist) {
-			const repoCond = or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
+			const repoCond =
+				repoAllowlist.length === 0
+					? isNull(tasks.repo)
+					: or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
 			if (repoCond) conds.push(repoCond)
 		}
 		const candidates = this.db
