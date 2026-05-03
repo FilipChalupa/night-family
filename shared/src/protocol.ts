@@ -110,6 +110,12 @@ export interface MsgHandshake {
 	provider: Provider
 	model: string
 	worker_profile: WorkerProfile
+	/**
+	 * Repos this Member is willing/able to work on (`org/name`). Omit for
+	 * "no constraint" — Household will dispatch any repo's tasks. Empty
+	 * array means "no repos accepted" and is functionally a soft offline.
+	 */
+	repos?: string[]
 	resumes?: ResumeRef[]
 }
 

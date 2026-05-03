@@ -17,10 +17,17 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 		return c.json({ repos: deps.bindings.list() })
 	})
 
-	app.post('/api/repos/draft', (c) => {
+	app.post('/api/repos/draft', async (c) => {
 		const guardResult = deps.guard.requireAdmin(c)
 		if (guardResult) return guardResult
-		const repo = c.req.query('repo')
+		let body: unknown
+		try {
+			body = await c.req.json()
+		} catch {
+			return c.json({ error: 'invalid_json' }, 400)
+		}
+		if (!body || typeof body !== 'object') return c.json({ error: 'expected_object' }, 400)
+		const repo = (body as Record<string, unknown>)['repo']
 		if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
 			return c.json({ error: 'invalid_repo' }, 400)
 		}
@@ -28,7 +35,12 @@ export function mountRepoBindingsApi(app: Hono, deps: RepoApiDeps): void {
 		const url = new URL(c.req.url)
 		const payloadUrl = `${url.protocol}//${url.host}/webhooks/github`
 		const hooksSettingsUrl = `https://github.com/${repo}/settings/hooks/new`
-		return c.json({ repo, webhook_secret: webhookSecret, payload_url: payloadUrl, hooks_settings_url: hooksSettingsUrl })
+		return c.json({
+			repo,
+			webhook_secret: webhookSecret,
+			payload_url: payloadUrl,
+			hooks_settings_url: hooksSettingsUrl,
+		})
 	})
 
 	app.post('/api/repos', async (c) => {

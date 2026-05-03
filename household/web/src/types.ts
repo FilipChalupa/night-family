@@ -7,6 +7,7 @@ export interface MemberSnapshot {
 	memberName: string
 	displayName: string
 	skills: string[]
+	repos: string[] | null
 	provider: string
 	model: string
 	workerProfile: string

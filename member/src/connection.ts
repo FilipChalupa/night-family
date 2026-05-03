@@ -154,6 +154,7 @@ export class HouseholdConnection {
 			provider: this.config.provider,
 			model: this.config.model,
 			worker_profile: this.config.workerProfile,
+			...(this.config.repos !== null ? { repos: this.config.repos } : {}),
 			...(resumes.length > 0 ? { resumes } : {}),
 		}
 		this.send(handshake)

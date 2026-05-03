@@ -189,8 +189,10 @@ function RepoWizard({ onCreated, onCancel }: { onCreated: () => void; onCancel: 
 		setError(null)
 		setPending(true)
 		try {
-			const res = await fetch(`/api/repos/draft?repo=${encodeURIComponent(repo.trim())}`, {
+			const res = await fetch('/api/repos/draft', {
 				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ repo: repo.trim() }),
 			})
 			if (!res.ok) {
 				const body = (await res.json().catch(() => ({}))) as { error?: string }

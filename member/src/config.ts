@@ -11,6 +11,11 @@ export interface MemberConfig {
 	displayName: string
 	githubPat: string
 	skills: Skill[]
+	/**
+	 * Optional `org/name` allowlist. `null` = unconstrained (any repo).
+	 * Empty array = explicitly accept no repos (soft offline for repo work).
+	 */
+	repos: string[] | null
 	provider: Provider
 	model: string
 	aiApiKey: string
@@ -42,6 +47,22 @@ function optionalNumber(name: string): number | null {
 	const n = Number.parseInt(v, 10)
 	if (!Number.isFinite(n)) return null
 	return n
+}
+
+const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+
+function parseRepos(raw: string | undefined): string[] | null {
+	if (raw === undefined) return null
+	const parts = raw
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean)
+	for (const r of parts) {
+		if (!REPO_RE.test(r)) {
+			throw new Error(`Invalid repo in REPOS (expected org/name): ${r}`)
+		}
+	}
+	return parts
 }
 
 function parseSkills(raw: string): Skill[] {
@@ -124,6 +145,7 @@ function loadEnvConfig(): PartialConfig {
 		memberId: loadOrCreateMemberId(workspaceDir),
 		githubPat: required('GITHUB_PAT'),
 		skills: parseSkills(skillsRaw),
+		repos: parseRepos(process.env['REPOS']),
 		provider: parseProvider(required('AI_PROVIDER')),
 		model: required('AI_MODEL'),
 		aiApiKey: required('AI_API_KEY'),

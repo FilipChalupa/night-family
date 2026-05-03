@@ -76,14 +76,14 @@ export class Dispatcher {
 		// 1. Estimate tasks (highest priority — unblocks the queue).
 		let task: TaskRecord | null = null
 		if (member.skills.includes('estimate')) {
-			task = this.deps.taskStore.claimNextForEstimate(assignment)
+			task = this.deps.taskStore.claimNextForEstimate(assignment, member.repos)
 		}
 
 		// 2. Regular queued tasks matching member skills.
 		if (!task) {
 			const acceptable = member.skills as TaskKind[]
 			if (acceptable.length > 0) {
-				task = this.deps.taskStore.claimNextFor(acceptable, assignment)
+				task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
 			}
 		}
 
@@ -96,18 +96,25 @@ export class Dispatcher {
 		if (member.skills.includes('review')) {
 			const pending = this.deps.jobStore.listPending()
 			for (const candidate of pending) {
+				const parentTask = this.deps.taskStore.get(candidate.taskId)
+				if (!parentTask) {
+					this.deps.jobStore.fail(candidate.id, 'parent_task_missing')
+					continue
+				}
+				if (!this.memberCanWorkOnRepo(member, parentTask.repo)) continue
 				if (!this.canMemberClaimReview(member, candidate)) continue
 				const job = this.deps.jobStore.tryClaim(candidate.id, assignment)
 				if (!job) continue // raced against another claimer
-				const parentTask = this.deps.taskStore.get(job.taskId)
-				if (parentTask) {
-					this.sendReviewJob(conn, job, parentTask)
-				} else {
-					this.deps.jobStore.fail(job.id, 'parent_task_missing')
-				}
+				this.sendReviewJob(conn, job, parentTask)
 				return
 			}
 		}
+	}
+
+	private memberCanWorkOnRepo(member: MemberSnapshot, repo: string | null): boolean {
+		if (!member.repos) return true // unconstrained
+		if (!repo) return true // repo-less tasks (summarize) accepted by everyone
+		return member.repos.includes(repo)
 	}
 
 	/**
@@ -156,8 +163,10 @@ export class Dispatcher {
 			return
 		}
 
-		const prAuthorLogin = task.assignedMemberName ?? null
-		const reviewers = this.deps.registry.list().filter((m) => m.skills.includes('review'))
+		const prAuthorLogin = readPrAuthorLogin(task) ?? task.assignedMemberName ?? null
+		const reviewers = this.deps.registry
+			.list()
+			.filter((m) => m.skills.includes('review') && this.memberCanWorkOnRepo(m, task.repo))
 		const idleReviewers = reviewers.filter((m) => m.status === 'idle')
 		const pref = this.deps.reviewProviderPreference ?? null
 
@@ -425,13 +434,27 @@ export class Dispatcher {
 				}
 			}
 			const target: TaskStatus = task.kind === 'implement' ? 'in-review' : 'done'
-			const updated = this.deps.taskStore.transition(
+			let updated = this.deps.taskStore.transition(
 				taskId,
 				['in-progress', 'assigned'],
 				target,
 				{ ...(prUrl ? { prUrl } : {}) },
 			)
 			this.deps.logger.info({ taskId, target, prUrl }, 'task completed')
+
+			// On the FIRST PR-open transition, snapshot the implementer's GitHub
+			// login as the PR author so subsequent review picks can identify
+			// self-review even after a `changes_requested` cycle reassigns the
+			// task to a different member.
+			if (target === 'in-review' && updated && readPrAuthorLogin(updated) === null) {
+				const author = updated.assignedMemberName
+				if (author) {
+					const merged = this.deps.taskStore.mergeMetadata(taskId, {
+						pr_author_login: author,
+					})
+					if (merged) updated = merged
+				}
+			}
 
 			// Kick off parallel review jobs immediately when task enters in-review.
 			if (target === 'in-review' && updated) {
@@ -565,6 +588,13 @@ export class Dispatcher {
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+function readPrAuthorLogin(task: TaskRecord): string | null {
+	const meta = task.metadata
+	if (!meta) return null
+	const v = (meta as Record<string, unknown>)['pr_author_login']
+	return typeof v === 'string' && v.length > 0 ? v : null
+}
 
 function parseEstimateResult(
 	result: unknown,

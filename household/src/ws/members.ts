@@ -226,6 +226,7 @@ function handleHandshake(
 		memberName: msg.member_name,
 		displayName: msg.display_name,
 		skills: msg.skills,
+		repos: msg.repos ?? null,
 		provider: msg.provider,
 		model: msg.model,
 		workerProfile: msg.worker_profile,

@@ -9,6 +9,8 @@ export interface ConnectedMember {
 	/** Pretty display name (`name ?? login` from /user). UI-only. */
 	displayName: string
 	skills: Skill[]
+	/** `null` = unconstrained; array = explicit allowlist of `org/name` repos. */
+	repos: string[] | null
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
@@ -29,6 +31,7 @@ export interface MemberSnapshot {
 	memberName: string
 	displayName: string
 	skills: Skill[]
+	repos: string[] | null
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
@@ -53,6 +56,7 @@ function snapshot(m: ConnectedMember): MemberSnapshot {
 		memberName: m.memberName,
 		displayName: m.displayName,
 		skills: m.skills,
+		repos: m.repos,
 		provider: m.provider,
 		model: m.model,
 		workerProfile: m.workerProfile,

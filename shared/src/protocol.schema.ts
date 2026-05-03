@@ -71,6 +71,7 @@ const MsgHandshakeSchema = v.object({
 	provider: ProviderSchema,
 	model: v.string(),
 	worker_profile: WorkerProfileSchema,
+	repos: v.optional(v.array(v.string())),
 	resumes: v.optional(v.array(ResumeRefSchema)),
 })
 

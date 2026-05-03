@@ -140,6 +140,25 @@ export class TaskStore {
 		return record
 	}
 
+	/**
+	 * Shallow-merge `partial` into the task's metadata JSON. Used to stash
+	 * derived facts (e.g. PR author login at first PR-open) without losing
+	 * the existing keys (issue number, source URL, …).
+	 */
+	mergeMetadata(id: string, partial: Record<string, unknown>): TaskRecord | null {
+		const existing = this.get(id)
+		if (!existing) return null
+		const merged = { ...(existing.metadata ?? {}), ...partial }
+		this.db
+			.update(tasks)
+			.set({ metadata: JSON.stringify(merged), updatedAt: new Date() })
+			.where(eq(tasks.id, id))
+			.run()
+		const record = this.get(id)!
+		this.emit({ type: 'task.updated', task: record })
+		return record
+	}
+
 	delete(id: string): boolean {
 		const existing = this.get(id)
 		if (!existing) return false
@@ -158,21 +177,27 @@ export class TaskStore {
 	claimNextFor(
 		acceptableKinds: TaskKind[],
 		assignment: { sessionId: string; memberId: string; memberName: string },
+		repoAllowlist: string[] | null = null,
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
+		if (repoAllowlist && repoAllowlist.length === 0) return null
 
 		// Find candidate — skip tasks whose retry delay hasn't elapsed yet.
 		const now = new Date()
+		const baseConds = [
+			eq(tasks.status, 'queued'),
+			inArray(tasks.kind, acceptableKinds),
+			or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
+		]
+		if (repoAllowlist) {
+			// Repo-less tasks (e.g. summarize) are always allowed.
+			const repoCond = or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
+			if (repoCond) baseConds.push(repoCond)
+		}
 		const candidates = this.db
 			.select({ id: tasks.id })
 			.from(tasks)
-			.where(
-				and(
-					eq(tasks.status, 'queued'),
-					inArray(tasks.kind, acceptableKinds),
-					or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
-				),
-			)
+			.where(and(...baseConds))
 			.orderBy(tasks.createdAt)
 			.limit(1)
 			.all()
@@ -205,15 +230,20 @@ export class TaskStore {
 	/**
 	 * Atomically claim a `new` task for an estimate dispatch.
 	 */
-	claimNextForEstimate(assignment: {
-		sessionId: string
-		memberId: string
-		memberName: string
-	}): TaskRecord | null {
+	claimNextForEstimate(
+		assignment: { sessionId: string; memberId: string; memberName: string },
+		repoAllowlist: string[] | null = null,
+	): TaskRecord | null {
+		if (repoAllowlist && repoAllowlist.length === 0) return null
+		const conds: ReturnType<typeof eq>[] = [eq(tasks.status, 'new')]
+		if (repoAllowlist) {
+			const repoCond = or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
+			if (repoCond) conds.push(repoCond)
+		}
 		const candidates = this.db
 			.select({ id: tasks.id })
 			.from(tasks)
-			.where(eq(tasks.status, 'new'))
+			.where(and(...conds))
 			.orderBy(tasks.createdAt)
 			.limit(1)
 			.all()
