@@ -106,9 +106,37 @@ and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
 
 Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
 
+## How an issue becomes a PR (triage → implement)
+
+Each labelled issue (label name: `night`) goes through two stages:
+
+1. **Triage (any time of day).** The Member reads the issue thread and either
+    - posts a clarifying question if the spec is too vague, or
+    - posts a plan comment summarising what + how, plus a size estimate (S/M/L/XL).
+
+    Triage tasks are queued for every `issues.opened` (with `night` label) and every human `issue_comment.created` on a labelled issue. As long as the human keeps replying, the cycle keeps refining. When the human stops replying, the cycle stops — there's no polling.
+
+2. **Implement (overnight, when the schedule allows).** A plan comment from triage automatically queues an `implement` task for the same issue. It sits in the queue until a Member with the `implement` skill is available — by default that's during the night window. The implement Member opens a draft PR, runs tests, and marks it ready.
+
+The estimation step (`estimate` skill / kind) is **deprecated as of protocol 2.2.0**. Triage does the analytical work that estimation used to do, plus the questions / plan, in one pass.
+
+### Bot vs. human comments
+
+Every comment, review, and PR body posted by a Member ends with a deterministic Night Family marker (`<!-- night-family:member=… task=… -->`). The webhook handler greps for it and skips re-triggering triage on Member-authored comments. Two practical implications:
+
+- **Use a separate GitHub account for the Member's PAT** if you can. Then your manual comments and the Member's are trivially distinguishable by author login alone.
+- If the PAT and the human share the same GitHub account (e.g. solo dev), the marker still does the right thing — your hand-written comments don't carry it, so they always trigger a triage cycle; the bot's do, so they never do.
+
+### Brakes (so a chatty issue can't spam the queue)
+
+- **Idempotence** — at most one active triage task per issue at a time. Subsequent webhook events are skipped while one is in flight.
+- **Per-issue daily cap** — at most 5 triage tasks for a single issue in any rolling 24 h.
+- **Per-issue lifetime cap** — at most 20 triage tasks per issue, ever. Hard ceiling against runaway loops.
+- **`MAX_TOKENS_PER_DAY`** — pre-existing per-Member quota; an indirect brake on cost.
+
 ## Member schedule (when does it implement?)
 
-The configured skill set comes from `SKILLS` env (default = all of `implement` / `review` / `estimate` / `respond` / `summarize`). Whatever's there is what the Member can do _in principle_. The schedule then gates `implement` in time: when any `nightWindow` is active, all configured skills are offered; outside every window, `implement` is dropped and the rest pass through. Out of the box: full implementation at night (22:00–08:00 local) and during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
+The configured skill set comes from `SKILLS` env (default = all of `implement` / `review` / `triage` / `respond` / `summarize`). Whatever's there is what the Member can do _in principle_. The schedule then gates `implement` in time: when any `nightWindow` is active, all configured skills are offered; outside every window, `implement` is dropped and the rest pass through (so `triage`, `review`, `respond`, and `summarize` always run). Out of the box: full implementation at night (22:00–08:00 local) and during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
 
 Customize by writing a `schedule.yaml`. Generate the starter and edit:
 
