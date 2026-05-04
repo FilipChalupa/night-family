@@ -7,8 +7,8 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import { buildAttributionInstruction } from '../attribution.ts'
-import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
+import { buildKickoffPrompt } from './prompts.ts'
+import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 16_000
@@ -189,141 +189,6 @@ export class AnthropicProvider implements Provider {
 
 		return { summary, usage: totalUsage }
 	}
-}
-
-function buildKickoffPrompt(task: AgentTask): string {
-	const { title, description, kind, prUrl, repo, metadata, attributionFooter } = task
-	const issueNumber = readIssueNumber(metadata)
-
-	if (kind === 'review' && prUrl) {
-		return [
-			`# Code Review: ${title}`,
-			``,
-			`PR URL: ${prUrl}`,
-			``,
-			`## Task description`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`Review the pull request at the URL above. Use the bash tool to:`,
-			`1. Run \`gh pr diff ${prUrl}\` to read the changes.`,
-			`2. Run \`gh pr view ${prUrl}\` to read the PR description.`,
-			`3. Analyse the diff for correctness, style, security, and test coverage.`,
-			`4. Post your review with one of:`,
-			`   - \`gh pr review ${prUrl} --approve -b "<comment>"\``,
-			`   - \`gh pr review ${prUrl} --request-changes -b "<comment>"\``,
-			`   - \`gh pr review ${prUrl} --comment -b "<comment>"\``,
-			``,
-			`If \`--approve\` (or \`--request-changes\`) fails because GitHub forbids`,
-			`acting on your own pull request, fall back to \`gh pr review --comment\``,
-			`with the same body and still report your verdict accurately in the JSON`,
-			`block — the household tracks approvals internally regardless of what the`,
-			`GitHub UI shows.`,
-			``,
-			buildAttributionInstruction(attributionFooter),
-			``,
-			`When done, write a brief summary of your findings and end with a JSON block`,
-			`on its own line — for example:`,
-			`{"verdict":"approved"}`,
-			`or`,
-			`{"verdict":"changes_requested"}`,
-			`or`,
-			`{"verdict":"commented"}`,
-		].join('\n')
-	}
-
-	if (kind === 'respond' && prUrl) {
-		return [
-			`# PR Thread Response: ${title}`,
-			``,
-			`PR URL: ${prUrl}`,
-			``,
-			`## Context`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`A reviewer left comments on the pull request. Use the bash tool to:`,
-			`1. Run \`gh pr view ${prUrl} --comments\` to read the PR thread.`,
-			`2. Run \`gh pr diff ${prUrl}\` if you need to see the code context.`,
-			`3. Respond to the reviewer's comments using:`,
-			`   \`gh pr comment ${prUrl} --body "<your response>"\``,
-			``,
-			buildAttributionInstruction(attributionFooter),
-			``,
-			`Address each outstanding comment. If changes are needed, describe what`,
-			`you plan to do (a separate implement task will handle the code changes).`,
-			`When done, summarize the responses you posted.`,
-		].join('\n')
-	}
-
-	if (kind === 'estimate') {
-		const ackLines =
-			repo && issueNumber !== null
-				? [
-						``,
-						`## Acknowledge the issue first`,
-						`Before doing anything else, post an 👀 reaction on the source issue so`,
-						`anyone watching it on GitHub knows the bot picked it up:`,
-						``,
-						`\`gh api -X POST /repos/${repo}/issues/${issueNumber}/reactions -f content=eyes\``,
-						``,
-						`If the request fails (e.g. permission denied) log it and continue —`,
-						`the reaction is best-effort, never block the estimate on it.`,
-					]
-				: []
-		return [
-			`# Estimate: ${title}`,
-			``,
-			`## Task description`,
-			description.trim(),
-			...ackLines,
-			``,
-			`## Instructions`,
-			`Estimate the size of this task. **Do not modify any files** — this is a sizing pass only; an `,
-			`\`implement\` task will run afterwards to do the actual work.`,
-			``,
-			`Use \`bash\` (e.g. \`ls\`, \`rg\`, \`cat\`) and \`read_file\` only as needed to understand the scope. Stop calling tools as soon as you have enough signal — extensive exploration burns tokens for no benefit on a short estimate.`,
-			``,
-			`Sizing scale: S (≲1h focused work, single small file), M (a few files, straightforward), L (multi-file refactor or non-trivial logic), XL (cross-cutting changes or significant new functionality).`,
-			``,
-			`Return your answer as a final message ending with **a single JSON line** on its own (no code fence):`,
-			`{"size":"S|M|L|XL","blockers":["short reason a human must unblock", "..."]}`,
-			``,
-			`\`blockers\` is an array of strings; use \`[]\` if you have no blockers. Examples of legitimate blockers: missing credentials, ambiguous spec, breaking change requiring approval. **Do not add blockers for things you can simply do yourself in the implement task.**`,
-		].join('\n')
-	}
-
-	if (kind === 'summarize') {
-		return [
-			`# Summary Task: ${title}`,
-			``,
-			`## Description`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`Generate the requested summary or digest. You may use the bash tool to`,
-			`query GitHub (e.g. \`gh pr list\`, \`gh issue list\`, \`gh run list\`) or`,
-			`inspect files as needed.`,
-			``,
-			`Return your summary as a well-formatted Markdown document. Include`,
-			`relevant statistics, highlights, and action items where appropriate.`,
-			`When done, output the final Markdown — that is your result.`,
-		].join('\n')
-	}
-
-	return [
-		`# Task: ${title}`,
-		``,
-		description.trim(),
-		``,
-		`Apply this change by editing files in the working tree. Use \`read_file\` / \`bash\` to find what to change, \`write_file\` to apply each edit (full new contents per file), and \`bash\` to run any sanity checks the repo offers (tests, build, linter). When the files on disk look right, briefly summarize what you did and stop calling tools.`,
-	].join('\n')
-}
-
-function readIssueNumber(metadata: Record<string, unknown> | null): number | null {
-	if (!metadata) return null
-	const v = metadata['github_issue_number']
-	return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 /**

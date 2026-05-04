@@ -25,6 +25,9 @@ import type {
 const SkillSchema = v.picklist([
 	'implement',
 	'review',
+	'triage',
+	// `estimate` deprecated in 2.2.0 — kept here so old Members still parse;
+	// no new tasks of this kind are dispatched.
 	'estimate',
 	'respond',
 	'summarize',
@@ -40,6 +43,7 @@ const TaskKindSchema = v.picklist([
 	'estimate',
 	'implement',
 	'review',
+	'triage',
 	'respond',
 	'summarize',
 ] satisfies TaskKind[])

@@ -11,7 +11,7 @@ import * as schema from '../../db/schema.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import { TaskStore, type TaskRecord } from '../../tasks/store.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
-import { handleIssuesEvent } from './issues.ts'
+import { handleIssueCommentEvent, handleIssuesEvent } from './issues.ts'
 
 const migrationsFolder = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -90,6 +90,13 @@ function findTask(rig: Rig, issueNumber: number): TaskRecord | undefined {
 	})
 }
 
+function findAllTasks(rig: Rig, issueNumber: number): TaskRecord[] {
+	return rig.store.list().filter((t) => {
+		const meta = t.metadata as Record<string, unknown> | null
+		return meta?.['github_issue_number'] === issueNumber
+	})
+}
+
 describe('handleIssuesEvent', () => {
 	let rig: Rig
 	beforeEach(() => {
@@ -99,19 +106,19 @@ describe('handleIssuesEvent', () => {
 		rig.cleanup()
 	})
 
-	it('imports a task when an issue is opened with the night label', async () => {
+	it('queues a triage task when an issue is opened with the night label', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 1 }) }),
 		)
 		const t = findTask(rig, 1)
 		expect(t).toBeDefined()
-		expect(t!.kind).toBe('implement')
-		expect(t!.status).toBe('new')
+		expect(t!.kind).toBe('triage')
+		expect(t!.status).toBe('queued') // skipEstimate → straight to queued
 		expect(t!.repo).toBe(REPO)
 		expect(rig.tryDispatchAll).toHaveBeenCalled()
 	})
 
-	it('imports when the night label is added later', async () => {
+	it('queues triage when the night label is added later', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, {
 				action: 'labeled',
@@ -119,7 +126,9 @@ describe('handleIssuesEvent', () => {
 				label: { name: 'night' },
 			}),
 		)
-		expect(findTask(rig, 2)?.status).toBe('new')
+		const t = findTask(rig, 2)
+		expect(t?.kind).toBe('triage')
+		expect(t?.status).toBe('queued')
 	})
 
 	it('does NOT create a task when a non-night label is added', async () => {
@@ -133,11 +142,11 @@ describe('handleIssuesEvent', () => {
 		expect(findTask(rig, 3)).toBeUndefined()
 	})
 
-	it('cancels the task when the night label is removed', async () => {
+	it('cancels the triage task when the night label is removed', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 4 }) }),
 		)
-		expect(findTask(rig, 4)?.status).toBe('new')
+		expect(findTask(rig, 4)?.status).toBe('queued')
 
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, {
@@ -151,7 +160,7 @@ describe('handleIssuesEvent', () => {
 		expect(t?.failureReason).toBe('label_removed')
 	})
 
-	it('retries a failed task when the night label is re-added (no estimate yet)', async () => {
+	it('retries a failed triage when the night label is re-added', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 5 }) }),
 		)
@@ -173,48 +182,20 @@ describe('handleIssuesEvent', () => {
 			}),
 		)
 		const t = findTask(rig, 5)
-		expect(t?.status).toBe('new')
+		expect(t?.status).toBe('queued')
 		expect(t?.failureReason).toBeNull()
 		expect(t?.retryCount).toBe(0)
 		expect(t?.assignedSessionId).toBeNull()
 		expect(rig.tryDispatchAll).toHaveBeenCalled()
 	})
 
-	it('retries to queued (skipping estimate) when the failed task already has an estimateSize', async () => {
-		await handleIssuesEvent(
-			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 6 }) }),
-		)
-		const initial = findTask(rig, 6)!
-		rig.store.storeEstimateResult(initial.id, 'M', [])
-		await handleIssuesEvent(
-			ctxFor(rig, REPO, {
-				action: 'unlabeled',
-				issue: issue({ number: 6, labels: [] }),
-				label: { name: 'night' },
-			}),
-		)
-		expect(findTask(rig, 6)?.status).toBe('failed')
-
-		await handleIssuesEvent(
-			ctxFor(rig, REPO, {
-				action: 'labeled',
-				issue: issue({ number: 6, labels: ['night'] }),
-				label: { name: 'night' },
-			}),
-		)
-		const t = findTask(rig, 6)
-		expect(t?.status).toBe('queued')
-		expect(t?.estimateSize).toBe('M')
-	})
-
-	it('skips re-import / retry when an active task already exists for the issue', async () => {
+	it('skips re-import / retry when an active triage already exists for the issue', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 7 }) }),
 		)
 		const before = findTask(rig, 7)!
 		const beforeUpdatedAt = before.updatedAt
 
-		// Simulate same label event arriving twice.
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, {
 				action: 'labeled',
@@ -224,7 +205,101 @@ describe('handleIssuesEvent', () => {
 		)
 		const after = findTask(rig, 7)!
 		expect(after.id).toBe(before.id)
-		expect(after.status).toBe('new')
+		expect(after.status).toBe('queued')
 		expect(after.updatedAt).toBe(beforeUpdatedAt)
+	})
+})
+
+describe('handleIssueCommentEvent', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	const commentEvent = (overrides: {
+		issueNumber: number
+		commentBody?: string
+		commentAuthor?: string
+	}) => ({
+		action: 'created',
+		issue: issue({ number: overrides.issueNumber, labels: ['night'] }),
+		comment: {
+			body: overrides.commentBody ?? 'Hey, can you also add a status indicator?',
+			user: { login: overrides.commentAuthor ?? 'human-user' },
+		},
+	})
+
+	it('queues a fresh triage task when a human posts a comment', async () => {
+		// Pretend the issue was opened earlier and triage already finished
+		// (status: done) so a new comment isn't blocked by idempotence.
+		const t = rig.store.create({
+			kind: 'triage',
+			title: 'x',
+			description: 'y',
+			repo: REPO,
+			metadata: { github_issue_number: 8, github_issue_url: 'http://x/8' },
+			skipEstimate: true,
+		})
+		rig.store.transition(t.id, ['queued'], 'assigned', {})
+		rig.store.transition(t.id, ['assigned'], 'in-progress', {})
+		rig.store.transition(t.id, ['in-progress'], 'done', {})
+
+		await handleIssueCommentEvent(ctxFor(rig, REPO, commentEvent({ issueNumber: 8 })))
+
+		const all = findAllTasks(rig, 8)
+		expect(all).toHaveLength(2)
+		expect(all.every((x) => x.kind === 'triage')).toBe(true)
+		const fresh = all.find((x) => x.status === 'queued')
+		expect(fresh).toBeDefined()
+	})
+
+	it('ignores a comment carrying our Night Family attribution marker', async () => {
+		const before = rig.store.list().length
+		await handleIssueCommentEvent(
+			ctxFor(
+				rig,
+				REPO,
+				commentEvent({
+					issueNumber: 9,
+					commentBody:
+						'Sure, here is the plan...\n\n---\n🤖 …\n<!-- night-family:member=m1 task=t1 -->',
+				}),
+			),
+		)
+		expect(rig.store.list().length).toBe(before)
+	})
+
+	it('skips when the issue does not carry the night label', async () => {
+		await handleIssueCommentEvent(
+			ctxFor(rig, REPO, {
+				action: 'created',
+				issue: issue({ number: 10, labels: ['bug'] }),
+				comment: { body: 'just a question', user: { login: 'human' } },
+			}),
+		)
+		expect(findTask(rig, 10)).toBeUndefined()
+	})
+
+	it('respects the per-issue lifetime cap', async () => {
+		// Pre-seed 20 triage records (no active ones — all done).
+		for (let i = 0; i < 20; i++) {
+			const t = rig.store.create({
+				kind: 'triage',
+				title: 'x',
+				description: 'y',
+				repo: REPO,
+				metadata: { github_issue_number: 11, github_issue_url: 'http://x/11' },
+				skipEstimate: true,
+			})
+			rig.store.transition(t.id, ['queued'], 'assigned', {})
+			rig.store.transition(t.id, ['assigned'], 'in-progress', {})
+			rig.store.transition(t.id, ['in-progress'], 'done', {})
+		}
+		const before = rig.store.list().length
+		await handleIssueCommentEvent(ctxFor(rig, REPO, commentEvent({ issueNumber: 11 })))
+		expect(rig.store.list().length).toBe(before)
 	})
 })

@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '2.1.0'
+export const PROTOCOL_VERSION = '2.2.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -49,12 +49,21 @@ export function compareProtocolVersions(a: string, b: string): ProtocolCompat {
 	return 'equal'
 }
 
-export type Skill = 'implement' | 'review' | 'estimate' | 'respond' | 'summarize'
+/**
+ * Skills a Member is willing to handle. Note that `estimate` is
+ * **deprecated as of 2.2.0** — Household no longer creates standalone
+ * estimate tasks; estimation is folded into the new `triage` flow which
+ * also handles clarifying questions and writing a plan comment. Old
+ * Members that still advertise `estimate` keep working (they just won't
+ * receive any tasks for it). The kind/skill will be removed in the next
+ * major bump.
+ */
+export type Skill = 'implement' | 'review' | 'triage' | 'estimate' | 'respond' | 'summarize'
 
 export const ALL_SKILLS: readonly Skill[] = [
 	'implement',
 	'review',
-	'estimate',
+	'triage',
 	'respond',
 	'summarize',
 ]
@@ -67,7 +76,12 @@ export type MemberStatus = 'idle' | 'busy'
 
 export type EventKind = 'tool_call' | 'file_edited' | 'commit' | 'usage' | 'log' | 'rebase'
 
-export type TaskKind = 'estimate' | 'implement' | 'review' | 'respond' | 'summarize'
+/**
+ * `estimate` is **deprecated as of 2.2.0** — kept in the union so old
+ * peers' messages still parse, but Household no longer dispatches it.
+ * See the doc on `Skill` for migration notes.
+ */
+export type TaskKind = 'estimate' | 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
 
 export type TaskStatus =
 	| 'new'

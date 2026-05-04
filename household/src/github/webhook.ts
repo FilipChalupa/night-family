@@ -18,7 +18,7 @@ import { webhookDeliveries } from '../db/schema.ts'
 import type { Dispatcher } from '../tasks/dispatcher.ts'
 import type { TaskStore } from '../tasks/store.ts'
 import type { RepoBindingStore } from './bindings.ts'
-import { handleIssuesEvent } from './handlers/issues.ts'
+import { handleIssueCommentEvent, handleIssuesEvent } from './handlers/issues.ts'
 import { handlePullRequestEvent, handlePullRequestReviewEvent } from './handlers/pulls.ts'
 import type { ConnectedMember, MemberRegistry } from '../members/registry.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
@@ -110,6 +110,9 @@ async function routeEvent(
 	switch (event) {
 		case 'issues':
 			await handleIssuesEvent({ ...deps, repo, body })
+			break
+		case 'issue_comment':
+			await handleIssueCommentEvent({ ...deps, repo, body })
 			break
 		case 'pull_request':
 			await handlePullRequestEvent({

@@ -3,8 +3,8 @@
  */
 
 import OpenAI from 'openai'
-import { buildAttributionInstruction } from '../attribution.ts'
-import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
+import { buildKickoffPrompt } from './prompts.ts'
+import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 8192
@@ -136,124 +136,6 @@ export class OpenAIProvider implements Provider {
 
 		return { summary, usage: totalUsage }
 	}
-}
-
-function buildKickoffPrompt(task: AgentTask): string {
-	const { title, description, kind, prUrl, repo, metadata, attributionFooter } = task
-	const issueNumber = readIssueNumber(metadata)
-
-	if (kind === 'review' && prUrl) {
-		return [
-			`# Code Review: ${title}`,
-			``,
-			`PR URL: ${prUrl}`,
-			``,
-			`## Task description`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`Review the pull request at the URL above. Use the bash tool to:`,
-			`1. Run \`gh pr diff ${prUrl}\` to read the changes.`,
-			`2. Run \`gh pr view ${prUrl}\` to read the PR description.`,
-			`3. Post your review with one of:`,
-			`   - \`gh pr review ${prUrl} --approve -b "<comment>"\``,
-			`   - \`gh pr review ${prUrl} --request-changes -b "<comment>"\``,
-			`   - \`gh pr review ${prUrl} --comment -b "<comment>"\``,
-			``,
-			`If \`--approve\` (or \`--request-changes\`) fails because GitHub forbids`,
-			`acting on your own pull request, fall back to \`gh pr review --comment\``,
-			`with the same body and still report your verdict accurately in the JSON`,
-			`block — the household tracks approvals internally.`,
-			``,
-			buildAttributionInstruction(attributionFooter),
-			``,
-			`End your summary with a JSON block on its own line:`,
-			`{"verdict":"approved"} or {"verdict":"changes_requested"} or {"verdict":"commented"}`,
-		].join('\n')
-	}
-
-	if (kind === 'respond' && prUrl) {
-		return [
-			`# PR Thread Response: ${title}`,
-			``,
-			`PR URL: ${prUrl}`,
-			``,
-			`## Context`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`A reviewer left comments on the pull request. Use the bash tool to:`,
-			`1. Run \`gh pr view ${prUrl} --comments\` to read the PR thread.`,
-			`2. Run \`gh pr diff ${prUrl}\` if you need to see the code context.`,
-			`3. Respond using: \`gh pr comment ${prUrl} --body "<your response>"\``,
-			``,
-			buildAttributionInstruction(attributionFooter),
-			``,
-			`When done, summarize the responses you posted.`,
-		].join('\n')
-	}
-
-	if (kind === 'estimate') {
-		const ackLines =
-			repo && issueNumber !== null
-				? [
-						``,
-						`## Acknowledge first`,
-						`Before anything else, post an 👀 reaction on the source issue:`,
-						`\`gh api -X POST /repos/${repo}/issues/${issueNumber}/reactions -f content=eyes\``,
-						`Best-effort — log and continue if it fails.`,
-					]
-				: []
-		return [
-			`# Estimate: ${title}`,
-			``,
-			`## Task description`,
-			description.trim(),
-			...ackLines,
-			``,
-			`## Instructions`,
-			`Estimate the size of this task. **Do not modify any files.** Use \`bash\` /`,
-			`\`read_file\` only to understand scope; stop calling tools as soon as you`,
-			`have enough signal.`,
-			``,
-			`Sizing scale: S (≲1h, single small file), M (a few files, straightforward),`,
-			`L (multi-file refactor or non-trivial logic), XL (cross-cutting changes).`,
-			``,
-			`Return a final message ending with a single JSON line on its own:`,
-			`{"size":"S|M|L|XL","blockers":["short reason a human must unblock", "..."]}`,
-		].join('\n')
-	}
-
-	if (kind === 'summarize') {
-		return [
-			`# Summary Task: ${title}`,
-			``,
-			`## Description`,
-			description.trim(),
-			``,
-			`## Instructions`,
-			`Generate the requested summary. You may use the bash tool to query GitHub`,
-			`(e.g. \`gh pr list\`, \`gh issue list\`). Return a well-formatted Markdown document.`,
-		].join('\n')
-	}
-
-	return [
-		`# Task: ${title}`,
-		``,
-		`Kind: ${kind}`,
-		``,
-		`## Description`,
-		description.trim(),
-		``,
-		`Use the available tools to inspect the workspace, make the changes, and run`,
-		`whatever verification (tests, build) you can. When done, summarize what you changed.`,
-	].join('\n')
-}
-
-function readIssueNumber(metadata: Record<string, unknown> | null): number | null {
-	if (!metadata) return null
-	const v = metadata['github_issue_number']
-	return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 function throwIfAborted(signal: AbortSignal): void {

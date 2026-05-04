@@ -65,7 +65,7 @@ describe('ScheduleController', () => {
 	it('day mode drops `implement` from the configured set', () => {
 		const { controller } = makeController(new Date('2026-04-08T10:00:00Z'))
 		expect([...controller.effectiveSkills()].sort()).toEqual(
-			['estimate', 'respond', 'review', 'summarize'].sort(),
+			['respond', 'review', 'summarize', 'triage'].sort(),
 		)
 	})
 

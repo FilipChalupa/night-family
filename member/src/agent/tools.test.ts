@@ -2,8 +2,15 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createDefaultTools } from './tools.ts'
+import { createDefaultTools, detectBlockedGh } from './tools.ts'
 import type { ToolDefinition } from './types.ts'
+
+const STUB_ATTRIBUTION = {
+	memberName: 'octo',
+	memberId: 'm-test',
+	taskId: 't-test',
+	householdUrl: 'https://night.example',
+}
 
 function findTool(tools: ToolDefinition[], name: string): ToolDefinition {
 	const t = tools.find((x) => x.name === name)
@@ -19,7 +26,7 @@ describe('tools — workspace path safety', () => {
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'tools-'))
-		tools = createDefaultTools({ root })
+		tools = createDefaultTools({ root, attribution: STUB_ATTRIBUTION })
 		read = findTool(tools, 'read_file')
 		write = findTool(tools, 'write_file')
 	})
@@ -100,7 +107,7 @@ describe('tools — workspace path safety', () => {
 	})
 
 	it('read_file enforces maxFileBytes', async () => {
-		const small = createDefaultTools({ root, maxFileBytes: 4 })
+		const small = createDefaultTools({ root, maxFileBytes: 4, attribution: STUB_ATTRIBUTION })
 		const smallRead = findTool(small, 'read_file')
 		await writeFile(join(root, 'big.txt'), 'too large', 'utf8')
 		const r = await smallRead.run({ path: 'big.txt' })
@@ -115,7 +122,7 @@ describe('tools — bash', () => {
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'tools-bash-'))
-		bash = findTool(createDefaultTools({ root }), 'bash')
+		bash = findTool(createDefaultTools({ root, attribution: STUB_ATTRIBUTION }), 'bash')
 	})
 
 	afterEach(async () => {
@@ -158,7 +165,11 @@ describe('tools — bash', () => {
 	})
 
 	it('injects GH_TOKEN when configured', async () => {
-		const tools = createDefaultTools({ root, githubToken: 'fake-token-123' })
+		const tools = createDefaultTools({
+			root,
+			githubToken: 'fake-token-123',
+			attribution: STUB_ATTRIBUTION,
+		})
 		const b = findTool(tools, 'bash')
 		const r = await b.run({ command: 'echo "[$GH_TOKEN]"' })
 		// The token appears in command echo; just verify it landed in the env.
@@ -173,9 +184,55 @@ describe('tools — bash', () => {
 	})
 
 	it('honors a tight bash timeout', async () => {
-		const tools = createDefaultTools({ root, bashTimeoutMs: 100 })
+		const tools = createDefaultTools({
+			root,
+			bashTimeoutMs: 100,
+			attribution: STUB_ATTRIBUTION,
+		})
 		const b = findTool(tools, 'bash')
 		const r = await b.run({ command: 'sleep 2' })
 		expect(r.isError).toBe(true)
+	})
+})
+
+describe('detectBlockedGh', () => {
+	it.each([
+		'gh issue comment 42 --body "hi"',
+		'gh pr comment https://github.com/o/r/pull/1 --body "x"',
+		'gh pr review https://github.com/o/r/pull/1 --approve --body "ok"',
+		'gh pr create --title t --body b',
+		'gh pr edit 1 --body new',
+		'cd foo && gh pr review 1 --comment -b x',
+		'echo done; gh issue comment 1 -b "y"',
+	])('flags %j', (cmd) => {
+		expect(detectBlockedGh(cmd)).not.toBeNull()
+	})
+
+	it.each([
+		'gh issue view 42 --json title,body',
+		'gh pr diff https://github.com/o/r/pull/1',
+		'gh pr view 1 --comments',
+		'gh api -X POST /repos/o/r/issues/1/reactions -f content=eyes',
+		'echo "gh pr comment is what you want" # not a real call',
+		'something gh-pr-comment 1', // hyphenated, not the gh CLI
+	])('lets %j through', (cmd) => {
+		expect(detectBlockedGh(cmd)).toBeNull()
+	})
+})
+
+describe('bash refusal of write-channel gh subcommands', () => {
+	it('refuses `gh pr comment` and points at the dedicated tool', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'tools-'))
+		try {
+			const bash = findTool(
+				createDefaultTools({ root, attribution: STUB_ATTRIBUTION }),
+				'bash',
+			)
+			const r = await bash.run({ command: 'gh pr comment 1 --body hi' })
+			expect(r.isError).toBe(true)
+			expect(r.output).toMatch(/post_pr_comment/)
+		} finally {
+			await rm(root, { recursive: true, force: true })
+		}
 	})
 })

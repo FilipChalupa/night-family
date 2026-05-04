@@ -16,6 +16,11 @@ import { isNightAt, nextTransition, type Schedule } from './schedule.ts'
  *   any nightWindow active  →  fullSkills
  *   no nightWindow active   →  fullSkills minus `implement`
  *
+ * `triage` is therefore always offered (regardless of the schedule),
+ * because it's never the gated skill — only `implement` ever drops out.
+ * That matches the workflow: triage runs in the day to clarify or plan;
+ * implementation runs at night once a plan exists.
+ *
  * Override replaces both with the supplied skill set until expiry. Every
  * change to the effective set fires `onChange(skills, reason)`. The
  * wiring in `connection.ts` translates that into a `member.skills_updated`

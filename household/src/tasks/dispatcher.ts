@@ -72,13 +72,18 @@ export class Dispatcher {
 			memberId: member.memberId,
 		}
 
-		// 1. Estimate tasks (highest priority — unblocks the queue).
+		// `estimate` is deprecated as of protocol 2.2.0. We still claim
+		// `new`-status tasks for back-compat (so old data left in `new`
+		// gets dispatched), but only when the connected member explicitly
+		// advertises `estimate`. New code paths create tasks directly in
+		// `queued` via `skipEstimate: true`.
 		let task: TaskRecord | null = null
 		if (member.skills.includes('estimate')) {
 			task = this.deps.taskStore.claimNextForEstimate(assignment, member.repos)
 		}
 
-		// 2. Regular queued tasks matching member skills.
+		// Regular queued tasks matching member skills (triage / implement /
+		// review / respond / summarize).
 		if (!task) {
 			const acceptable = member.skills as TaskKind[]
 			if (acceptable.length > 0) {
@@ -436,6 +441,17 @@ export class Dispatcher {
 					this.deps.taskStore.storeEstimateResult(taskId, parsed.size, parsed.blockers)
 				}
 			}
+			if (task.kind === 'triage') {
+				const triage = parseTriageResult(result)
+				if (triage?.outcome === 'plan') {
+					this.spawnImplementFromTriage(task, triage.size)
+				} else {
+					this.deps.logger.info(
+						{ taskId, outcome: triage?.outcome ?? 'unknown' },
+						'triage finished without a plan; waiting for next human reply',
+					)
+				}
+			}
 			const target: TaskStatus = task.kind === 'implement' ? 'in-review' : 'done'
 			let updated = this.deps.taskStore.transition(
 				taskId,
@@ -479,6 +495,73 @@ export class Dispatcher {
 		}
 
 		this.tryDispatchAll()
+	}
+
+	/**
+	 * Triage decided the issue is clear and posted a plan comment. Queue
+	 * a follow-up `implement` task for the same issue. Idempotent — if
+	 * an implement task already exists for this issue (e.g. a previous
+	 * triage cycle queued one), skip.
+	 */
+	private spawnImplementFromTriage(
+		triage: TaskRecord,
+		size: 'S' | 'M' | 'L' | 'XL' | null,
+	): void {
+		if (!triage.repo) {
+			this.deps.logger.warn(
+				{ taskId: triage.id },
+				'triage produced a plan but task has no repo — cannot spawn implement',
+			)
+			return
+		}
+		const issueNumber = readIssueNumber(triage.metadata)
+		if (issueNumber === null) {
+			this.deps.logger.warn(
+				{ taskId: triage.id },
+				'triage produced a plan but task has no github_issue_number — cannot spawn implement',
+			)
+			return
+		}
+		const sameIssue = this.deps.taskStore
+			.list({ repo: triage.repo })
+			.filter((t) => readIssueNumber(t.metadata) === issueNumber)
+		const existingImplement = sameIssue.find(
+			(t) =>
+				t.kind === 'implement' &&
+				(t.status === 'queued' ||
+					t.status === 'assigned' ||
+					t.status === 'in-progress' ||
+					t.status === 'in-review' ||
+					t.status === 'awaiting-merge'),
+		)
+		if (existingImplement) {
+			this.deps.logger.info(
+				{ triageId: triage.id, implementId: existingImplement.id },
+				'implement task already in flight for this issue — not spawning a duplicate',
+			)
+			return
+		}
+		const implement = this.deps.taskStore.create({
+			kind: 'implement',
+			title: triage.title,
+			description: triage.description,
+			repo: triage.repo,
+			metadata: {
+				github_issue_number: issueNumber,
+				github_issue_url:
+					(triage.metadata as Record<string, unknown> | null)?.['github_issue_url'] ??
+					null,
+				spawned_from_triage: triage.id,
+			},
+			skipEstimate: true,
+		})
+		if (size) {
+			this.deps.taskStore.storeEstimateResult(implement.id, size, [])
+		}
+		this.deps.logger.info(
+			{ triageId: triage.id, implementId: implement.id, size },
+			'implement task queued from triage plan',
+		)
 	}
 
 	private onTaskFailed(taskId: string, reason: string): void {
@@ -610,6 +693,17 @@ function readPrAuthorLogin(task: TaskRecord): string | null {
 	return typeof v === 'string' && v.length > 0 ? v : null
 }
 
+function readIssueNumber(metadata: unknown): number | null {
+	if (!metadata || typeof metadata !== 'object') return null
+	const v = (metadata as Record<string, unknown>)['github_issue_number']
+	if (typeof v === 'number' && Number.isFinite(v)) return v
+	if (typeof v === 'string') {
+		const n = Number.parseInt(v, 10)
+		if (Number.isFinite(n)) return n
+	}
+	return null
+}
+
 function parseEstimateResult(
 	result: unknown,
 ): { size: 'S' | 'M' | 'L' | 'XL'; blockers: string[] } | null {
@@ -623,6 +717,28 @@ function parseEstimateResult(
 		size,
 		blockers: blockers.filter((b): b is string => typeof b === 'string'),
 	}
+}
+
+/**
+ * Parse the JSON the triage agent appends at the end of its turn:
+ *   {"outcome":"question"}            — a clarifying question was posted
+ *   {"outcome":"plan","size":"M"}     — a plan comment was posted; ready
+ *                                       to enqueue an implement task
+ */
+function parseTriageResult(
+	result: unknown,
+): { outcome: 'question' } | { outcome: 'plan'; size: 'S' | 'M' | 'L' | 'XL' | null } | null {
+	if (!result || typeof result !== 'object') return null
+	const r = result as Record<string, unknown>
+	const outcome = r['outcome']
+	if (outcome === 'question') return { outcome }
+	if (outcome === 'plan') {
+		const size = r['size']
+		const validSize =
+			size === 'S' || size === 'M' || size === 'L' || size === 'XL' ? size : null
+		return { outcome: 'plan', size: validSize }
+	}
+	return null
 }
 
 function parseReviewVerdict(result: unknown): ReviewVerdict | null {

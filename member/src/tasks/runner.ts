@@ -17,7 +17,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Logger } from 'pino'
 import { AnthropicProvider } from '../agent/anthropic.ts'
-import { buildSystemPrompt } from '../agent/systemPrompt.ts'
+import { buildSystemPrompt } from '../agent/prompts.ts'
 import { GeminiProvider } from '../agent/gemini.ts'
 import { OpenAIProvider } from '../agent/openai.ts'
 import { StubProvider } from '../agent/stub.ts'
@@ -32,7 +32,7 @@ import {
 	type TokenUsage,
 } from '../agent/types.ts'
 import { createDefaultTools } from '../agent/tools.ts'
-import { buildAttributionFooter } from '../attribution.ts'
+import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { Workspace } from './workspace.ts'
 
@@ -160,23 +160,25 @@ export class TaskRunner {
 			const projectInstructions =
 				workspace !== null ? await workspace.readProjectInstructions() : null
 
+			const attribution = {
+				memberName: this.deps.memberName,
+				memberId: this.deps.memberId,
+				taskId: task.taskId,
+				householdUrl: this.deps.householdUrl,
+			}
+
 			const tools: ToolDefinition[] = createDefaultTools({
 				root: workspace?.path ?? join(this.deps.workspaceDir, task.taskId, 'scratch'),
-				// Pass token so `gh pr review` / `gh pr diff` work inside bash tool.
+				// Pass token so read-only `gh` commands and the post_* tools
+				// authenticate without an interactive login.
 				githubToken: task.githubToken || undefined,
+				attribution,
 			})
 
 			const systemPrompt = buildSystemPrompt({
 				memberName: this.deps.memberName,
 				repo: task.repo,
 				projectInstructions,
-			})
-
-			const attributionFooter = buildAttributionFooter({
-				memberName: this.deps.memberName,
-				memberId: this.deps.memberId,
-				taskId: task.taskId,
-				householdUrl: this.deps.householdUrl,
 			})
 
 			const agentTask: AgentTask = {
@@ -188,7 +190,6 @@ export class TaskRunner {
 				prUrl: task.prUrl,
 				metadata: task.metadata ?? null,
 				systemPromptAddition: projectInstructions,
-				attributionFooter,
 			}
 
 			const stats = new RunStats()
@@ -277,7 +278,7 @@ export class TaskRunner {
 						const description = buildPrDescription({
 							title: task.title,
 							summary: providerResult.summary,
-							attributionFooter,
+							attribution,
 							provider: this.deps.provider.name,
 							model: this.deps.provider.model,
 							stats,
@@ -482,7 +483,7 @@ function githubIssueRef(
 function buildPrDescription(opts: {
 	title: string
 	summary: string
-	attributionFooter: string
+	attribution: AttributionInputs
 	provider: string
 	model: string
 	stats: RunStats
@@ -529,11 +530,8 @@ function buildPrDescription(opts: {
 	lines.push(`| Total tokens | ${totalTokens.toLocaleString()} |`)
 	if (u.cacheRead) lines.push(`| Cache reads | ${u.cacheRead.toLocaleString()} |`)
 	if (u.cacheCreation) lines.push(`| Cache writes | ${u.cacheCreation.toLocaleString()} |`)
-	lines.push('')
 
-	lines.push('---')
-	lines.push(opts.attributionFooter)
-	return lines.join('\n')
+	return appendAttribution(lines.join('\n'), opts.attribution)
 }
 
 export function createProvider(opts: {

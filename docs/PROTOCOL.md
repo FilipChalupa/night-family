@@ -9,6 +9,35 @@ discipline for choosing a level when changing the protocol is in
 This file records what changed in each version. Add an entry whenever
 `PROTOCOL_VERSION` is bumped. Newest first.
 
+## 2.2.0
+
+Triage workflow + deterministic comment attribution.
+
+- Adds `triage` task kind and skill. Household creates triage tasks on
+  `issue.opened` and human `issue_comment.created`. Triage agent reads
+  the issue thread, decides whether to ask a clarifying question or to
+  write a plan comment; in the plan case, an `implement` task is
+  enqueued for that issue. Day members offer `triage`; night members
+  offer `triage` + `implement`.
+- Deprecates `estimate` as a task kind and skill (still in the type
+  union for forward compat, but Household no longer creates these
+  tasks; estimation is folded into the triage plan).
+- Comment attribution: every PR body, PR comment, PR review and issue
+  comment posted by a Member ends with a deterministic block:
+
+    ```
+    ---
+    🤖 Authored by Night Family member [`<login>`](…) · task [`<id>`](…)
+    <!-- night-family:member=<id> task=<id> -->
+    ```
+
+    Household uses the HTML comment to detect bot-authored content and
+    skip its own webhooks (so we don't trigger triage cycles on our own
+    comments). Server-side for PRs (`workspace.ts`) and via dedicated
+    agent tools (`post_issue_comment` / `post_pr_comment` /
+    `post_pr_review`) for everything else; the bash tool refuses
+    `gh issue/pr comment/review/create/edit` with a redirect.
+
 ## 2.1.0
 
 Schedule-driven skill changes and admin overrides. Additive only — old
