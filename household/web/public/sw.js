@@ -11,7 +11,12 @@ const CACHE_NAME = 'night-shell-v1'
 const SHELL_URL = '/'
 
 self.addEventListener('install', (event) => {
-	self.skipWaiting()
+	// Auto-activate on a fresh install (no existing controller). On *updates*
+	// we wait for an explicit `SKIP_WAITING` message from the page so the user
+	// can be prompted to reload via the in-app toast.
+	if (!self.registration.active) {
+		self.skipWaiting()
+	}
 	event.waitUntil(
 		caches.open(CACHE_NAME).then((cache) => cache.add(SHELL_URL).catch(() => undefined)),
 	)
@@ -26,6 +31,12 @@ self.addEventListener('activate', (event) => {
 			)
 			.then(() => self.clients.claim()),
 	)
+})
+
+self.addEventListener('message', (event) => {
+	if (event.data && event.data.type === 'SKIP_WAITING') {
+		self.skipWaiting()
+	}
 })
 
 function isPassthrough(url) {

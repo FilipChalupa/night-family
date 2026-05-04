@@ -1,8 +1,9 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material'
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet } from '@tanstack/react-router'
 import { AppDataProvider, type Health } from '../AppContext.tsx'
+import { ConnectionStatus } from '../components/ConnectionStatus.tsx'
+import { UpdateToast } from '../components/UpdateToast.tsx'
 import { useUiStream } from '../hooks/useUiStream.ts'
 import type { CurrentUser, TaskKind } from '../types.ts'
 
@@ -134,27 +135,26 @@ export function RootLayout() {
 					}}
 				>
 					<Box>
-						<Typography
-							variant="h6"
-							component={Link}
-							to="/"
-							sx={{
-								display: 'flex',
-								alignItems: 'center',
-								gap: 1,
-								color: 'text.primary',
-								textDecoration: 'none',
-							}}
+						<Stack
+							direction="row"
+							spacing={1.25}
+							sx={{ alignItems: 'center', flexWrap: 'wrap' }}
 						>
-							<FiberManualRecordIcon
-								fontSize="inherit"
+							<Typography
+								variant="h6"
+								component={Link}
+								to="/"
 								sx={{
-									fontSize: 12,
-									color: connected ? 'success.main' : 'error.main',
+									color: 'text.primary',
+									textDecoration: 'none',
 								}}
-							/>
-							{health?.household ?? 'Night Family'}
-						</Typography>
+							>
+								{health?.household ?? 'Night Family'}
+							</Typography>
+							{shouldConnectUiStream ? (
+								<ConnectionStatus connected={connected} />
+							) : null}
+						</Stack>
 						<Typography variant="body2" color="text.secondary">
 							{health
 								? `uptime ${formatUptime(health.uptimeSec)} · status ${health.status}`
@@ -194,6 +194,7 @@ export function RootLayout() {
 
 				<Outlet />
 			</Container>
+			<UpdateToast />
 		</AppDataProvider>
 	)
 }
