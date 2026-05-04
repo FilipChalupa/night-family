@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '2.0.0'
+export const PROTOCOL_VERSION = '2.1.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -169,6 +169,24 @@ export interface MsgPong {
 	type: 'pong'
 }
 
+/**
+ * Sent by the Member whenever its effective skill set changes — typically
+ * because a scheduled day/night transition fired locally, or because an
+ * override from Household started/expired. Household replaces the cached
+ * `skills` for this session and the dispatcher picks the change up on the
+ * next match attempt.
+ */
+export interface MsgMemberSkillsUpdated {
+	type: 'member.skills_updated'
+	skills: Skill[]
+	/**
+	 * Free-form string identifying *why* the skill set changed (e.g.
+	 * `schedule:night`, `schedule:baseline`, `override`, `override_expired`).
+	 * UI/logging only; no business logic depends on the value.
+	 */
+	reason: string
+}
+
 export type MemberToHousehold =
 	| MsgHandshake
 	| MsgMemberReady
@@ -179,6 +197,7 @@ export type MemberToHousehold =
 	| MsgEvent
 	| MsgHeartbeat
 	| MsgPong
+	| MsgMemberSkillsUpdated
 
 // ---------------- Household → Member ----------------
 
@@ -221,6 +240,23 @@ export interface MsgPing {
 	type: 'ping'
 }
 
+/**
+ * Force the Member's skill set to a temporary value, overriding whatever
+ * the local schedule says. Sent in response to an admin pressing the
+ * "Force …-mode" button in the UI.
+ *
+ *   - `skills` non-null: take effect immediately and stay until `expires_at`
+ *     (ISO timestamp). The Member is responsible for clearing the override
+ *     once that timestamp passes and reverting to its schedule.
+ *   - `skills` null: clear any active override immediately. `expires_at` is
+ *     ignored in that case.
+ */
+export interface MsgScheduleOverride {
+	type: 'schedule.override'
+	skills: Skill[] | null
+	expires_at: string | null
+}
+
 export type HouseholdToMember =
 	| MsgHandshakeAck
 	| MsgHandshakeReject
@@ -229,6 +265,7 @@ export type HouseholdToMember =
 	| MsgTaskRebaseSuggested
 	| MsgTaskCancel
 	| MsgPing
+	| MsgScheduleOverride
 
 // ---------------- Helpers ----------------
 

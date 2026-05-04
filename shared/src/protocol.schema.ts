@@ -119,6 +119,12 @@ const MsgHeartbeatSchema = v.object({
 
 const MsgPongSchema = v.object({ type: v.literal('pong') })
 
+const MsgMemberSkillsUpdatedSchema = v.object({
+	type: v.literal('member.skills_updated'),
+	skills: v.array(SkillSchema),
+	reason: v.string(),
+})
+
 const MemberToHouseholdSchema = v.variant('type', [
 	MsgHandshakeSchema,
 	MsgMemberReadySchema,
@@ -129,6 +135,7 @@ const MemberToHouseholdSchema = v.variant('type', [
 	MsgEventSchema,
 	MsgHeartbeatSchema,
 	MsgPongSchema,
+	MsgMemberSkillsUpdatedSchema,
 ])
 
 // ---------------- Household → Member ----------------
@@ -170,6 +177,12 @@ const MsgTaskCancelSchema = v.object({
 
 const MsgPingSchema = v.object({ type: v.literal('ping') })
 
+const MsgScheduleOverrideSchema = v.object({
+	type: v.literal('schedule.override'),
+	skills: v.nullable(v.array(SkillSchema)),
+	expires_at: v.nullable(v.string()),
+})
+
 const HouseholdToMemberSchema = v.variant('type', [
 	MsgHandshakeAckSchema,
 	MsgHandshakeRejectSchema,
@@ -178,6 +191,7 @@ const HouseholdToMemberSchema = v.variant('type', [
 	MsgTaskRebaseSuggestedSchema,
 	MsgTaskCancelSchema,
 	MsgPingSchema,
+	MsgScheduleOverrideSchema,
 ])
 
 // ---------------- Public API ----------------

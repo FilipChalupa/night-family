@@ -18,6 +18,7 @@ import {
 import type { Logger } from 'pino'
 import type { MemberConfig } from './config.ts'
 import type { TaskRunner } from './tasks/runner.ts'
+import type { ScheduleController } from './scheduleController.ts'
 import { EventBuffer, eventFilePath } from './tasks/eventBuffer.ts'
 
 interface State {
@@ -30,6 +31,7 @@ const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
 
 export interface ConnectionDeps {
 	taskRunner: TaskRunner
+	schedule: ScheduleController
 }
 
 export class HouseholdConnection {
@@ -47,7 +49,20 @@ export class HouseholdConnection {
 		private readonly config: MemberConfig,
 		private readonly logger: Logger,
 		private readonly deps: ConnectionDeps,
-	) {}
+	) {
+		// Whenever the schedule controller flips the active skill set, push
+		// a `member.skills_updated` over the wire if the WS is open. Drops
+		// silently when offline — the next handshake will carry the right
+		// skills in `effectiveSkills()`.
+		this.deps.schedule.onChange = (skills, reason) => {
+			this.logger.info({ skills, reason }, 'effective skills changed')
+			this.send({
+				type: 'member.skills_updated',
+				skills: [...skills],
+				reason,
+			})
+		}
+	}
 
 	async run(): Promise<void> {
 		let attempt = 0
@@ -69,6 +84,7 @@ export class HouseholdConnection {
 	stop(): void {
 		this.shuttingDown = true
 		this.deps.taskRunner.cancel('shutdown')
+		this.deps.schedule.stop()
 		this.clearTimers()
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			this.ws.close(1000, 'shutdown')
@@ -150,7 +166,7 @@ export class HouseholdConnection {
 			member_id: this.config.memberId,
 			member_name: this.config.memberName,
 			display_name: this.config.displayName,
-			skills: this.config.skills,
+			skills: [...this.deps.schedule.effectiveSkills()],
 			provider: this.config.provider,
 			model: this.config.model,
 			worker_profile: this.config.workerProfile,
@@ -216,6 +232,22 @@ export class HouseholdConnection {
 			case 'events.replay_request':
 				await this.replayEvents(msg.task_id, msg.from_seq)
 				break
+			case 'schedule.override': {
+				if (msg.skills === null) {
+					this.deps.schedule.clearOverride()
+					break
+				}
+				const expiresAt = msg.expires_at ? new Date(msg.expires_at) : null
+				if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+					this.logger.warn(
+						{ expires_at: msg.expires_at },
+						'schedule.override missing/invalid expires_at; ignoring',
+					)
+					break
+				}
+				this.deps.schedule.setOverride(msg.skills, expiresAt)
+				break
+			}
 			default: {
 				const _exhaustive: never = msg
 				void _exhaustive

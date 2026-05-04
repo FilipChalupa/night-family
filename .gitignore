@@ -23,6 +23,7 @@ household/web/dist/
 data/
 config/
 workspace/
+schedule.yaml
 
 # Claude Code per-machine settings
 .claude/settings.local.json

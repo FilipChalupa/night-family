@@ -10,6 +10,11 @@ services:
             LOG_LEVEL: info
         volumes:
             - member-workspace:/workspace
+            # Uncomment to drive day/night skill changes from a YAML file
+            # (generate one with `npm run -w @night/member init-schedule`).
+            # Without it, the member uses its built-in default (night
+            # 22:00–08:00, lunch 12:00–13:00 weekdays, day = review-only).
+            # - ./schedule.yaml:/etc/night-family/schedule.yaml:ro
         restart: unless-stopped
         user: '1000:1000'
         read_only: true

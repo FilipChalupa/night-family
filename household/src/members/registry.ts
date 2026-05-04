@@ -131,6 +131,25 @@ export class MemberRegistry {
 		} satisfies RegistryEvent)
 	}
 
+	/**
+	 * Replace the live skill set for a session. Triggered by
+	 * `member.skills_updated` over the wire (Member's local schedule fired,
+	 * override expired, etc.). The dispatcher re-reads `member.skills` on
+	 * its next match attempt, so the change propagates without further
+	 * coordination.
+	 */
+	updateSkills(sessionId: string, skills: Skill[]): void {
+		const m = this.bySession.get(sessionId)
+		if (!m) return
+		m.skills = skills
+		m.lastHeartbeat = new Date()
+		this.persistence?.touch(m.memberId, m.lastHeartbeat)
+		this.emitter.emit('event', {
+			type: 'member.updated',
+			member: snapshot(m),
+		} satisfies RegistryEvent)
+	}
+
 	touch(sessionId: string): void {
 		const m = this.bySession.get(sessionId)
 		if (!m) return

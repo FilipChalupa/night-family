@@ -294,6 +294,18 @@ function routeMemberMessage(
 		case 'member.busy':
 			deps.registry.updateStatus(session.sessionId, 'busy', msg.task_id)
 			break
+		case 'member.skills_updated': {
+			deps.registry.updateSkills(session.sessionId, msg.skills)
+			deps.logger.info(
+				{ sessionId: session.sessionId, skills: msg.skills, reason: msg.reason },
+				'member skills updated',
+			)
+			// If the member is currently idle, the new skill set may unblock
+			// a queued task that didn't match before — kick the dispatcher.
+			const member = deps.registry.list().find((m) => m.sessionId === session.sessionId)
+			if (member && member.status === 'idle') deps.dispatcher.tryDispatchOne(member)
+			break
+		}
 		case 'task.ack':
 			deps.dispatcher.onAck(msg.task_id)
 			break

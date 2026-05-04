@@ -106,6 +106,20 @@ and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
 
 Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
 
+## Member schedule (day vs. night skills)
+
+Each Member decides locally which skills (`implement` / `review` / `estimate` / `respond` / `summarize`) it accepts at a given time. Out of the box: review-only by day, full implementation at night (22:00–08:00 local), implementation also during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
+
+Customize by writing a `schedule.yaml`. Generate the starter and edit:
+
+```bash
+npm run -w @night/member init-schedule > schedule.yaml
+```
+
+Lookup chain (first hit wins): `SCHEDULE_FILE` env, `/etc/night-family/schedule.yaml`, `<repo-root>/schedule.yaml`, then the built-in default. For Docker, uncomment the `schedule.yaml` bind mount in [docker-compose.member.yml](docker-compose.member.yml). For `npm run dev`, just drop the file in the repo root — it's gitignored.
+
+If `SKILLS` env is set explicitly, it overrides the schedule with a static skill list (pre-2.1 behavior). Admins can also push a temporary override ("Implement-only for the next 2h") from the Member detail page in the dashboard; it expires automatically.
+
 ## Repo layout
 
 ```

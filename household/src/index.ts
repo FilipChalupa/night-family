@@ -166,6 +166,56 @@ app.get('/api/members/:memberId', (c) => {
 	return c.json({ member })
 })
 
+/**
+ * Push a schedule override to all connected sessions of the given member.
+ * `skills: null` clears any active override. `duration_minutes` (1–1440)
+ * defines `expires_at = now + dur`. The Member is responsible for
+ * actually clearing the override once the timestamp passes — Household
+ * just delivers and forgets.
+ */
+app.post('/api/members/:memberId/override', async (c) => {
+	const guardResult = guard.requireAdmin(c)
+	if (guardResult) return guardResult
+	const memberId = c.req.param('memberId')
+	let body: unknown
+	try {
+		body = await c.req.json()
+	} catch {
+		return c.json({ error: 'invalid_json' }, 400)
+	}
+	if (!body || typeof body !== 'object') return c.json({ error: 'expected_object' }, 400)
+	const b = body as Record<string, unknown>
+	const sessions = registry.findByMemberId(memberId)
+	if (sessions.length === 0) return c.json({ error: 'member_offline' }, 409)
+
+	if (b.skills === null) {
+		for (const s of sessions) {
+			s.send({ type: 'schedule.override', skills: null, expires_at: null })
+		}
+		return c.json({ ok: true, cleared: true })
+	}
+
+	if (!Array.isArray(b.skills) || b.skills.length === 0) {
+		return c.json({ error: 'invalid_skills' }, 400)
+	}
+	const skills = b.skills as string[]
+	const ALLOWED = ['implement', 'review', 'estimate', 'respond', 'summarize']
+	for (const s of skills) {
+		if (typeof s !== 'string' || !ALLOWED.includes(s)) {
+			return c.json({ error: `invalid_skill:${s}` }, 400)
+		}
+	}
+	const dur = b.duration_minutes
+	if (typeof dur !== 'number' || !Number.isFinite(dur) || dur < 1 || dur > 1440) {
+		return c.json({ error: 'invalid_duration_minutes' }, 400)
+	}
+	const expiresAt = new Date(Date.now() + dur * 60_000).toISOString()
+	for (const s of sessions) {
+		s.send({ type: 'schedule.override', skills, expires_at: expiresAt })
+	}
+	return c.json({ ok: true, expires_at: expiresAt, sessions: sessions.length })
+})
+
 mountWhoAmI(app, {
 	sessions: sessionStore,
 	oauthConfigured: !!config.githubOauth,

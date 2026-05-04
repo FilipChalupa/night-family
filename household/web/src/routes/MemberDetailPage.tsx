@@ -1,7 +1,9 @@
-import { Alert, Box, Chip, Paper, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, ButtonGroup, Chip, Paper, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import { useMutation } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { useTokensQuery, type TokenRecord } from '../components/TokensPanel.tsx'
@@ -75,6 +77,15 @@ export function MemberDetailPage() {
 							token={isAdmin ? (tokenById.get(member.tokenId) ?? null) : undefined}
 						/>
 					</Section>
+
+					{isAdmin && member.status !== 'offline' ? (
+						<Section title="Schedule override">
+							<ScheduleOverridePanel
+								memberId={member.memberId}
+								skills={member.skills}
+							/>
+						</Section>
+					) : null}
 
 					<Section title={`Tasks by this member (${memberTasks.length})`}>
 						{memberTasks.length === 0 ? (
@@ -238,4 +249,162 @@ function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 
 function compareProtocol(member: string, household: string | null): 'equal' | 'skew' | 'unknown' {
 	if (!household) return 'unknown'
 	return member === household ? 'equal' : 'skew'
+}
+
+const PRESETS: Array<{ key: string; label: string; skills: string[] }> = [
+	{
+		key: 'implement',
+		label: 'Implement-only',
+		skills: ['implement'],
+	},
+	{
+		key: 'implement-plus',
+		label: 'Implement + responses',
+		skills: ['implement', 'review', 'estimate', 'respond', 'summarize'],
+	},
+	{
+		key: 'review-only',
+		label: 'Review-only',
+		skills: ['review', 'estimate', 'respond', 'summarize'],
+	},
+]
+
+const DURATIONS_MIN: Array<{ label: string; minutes: number }> = [
+	{ label: '30 min', minutes: 30 },
+	{ label: '1 h', minutes: 60 },
+	{ label: '2 h', minutes: 120 },
+	{ label: '8 h', minutes: 480 },
+]
+
+function ScheduleOverridePanel({ memberId, skills }: { memberId: string; skills: string[] }) {
+	const [preset, setPreset] = useState<(typeof PRESETS)[number]>(PRESETS[0]!)
+	const [duration, setDuration] = useState<(typeof DURATIONS_MIN)[number]>(DURATIONS_MIN[2]!)
+	const [feedback, setFeedback] = useState<string | null>(null)
+	const [error, setError] = useState<string | null>(null)
+
+	const send = useMutation({
+		mutationFn: async (body: unknown) => {
+			const r = await fetch(`/api/members/${encodeURIComponent(memberId)}/override`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			})
+			const json = (await r.json().catch(() => ({}))) as Record<string, unknown>
+			if (!r.ok) {
+				throw new Error(typeof json.error === 'string' ? json.error : `HTTP ${r.status}`)
+			}
+			return json
+		},
+		onSuccess: (json) => {
+			setError(null)
+			if (json.cleared) {
+				setFeedback('Override cleared.')
+			} else if (typeof json.expires_at === 'string') {
+				setFeedback(
+					`Override active until ${new Date(json.expires_at).toLocaleTimeString()}.`,
+				)
+			} else {
+				setFeedback('Override sent.')
+			}
+		},
+		onError: (err) => {
+			setFeedback(null)
+			setError(err instanceof Error ? err.message : String(err))
+		},
+	})
+
+	return (
+		<Paper variant="outlined" sx={{ p: 2 }}>
+			<Stack spacing={2}>
+				<Typography variant="body2" color="text.secondary">
+					Temporarily replace this member's schedule with a preset skill set. Useful when
+					you're stepping away from the keyboard and want implementation work to start
+					immediately. Override clears automatically when the duration ends — or you can
+					clear it manually below. Currently advertising:{' '}
+					<Box component="span" sx={{ fontFamily: 'monospace' }}>
+						{skills.join(', ') || '—'}
+					</Box>
+				</Typography>
+
+				<Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+					<Box>
+						<Typography
+							variant="caption"
+							color="text.secondary"
+							sx={{ display: 'block', mb: 0.5 }}
+						>
+							Mode
+						</Typography>
+						<ButtonGroup size="small" variant="outlined">
+							{PRESETS.map((p) => (
+								<Button
+									key={p.key}
+									variant={p.key === preset.key ? 'contained' : 'outlined'}
+									onClick={() => setPreset(p)}
+								>
+									{p.label}
+								</Button>
+							))}
+						</ButtonGroup>
+					</Box>
+					<Box>
+						<Typography
+							variant="caption"
+							color="text.secondary"
+							sx={{ display: 'block', mb: 0.5 }}
+						>
+							Duration
+						</Typography>
+						<ButtonGroup size="small" variant="outlined">
+							{DURATIONS_MIN.map((d) => (
+								<Button
+									key={d.minutes}
+									variant={
+										d.minutes === duration.minutes ? 'contained' : 'outlined'
+									}
+									onClick={() => setDuration(d)}
+								>
+									{d.label}
+								</Button>
+							))}
+						</ButtonGroup>
+					</Box>
+				</Stack>
+
+				<Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+					<Button
+						variant="contained"
+						disabled={send.isPending}
+						onClick={() =>
+							send.mutate({
+								skills: preset.skills,
+								duration_minutes: duration.minutes,
+							})
+						}
+					>
+						{send.isPending ? 'Applying…' : `Apply for ${duration.label}`}
+					</Button>
+					<Button
+						variant="outlined"
+						color="warning"
+						disabled={send.isPending}
+						onClick={() => send.mutate({ skills: null })}
+					>
+						Clear override
+					</Button>
+				</Stack>
+
+				{error ? (
+					<Alert severity="error" variant="outlined">
+						{error}
+					</Alert>
+				) : null}
+				{feedback ? (
+					<Alert severity="success" variant="outlined">
+						{feedback}
+					</Alert>
+				) : null}
+			</Stack>
+		</Paper>
+	)
 }

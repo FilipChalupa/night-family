@@ -74,7 +74,10 @@ describe('loadConfig', () => {
 		expect(cfg.limits.maxTaskDurationMinutes).toBe(120)
 		expect(cfg.limits.maxTokensPerTask).toBeNull()
 		expect(cfg.limits.maxTokensPerDay).toBeNull()
-		expect(cfg.skills).toEqual(['implement', 'review', 'estimate', 'respond', 'summarize'])
+		// No SKILLS env set → schedule mode kicks in. Built-in default has
+		// `night` and `lunch` windows, so the schedule isn't degenerate.
+		expect(cfg.schedule.windows.map((w) => w.name)).toContain('night')
+		expect(cfg.scheduleSource).toBeNull()
 	})
 
 	it.each(REQUIRED_ENV)('throws when required env %s is missing', async (key) => {
@@ -106,10 +109,13 @@ describe('loadConfig', () => {
 		await expect(loadConfig(stubIdentity)).rejects.toThrow(/WORKER_PROFILE must be/)
 	})
 
-	it('parses SKILLS, trimming whitespace and dropping empties', async () => {
+	it('parses SKILLS, trimming whitespace and dropping empties (degenerate schedule)', async () => {
 		process.env.SKILLS = ' implement , review ,, '
 		const cfg = await loadConfig(stubIdentity)
-		expect(cfg.skills).toEqual(['implement', 'review'])
+		// Backwards-compat path: SKILLS env yields a no-windows schedule
+		// whose baseline is the parsed list.
+		expect(cfg.schedule.baseline).toEqual(['implement', 'review'])
+		expect(cfg.schedule.windows).toEqual([])
 	})
 
 	it('rejects an unknown skill (typo guard)', async () => {

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ALL_SKILLS, type Provider, type Skill, type WorkerProfile } from '@night/shared'
+import { resolveSchedule, type Schedule } from './schedule.ts'
 
 export interface MemberConfig {
 	householdUrl: string
@@ -10,7 +11,22 @@ export interface MemberConfig {
 	memberName: string
 	displayName: string
 	githubPat: string
-	skills: Skill[]
+	/**
+	 * Schedule that decides which skills the Member offers right now.
+	 *
+	 *   - `SKILLS` env set explicitly  →  degenerate schedule (just the
+	 *     listed skills as `baseline`, no windows). Backwards-compat with
+	 *     pre-2.1 setups that pin skills statically.
+	 *   - `SKILLS` env unset            →  YAML schedule from
+	 *     `SCHEDULE_FILE` / `/etc/night-family/schedule.yaml` /
+	 *     `<repo-root>/schedule.yaml`, or built-in default if none exist.
+	 *
+	 * The `ScheduleController` in `scheduleController.ts` reads this and
+	 * drives runtime skill changes.
+	 */
+	schedule: Schedule
+	/** Path of the YAML source, or `null` for built-in / `SKILLS` env mode. */
+	scheduleSource: string | null
 	/**
 	 * Repos this Member can work on, derived from `GET /user/repos` with
 	 * the configured PAT. Empty = PAT has no repo access (Member can
@@ -165,14 +181,32 @@ interface PartialConfig extends Omit<MemberConfig, 'memberName' | 'displayName' 
 function loadEnvConfig(): PartialConfig {
 	const workspaceDirRaw = optional('WORKSPACE_DIR', '/workspace')
 	const workspaceDir = isAbsolute(workspaceDirRaw) ? workspaceDirRaw : resolve(workspaceDirRaw)
-	const skillsRaw = optional('SKILLS', ALL_SKILLS.join(','))
+	const skillsRawEnv = process.env.SKILLS
+	let schedule: Schedule
+	let scheduleSource: string | null
+	if (skillsRawEnv !== undefined && skillsRawEnv !== '') {
+		// Backwards-compat: explicit SKILLS env pins the skill set forever.
+		// Build a degenerate schedule with no windows so the controller is
+		// uniform across both modes.
+		schedule = {
+			timezone: process.env.TZ || 'UTC',
+			baseline: parseSkills(skillsRawEnv),
+			windows: [],
+		}
+		scheduleSource = null
+	} else {
+		const resolved = resolveSchedule()
+		schedule = resolved.schedule
+		scheduleSource = resolved.source
+	}
 
 	return {
 		householdUrl: required('HOUSEHOLD_URL'),
 		householdAccessToken: required('HOUSEHOLD_ACCESS_TOKEN'),
 		memberId: loadOrCreateMemberId(workspaceDir),
 		githubPat: required('GITHUB_PAT'),
-		skills: parseSkills(skillsRaw),
+		schedule,
+		scheduleSource,
 		provider: parseProvider(required('AI_PROVIDER')),
 		model: required('AI_MODEL'),
 		aiApiKey: required('AI_API_KEY'),

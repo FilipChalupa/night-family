@@ -9,6 +9,19 @@ discipline for choosing a level when changing the protocol is in
 This file records what changed in each version. Add an entry whenever
 `PROTOCOL_VERSION` is bumped. Newest first.
 
+## 2.1.0
+
+Schedule-driven skill changes and admin overrides. Additive only — old
+peers ignore both new message types.
+
+- `member.skills_updated` (Member → Household): announces the Member's
+  effective skill set has changed (e.g. local night/day transition fired,
+  override expired). Household replaces the cached `skills` for that
+  session; the dispatcher reads fresh skills on the next match attempt.
+- `schedule.override` (Household → Member): admin-driven temporary
+  override of the schedule, with `expires_at` (ISO). `skills: null`
+  clears the active override.
+
 ## 2.0.0
 
 Per-member GitHub identity. The single Household-side PAT (sent to Members
