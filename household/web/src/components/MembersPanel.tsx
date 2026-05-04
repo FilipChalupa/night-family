@@ -17,6 +17,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { relativeTime } from '../time.ts'
 import type { MemberSnapshot, TaskRecord } from '../types.ts'
+import type { TokenRecord } from './TokensPanel.tsx'
 
 interface Props {
 	members: MemberSnapshot[]
@@ -24,6 +25,8 @@ interface Props {
 	householdProtocolVersion: string | null
 	canManage: boolean
 	onCancel: (taskId: string) => Promise<void>
+	/** Admin-only — when present, members get a "Token" column linking to the token's Members. */
+	tokens?: TokenRecord[]
 }
 
 export function MembersPanel({
@@ -32,7 +35,9 @@ export function MembersPanel({
 	householdProtocolVersion,
 	canManage,
 	onCancel,
+	tokens,
 }: Props) {
+	const tokenById = new Map((tokens ?? []).map((t) => [t.id, t]))
 	const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
 	const [cancelError, setCancelError] = useState<{ taskId: string; message: string } | null>(null)
 	const handleCancel = async (taskId: string) => {
@@ -61,6 +66,7 @@ export function MembersPanel({
 						<TableCell>Skills</TableCell>
 						<TableCell>Profile</TableCell>
 						<TableCell>Protocol</TableCell>
+						{tokens ? <TableCell>Token</TableCell> : null}
 						<TableCell>Connected</TableCell>
 						<TableCell>First seen</TableCell>
 					</TableRow>
@@ -204,6 +210,11 @@ export function MembersPanel({
 									householdVersion={householdProtocolVersion}
 								/>
 							</TableCell>
+							{tokens ? (
+								<TableCell>
+									<TokenCell token={tokenById.get(m.tokenId) ?? null} fallbackId={m.tokenId} />
+								</TableCell>
+							) : null}
 							<TableCell>
 								<Tooltip title={m.connectedAt}>
 									<Typography variant="body2" color="text.secondary">
@@ -276,6 +287,30 @@ function ProtocolCell({
 	return (
 		<Tooltip title={tooltip}>
 			<Chip label={memberVersion} size="small" color={color} variant="outlined" />
+		</Tooltip>
+	)
+}
+
+function TokenCell({ token, fallbackId }: { token: TokenRecord | null; fallbackId: string }) {
+	if (!token) {
+		return (
+			<Tooltip title={`Unknown token (id: ${fallbackId}). It may have been revoked or deleted.`}>
+				<Typography variant="body2" color="text.secondary">
+					(unknown)
+				</Typography>
+			</Tooltip>
+		)
+	}
+	if (token.revoked_at) {
+		return (
+			<Tooltip title={`Revoked at ${token.revoked_at}`}>
+				<Chip label={token.name} size="small" color="error" variant="outlined" />
+			</Tooltip>
+		)
+	}
+	return (
+		<Tooltip title={`Token id: ${token.id}`}>
+			<Typography variant="body2">{token.name}</Typography>
 		</Tooltip>
 	)
 }

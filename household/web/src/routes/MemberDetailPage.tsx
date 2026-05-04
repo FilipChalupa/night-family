@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useAppData } from '../AppContext.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
+import { useTokensQuery, type TokenRecord } from '../components/TokensPanel.tsx'
 import { memberDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { MemberSnapshot } from '../types.ts'
@@ -13,6 +14,10 @@ export function MemberDetailPage() {
 	const { memberId } = memberDetailRoute.useParams()
 	const { members, tasks, householdProtocolVersion, isAdmin, cancelTask, retryTask, createTask } =
 		useAppData()
+
+	// Tokens endpoint is admin-only; non-admins skip the lookup and don't see token info.
+	const tokensQuery = useTokensQuery({ enabled: isAdmin })
+	const tokenById = new Map((tokensQuery.data?.tokens ?? []).map((t) => [t.id, t]))
 
 	const fromStream = members.find((m) => m.memberId === memberId) ?? null
 	// Fall back to the API for members older than the dashboard's offline window
@@ -67,6 +72,7 @@ export function MemberDetailPage() {
 						<MemberDetailCard
 							member={member}
 							householdProtocolVersion={householdProtocolVersion}
+							token={isAdmin ? (tokenById.get(member.tokenId) ?? null) : undefined}
 						/>
 					</Section>
 
@@ -93,9 +99,12 @@ export function MemberDetailPage() {
 function MemberDetailCard({
 	member,
 	householdProtocolVersion,
+	token,
 }: {
 	member: MemberSnapshot
 	householdProtocolVersion: string | null
+	/** `undefined` = caller is not admin and shouldn't see token info; `null` = lookup miss. */
+	token: TokenRecord | null | undefined
 }) {
 	const protoSkew = compareProtocol(member.protocolVersion, householdProtocolVersion)
 	return (
@@ -138,6 +147,9 @@ function MemberDetailCard({
 							: `${member.protocolVersion} (household: ${householdProtocolVersion})`
 					}
 				/>
+				{token !== undefined ? (
+					<TokenField token={token} fallbackId={member.tokenId} />
+				) : null}
 				<Field label="Current task" value={member.currentTask ?? '—'} mono />
 				<Field
 					label="Connected"
@@ -153,6 +165,36 @@ function MemberDetailCard({
 				/>
 			</Stack>
 		</Paper>
+	)
+}
+
+function TokenField({ token, fallbackId }: { token: TokenRecord | null; fallbackId: string }) {
+	return (
+		<Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.25, sm: 2 }}>
+			<Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+				Joined via token
+			</Typography>
+			{token === null ? (
+				<Typography variant="body2" color="text.secondary">
+					(unknown — id {fallbackId})
+				</Typography>
+			) : (
+				<Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+					<Typography
+						variant="body2"
+						sx={{ fontWeight: token.revoked_at ? 400 : 600 }}
+					>
+						{token.name}
+					</Typography>
+					{token.revoked_at ? (
+						<Chip label="revoked" size="small" color="error" variant="outlined" />
+					) : null}
+					<Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+						{token.id}
+					</Typography>
+				</Stack>
+			)}
+		</Stack>
 	)
 }
 

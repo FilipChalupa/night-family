@@ -6,7 +6,7 @@ import { MembersPanel } from '../components/MembersPanel.tsx'
 import { NotificationsPanel } from '../components/NotificationsPanel.tsx'
 import { ReposPanel } from '../components/ReposPanel.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
-import { TokensPanel } from '../components/TokensPanel.tsx'
+import { TokensPanel, useTokensQuery } from '../components/TokensPanel.tsx'
 import { UsersPanel } from '../components/UsersPanel.tsx'
 import { EmptyState, Section } from './Root.tsx'
 
@@ -27,6 +27,9 @@ export function Dashboard() {
 
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
 	const hiddenCount = Math.max(0, tasks.length - visibleTasks.length)
+
+	// Admin-only — endpoint 403s for non-admins, so don't fetch.
+	const tokensQuery = useTokensQuery({ enabled: isAdmin })
 
 	return (
 		<>
@@ -84,6 +87,7 @@ export function Dashboard() {
 						householdProtocolVersion={householdProtocolVersion}
 						canManage={isAdmin}
 						onCancel={cancelTask}
+						tokens={isAdmin ? tokensQuery.data?.tokens : undefined}
 					/>
 				)}
 			</Section>
@@ -91,7 +95,7 @@ export function Dashboard() {
 			{isAdmin ? (
 				<>
 					<Section title="Join Member Tokens">
-						<TokensPanel canManage={isAdmin} />
+						<TokensPanel canManage={isAdmin} members={members} />
 					</Section>
 					<Section title="Notification Channels">
 						<NotificationsPanel canManage={isAdmin} />

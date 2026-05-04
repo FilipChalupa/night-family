@@ -2,6 +2,7 @@ import {
 	Alert,
 	Box,
 	Button,
+	Chip,
 	Paper,
 	Stack,
 	Table,
@@ -15,12 +16,14 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { EmptyState } from '../routes/Root.tsx'
+import type { MemberSnapshot } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
-interface TokenRecord {
+export interface TokenRecord {
 	id: string
 	name: string
 	created_at: string
@@ -30,21 +33,17 @@ interface TokenRecord {
 	usage_count: number
 }
 
-interface TokensResponse {
+export interface TokensResponse {
 	tokens: TokenRecord[]
 }
 
-interface Props {
-	canManage: boolean
-}
-
-export function TokensPanel({ canManage }: Props) {
-	const queryClient = useQueryClient()
-	const [showForm, setShowForm] = useState(false)
-	const [newToken, setNewToken] = useState<string | null>(null)
-	const confirm = useConfirm()
-
-	const tokensQuery = useQuery<TokensResponse>({
+/**
+ * Shared TanStack Query handle for `/api/tokens`. The endpoint is admin-only,
+ * so callers must gate the call themselves via `enabled`. Multiple consumers
+ * with the same key share a single network fetch automatically.
+ */
+export function useTokensQuery(opts?: { enabled?: boolean }): UseQueryResult<TokensResponse> {
+	return useQuery<TokensResponse>({
 		queryKey: ['tokens'],
 		queryFn: async () => {
 			const r = await fetch('/api/tokens')
@@ -54,7 +53,22 @@ export function TokensPanel({ canManage }: Props) {
 			}
 			return (await r.json()) as TokensResponse
 		},
+		enabled: opts?.enabled ?? true,
 	})
+}
+
+interface Props {
+	canManage: boolean
+	members: MemberSnapshot[]
+}
+
+export function TokensPanel({ canManage, members }: Props) {
+	const queryClient = useQueryClient()
+	const [showForm, setShowForm] = useState(false)
+	const [newToken, setNewToken] = useState<string | null>(null)
+	const confirm = useConfirm()
+
+	const tokensQuery = useTokensQuery()
 
 	const refresh = () => {
 		void queryClient.invalidateQueries({ queryKey: ['tokens'] })
@@ -71,13 +85,35 @@ export function TokensPanel({ canManage }: Props) {
 		onSuccess: refresh,
 	})
 
-	const revoke = async (id: string, name: string) => {
+	const revoke = async (id: string, name: string, affectedMembers: MemberSnapshot[]) => {
 		const ok = await confirm({
 			title: 'Revoke token',
 			description: (
 				<>
-					Revoke token <strong>{name}</strong>? All members using it will be disconnected
-					immediately.
+					Revoke token <strong>{name}</strong>?
+					{affectedMembers.length === 0 ? (
+						<> No members are currently connected with this token.</>
+					) : (
+						<>
+							<Box component="span" sx={{ display: 'block', mt: 1 }}>
+								The following {affectedMembers.length === 1 ? 'member' : 'members'} will be
+								disconnected immediately:
+							</Box>
+							<Box
+								component="ul"
+								sx={{ mt: 0.5, mb: 0, pl: 2.5, '& li': { mb: 0.25 } }}
+							>
+								{affectedMembers.map((m) => (
+									<li key={m.sessionId}>
+										<strong>{m.displayName || m.memberName}</strong>
+										{m.displayName && m.displayName !== m.memberName
+											? ` (@${m.memberName})`
+											: ''}
+									</li>
+								))}
+							</Box>
+						</>
+					)}
 				</>
 			),
 			confirmLabel: 'Revoke',
@@ -99,6 +135,13 @@ export function TokensPanel({ canManage }: Props) {
 
 	const active = data.tokens.filter((t) => !t.revoked_at)
 	const revoked = data.tokens.filter((t) => t.revoked_at)
+
+	const membersByToken = new Map<string, MemberSnapshot[]>()
+	for (const m of members) {
+		const list = membersByToken.get(m.tokenId)
+		if (list) list.push(m)
+		else membersByToken.set(m.tokenId, [m])
+	}
 
 	return (
 		<Stack spacing={2}>
@@ -172,50 +215,56 @@ export function TokensPanel({ canManage }: Props) {
 								<TableCell>Name</TableCell>
 								<TableCell>Created</TableCell>
 								<TableCell>Created by</TableCell>
-								<TableCell>Members connected</TableCell>
+								<TableCell>Members using this token</TableCell>
 								<TableCell />
 							</TableRow>
 						</TableHead>
 						<TableBody>
-							{active.map((t) => (
-								<TableRow key={t.id} hover>
-									<TableCell>
-										<Typography sx={{ fontWeight: 600 }}>{t.name}</Typography>
-										<Typography variant="caption" color="text.secondary">
-											id: {t.id}
-										</Typography>
-									</TableCell>
-									<TableCell>
-										<Tooltip title={t.created_at}>
-											<Typography variant="body2" color="text.secondary">
-												{new Date(t.created_at).toLocaleDateString()}
+							{active.map((t) => {
+								const tokenMembers = membersByToken.get(t.id) ?? []
+								return (
+									<TableRow key={t.id} hover>
+										<TableCell>
+											<Typography sx={{ fontWeight: 600 }}>{t.name}</Typography>
+											<Typography variant="caption" color="text.secondary">
+												id: {t.id}
 											</Typography>
-										</Tooltip>
-									</TableCell>
-									<TableCell>
-										<Typography variant="body2" color="text.secondary">
-											{t.created_by}
-										</Typography>
-									</TableCell>
-									<TableCell>
-										<Typography variant="body2" color="text.secondary">
-											{t.usage_count}
-										</Typography>
-									</TableCell>
-									<TableCell align="right">
-										{canManage ? (
-											<Button
-												size="small"
-												variant="outlined"
-												color="error"
-												onClick={() => void revoke(t.id, t.name)}
-											>
-												Revoke
-											</Button>
-										) : null}
-									</TableCell>
-								</TableRow>
-							))}
+										</TableCell>
+										<TableCell>
+											<Tooltip title={t.created_at}>
+												<Typography variant="body2" color="text.secondary">
+													{new Date(t.created_at).toLocaleDateString()}
+												</Typography>
+											</Tooltip>
+										</TableCell>
+										<TableCell>
+											<Typography variant="body2" color="text.secondary">
+												{t.created_by}
+											</Typography>
+										</TableCell>
+										<TableCell>
+											<TokenMembersCell
+												members={tokenMembers}
+												usageCount={t.usage_count}
+											/>
+										</TableCell>
+										<TableCell align="right">
+											{canManage ? (
+												<Button
+													size="small"
+													variant="outlined"
+													color="error"
+													onClick={() =>
+														void revoke(t.id, t.name, tokenMembers)
+													}
+												>
+													Revoke
+												</Button>
+											) : null}
+										</TableCell>
+									</TableRow>
+								)
+							})}
 						</TableBody>
 					</Table>
 				</TableContainer>
@@ -333,5 +382,51 @@ function TokenForm({
 				</Stack>
 			</Stack>
 		</Paper>
+	)
+}
+
+function TokenMembersCell({
+	members,
+	usageCount,
+}: {
+	members: MemberSnapshot[]
+	usageCount: number
+}) {
+	if (members.length === 0) {
+		return (
+			<Stack spacing={0.5}>
+				<Typography variant="body2" color="text.secondary">
+					— none connected
+				</Typography>
+				<Typography variant="caption" color="text.secondary">
+					{usageCount.toLocaleString()} lifetime use{usageCount === 1 ? '' : 's'}
+				</Typography>
+			</Stack>
+		)
+	}
+	return (
+		<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+			<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+				{members.map((m) => (
+					<Link
+						key={m.sessionId}
+						to="/members/$memberId"
+						params={{ memberId: m.memberId }}
+						style={{ textDecoration: 'none' }}
+					>
+						<Chip
+							size="small"
+							variant="outlined"
+							color={m.status === 'busy' ? 'warning' : 'success'}
+							label={m.displayName || m.memberName}
+							clickable
+						/>
+					</Link>
+				))}
+			</Box>
+			<Typography variant="caption" color="text.secondary">
+				{usageCount.toLocaleString()} lifetime use{usageCount === 1 ? '' : 's'}
+			</Typography>
+		</Stack>
 	)
 }
