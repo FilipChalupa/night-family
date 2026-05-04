@@ -1,18 +1,22 @@
-import { Box } from '@mui/material'
+import { Box, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { Link } from '@tanstack/react-router'
+import { useMemo } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { TasksFilterBar, filterTasks } from '../components/TasksFilterBar.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { tasksRoute } from '../router.tsx'
 import { Section } from './Root.tsx'
 
 export function TasksPage() {
 	const { tasks, isAdmin, createTask, cancelTask, retryTask } = useAppData()
-	const { page, pageSize } = tasksRoute.useSearch()
+	const { page, pageSize, q, status } = tasksRoute.useSearch()
 	const navigate = tasksRoute.useNavigate()
 
-	const lastPage = Math.max(0, Math.ceil(tasks.length / pageSize) - 1)
+	const filtered = useMemo(() => filterTasks(tasks, q, status), [tasks, q, status])
+	const lastPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1)
 	const safePage = Math.min(page, lastPage)
+	const hasFilter = q.length > 0 || (status !== null && status.length > 0)
 
 	return (
 		<>
@@ -32,28 +36,56 @@ export function TasksPage() {
 					Back to dashboard
 				</Link>
 			</Box>
-			<Section title={`All tasks (${tasks.length})`}>
-				<TasksPanel
-					tasks={tasks}
-					canManage={isAdmin}
-					onCreate={createTask}
-					onCancel={cancelTask}
-					onRetry={retryTask}
-					pagination={{
-						page: safePage,
-						pageSize,
-						onPageChange: (next) =>
-							void navigate({ search: (prev) => ({ ...prev, page: next }) }),
-						onPageSizeChange: (next) =>
+			<Section
+				title={
+					hasFilter
+						? `All tasks (${filtered.length} of ${tasks.length})`
+						: `All tasks (${tasks.length})`
+				}
+			>
+				<Stack spacing={2}>
+					<TasksFilterBar
+						q={q}
+						status={status}
+						onChange={(next) =>
 							void navigate({
 								search: (prev) => ({
 									...prev,
-									pageSize: next as 10 | 25 | 50 | 100,
+									q: next.q,
+									status: next.status,
 									page: 0,
 								}),
-							}),
-					}}
-				/>
+							})
+						}
+					/>
+					{filtered.length === 0 && hasFilter ? (
+						<Typography variant="body2" color="text.secondary">
+							No tasks match your filter.
+						</Typography>
+					) : (
+						<TasksPanel
+							tasks={filtered}
+							canManage={isAdmin}
+							onCreate={createTask}
+							onCancel={cancelTask}
+							onRetry={retryTask}
+							pagination={{
+								page: safePage,
+								pageSize,
+								onPageChange: (next) =>
+									void navigate({ search: (prev) => ({ ...prev, page: next }) }),
+								onPageSizeChange: (next) =>
+									void navigate({
+										search: (prev) => ({
+											...prev,
+											pageSize: next as 10 | 25 | 50 | 100,
+											page: 0,
+										}),
+									}),
+							}}
+						/>
+					)}
+				</Stack>
 			</Section>
 		</>
 	)

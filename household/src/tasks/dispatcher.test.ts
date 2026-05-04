@@ -267,3 +267,83 @@ describe('Dispatcher review picker', () => {
 		expect(sentAssign(aSent)).toBe(0)
 	})
 })
+
+describe('Dispatcher review-job republish', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function captureUpdates(taskId: string): Array<{
+		pending: number
+		inProgress: number
+		completed: number
+		failed: number
+	} | null> {
+		const seen: Array<ReturnType<typeof rig.taskStore.get>> = []
+		rig.taskStore.on((event) => {
+			if (event.type === 'task.updated' && event.task.id === taskId) {
+				seen.push(event.task)
+			}
+		})
+		return new Proxy(seen as never, {
+			get(target, prop) {
+				if (prop === 'length') return seen.length
+				const idx = Number(prop)
+				if (Number.isFinite(idx)) return seen[idx]?.reviewJobs ?? null
+				return Reflect.get(target, prop)
+			},
+		}) as Array<{
+			pending: number
+			inProgress: number
+			completed: number
+			failed: number
+		} | null>
+	}
+
+	it('emits task.updated with a fresh reviewJobs summary when a review job is dispatched', () => {
+		// Two distinct logins so the dispatcher actually sends a job out.
+		rig.registry.add(fakeMember({ memberName: 'b', status: 'idle' }))
+		const task = createReadyImplementTask(rig, { repo: 'o/r', assignedMemberName: 'a' })
+
+		const reviewJobsHistory = captureUpdates(task.id)
+		rig.dispatcher.dispatchReviewJobsFor(task)
+
+		// At least one task.updated fired during dispatch, and the latest summary
+		// reflects the assigned (= inProgress in our bucketing) review job.
+		expect(reviewJobsHistory.length).toBeGreaterThan(0)
+		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
+		expect(latest?.inProgress).toBeGreaterThan(0)
+	})
+
+	it('emits task.updated when a review job completes', () => {
+		rig.registry.add(fakeMember({ memberName: 'b', status: 'idle' }))
+		const task = createReadyImplementTask(rig, { repo: 'o/r', assignedMemberName: 'a' })
+		rig.dispatcher.dispatchReviewJobsFor(task)
+		const job = rig.jobStore.listByTask(task.id)[0]!
+
+		const reviewJobsHistory = captureUpdates(task.id)
+		rig.dispatcher.onCompleted(job.id, { verdict: 'approved' }, null)
+
+		expect(reviewJobsHistory.length).toBeGreaterThan(0)
+		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
+		expect(latest?.completed).toBe(1)
+		expect(latest?.inProgress).toBe(0)
+	})
+
+	it('emits task.updated when a review job fails', () => {
+		rig.registry.add(fakeMember({ memberName: 'b', status: 'idle' }))
+		const task = createReadyImplementTask(rig, { repo: 'o/r', assignedMemberName: 'a' })
+		rig.dispatcher.dispatchReviewJobsFor(task)
+		const job = rig.jobStore.listByTask(task.id)[0]!
+
+		const reviewJobsHistory = captureUpdates(task.id)
+		rig.dispatcher.onFailed(job.id, 'agent_error')
+
+		expect(reviewJobsHistory.length).toBeGreaterThan(0)
+		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
+		expect(latest?.failed).toBe(1)
+		expect(latest?.inProgress).toBe(0)
+	})
+})

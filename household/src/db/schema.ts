@@ -218,3 +218,22 @@ export const notificationChannels = sqliteTable('notification_channels', {
 		.notNull()
 		.default(sql`(unixepoch() * 1000)`),
 })
+
+/**
+ * Web Push subscriptions — one row per browser that opted in. We fan out to
+ * every active subscription on task notifications; the browser endpoint is
+ * the unique identity, and `userLogin` is recorded purely for audit/debug.
+ *
+ * 410 Gone responses from the push service mean the subscription is dead;
+ * the push sender deletes those rows on the fly.
+ */
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+	id: text('id').primaryKey(),
+	userLogin: text('user_login').notNull(),
+	endpoint: text('endpoint').notNull().unique(),
+	p256dh: text('p256dh').notNull(),
+	auth: text('auth').notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.notNull()
+		.default(sql`(unixepoch() * 1000)`),
+})

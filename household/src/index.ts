@@ -20,6 +20,11 @@ import { MemberStateStore } from './members/store.ts'
 import { mountNotificationsApi } from './notifications/api.ts'
 import { NotificationSender } from './notifications/sender.ts'
 import { NotificationStore } from './notifications/store.ts'
+import { mountPushApi } from './push/api.ts'
+import { PushSender } from './push/sender.ts'
+import { PushSubscriptionStore } from './push/store.ts'
+import { TaskPushTransitionTracker } from './push/taskTransitions.ts'
+import { loadOrGenerateVapidKeys } from './push/vapid.ts'
 import { mountStaticUi } from './static.ts'
 import { mountStatsApi } from './stats/api.ts'
 import { mountTasksApi } from './tasks/api.ts'
@@ -180,6 +185,35 @@ mountRepoBindingsApi(app, { bindings: repoBindings, registry, guard })
 mountStatsApi(app, { sqlite: dbHandles.sqlite, guard })
 mountTokensApi(app, { tokens, guard, notifSender })
 mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })
+
+// Web Push fan-out for desktop/mobile notifications when the dashboard tab
+// isn't open. Subject must be a valid `mailto:` or `https:` URL per RFC 8292.
+const vapidKeys = loadOrGenerateVapidKeys({
+	configDir: config.configDir,
+	logger: logger.child({ component: 'push.vapid' }),
+})
+const pushStore = new PushSubscriptionStore(dbHandles.db)
+const pushSender = new PushSender({
+	store: pushStore,
+	keys: vapidKeys,
+	subject: `mailto:noreply@${config.householdName.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}.local`,
+	logger: logger.child({ component: 'push.sender' }),
+})
+mountPushApi(app, { store: pushStore, keys: vapidKeys, guard })
+
+const pushTransitions = new TaskPushTransitionTracker()
+taskStore.on((event) => {
+	if (event.type === 'task.deleted') {
+		pushTransitions.forget(event.taskId)
+		return
+	}
+	if (event.type !== 'task.updated') return
+	const payload = pushTransitions.observe(event.task)
+	if (!payload) return
+	pushSender.broadcast(payload).catch((err) => {
+		logger.warn({ err }, 'push broadcast failed')
+	})
+})
 if (users) {
 	mountUsersApi(app, { users, guard })
 }

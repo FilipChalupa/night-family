@@ -10,6 +10,7 @@ import { MemberDetailPage } from './routes/MemberDetailPage.tsx'
 import { RootLayout } from './routes/Root.tsx'
 import { TaskDetailPage } from './routes/TaskDetailPage.tsx'
 import { TasksPage } from './routes/TasksPage.tsx'
+import type { TaskStatus } from './types.ts'
 
 const rootRoute = createRootRoute({ component: RootLayout })
 
@@ -22,9 +23,26 @@ const dashboardRoute = createRoute({
 const ALLOWED_PAGE_SIZES = [10, 25, 50, 100] as const
 type PageSize = (typeof ALLOWED_PAGE_SIZES)[number]
 
+const ALL_TASK_STATUSES: ReadonlyArray<TaskStatus> = [
+	'new',
+	'estimating',
+	'queued',
+	'assigned',
+	'in-progress',
+	'in-review',
+	'awaiting-merge',
+	'done',
+	'failed',
+	'disconnected',
+]
+
 interface TasksSearch {
 	page: number
 	pageSize: PageSize
+	/** Free-text query against task title / description / repo. Trimmed; empty = no filter. */
+	q: string
+	/** Status whitelist. `null` = no filter (show all). */
+	status: TaskStatus[] | null
 }
 
 export const tasksRoute = createRoute({
@@ -38,7 +56,24 @@ export const tasksRoute = createRoute({
 		const pageSize = (
 			ALLOWED_PAGE_SIZES.includes(rawSize as PageSize) ? rawSize : 25
 		) as PageSize
-		return { page, pageSize }
+		const q = typeof search['q'] === 'string' ? search['q'].slice(0, 200).trim() : ''
+		// `status` may arrive as either an array (TanStack's default serialization)
+		// or a comma-separated string (for hand-typed URLs). Missing param = `null`
+		// (no filter); empty list = `[]` (filter explicitly matches none).
+		const rawStatus = search['status']
+		let status: TaskStatus[] | null = null
+		if (Array.isArray(rawStatus)) {
+			status = rawStatus.filter(
+				(s): s is TaskStatus =>
+					typeof s === 'string' && ALL_TASK_STATUSES.includes(s as TaskStatus),
+			)
+		} else if (typeof rawStatus === 'string') {
+			status = rawStatus
+				.split(',')
+				.map((s) => s.trim())
+				.filter((s): s is TaskStatus => ALL_TASK_STATUSES.includes(s as TaskStatus))
+		}
+		return { page, pageSize, q, status }
 	},
 })
 

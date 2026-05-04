@@ -3,15 +3,16 @@ import type { TaskRecord, TaskStatus } from '../types.ts'
 
 /**
  * Fire desktop notifications when a task transitions into a state the user
- * cares about — currently `failed` and `awaiting-merge`. Skipped:
+ * cares about. Skipped:
  *   - The first non-empty render after a WS snapshot lands (would otherwise
  *     spam dozens of notifications for already-done tasks on page load).
- *   - States we don't surface (everything else stays silent).
  *   - When the page is currently visible — the dashboard itself is already
  *     showing the change and a notification is just noise.
+ *   - When `Notification.permission !== 'granted'`. The user toggles permission
+ *     via `<NotificationsToggle>`; this hook is a no-op until then.
  *
- * Permission is *not* requested here. The user toggles it via
- * `<NotificationsToggle>`; this hook is a no-op until permission === granted.
+ * Note: this is in-tab only. For server-driven push that works with the tab
+ * closed, see [registerSW.ts](../registerSW.ts) + the `push` handler in `sw.js`.
  */
 export function useTaskNotifications(tasks: TaskRecord[]): void {
 	const seenSnapshot = useRef(false)
@@ -43,7 +44,7 @@ export function useTaskNotifications(tasks: TaskRecord[]): void {
 		for (const t of tasks) {
 			const before = previous.current.get(t.id)
 			if (before === undefined || before === t.status) continue
-			const summary = describe(t)
+			const summary = describe(t, before)
 			if (!summary) continue
 			try {
 				const n = new Notification(summary.title, {
@@ -67,17 +68,40 @@ export function useTaskNotifications(tasks: TaskRecord[]): void {
 	}, [tasks])
 }
 
-function describe(t: TaskRecord): { title: string; body: string } | null {
-	if (t.status === 'failed') {
+/**
+ * Decide whether a transition deserves a notification, and what to say.
+ *
+ * `in-review → in-progress` is the household's signal for "reviewer requested
+ * changes" — handlePullRequestReviewEvent is the only path that performs that
+ * transition (see household/src/github/handlers/pulls.ts), so it's safe to
+ * treat as such on the UI side.
+ */
+export function describe(
+	task: TaskRecord,
+	previous: TaskStatus,
+): { title: string; body: string } | null {
+	if (task.status === 'failed') {
 		return {
 			title: 'Task failed',
-			body: t.failureReason ? `${t.title}\n${t.failureReason}` : t.title,
+			body: task.failureReason ? `${task.title}\n${task.failureReason}` : task.title,
 		}
 	}
-	if (t.status === 'awaiting-merge') {
+	if (task.status === 'awaiting-merge') {
 		return {
 			title: 'Ready for merge',
-			body: t.title,
+			body: task.title,
+		}
+	}
+	if (task.status === 'done') {
+		return {
+			title: 'Task done',
+			body: task.title,
+		}
+	}
+	if (previous === 'in-review' && task.status === 'in-progress') {
+		return {
+			title: 'Review requested changes',
+			body: task.title,
 		}
 	}
 	return null

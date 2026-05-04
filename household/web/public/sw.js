@@ -39,6 +39,59 @@ self.addEventListener('message', (event) => {
 	}
 })
 
+// Server-driven Web Push. The household sends payloads via web-push (VAPID
+// signed). We expect JSON: { title, body, taskId?, tag? }. Anything else gets
+// rendered as a generic notification rather than dropped — better than
+// silently failing during a malformed push.
+self.addEventListener('push', (event) => {
+	let payload
+	try {
+		payload = event.data ? event.data.json() : {}
+	} catch {
+		payload = { title: 'Night Family', body: event.data ? event.data.text() : '' }
+	}
+	const title = (payload && payload.title) || 'Night Family'
+	const body = (payload && payload.body) || ''
+	const tag = (payload && payload.tag) || undefined
+	const data = { taskId: payload && payload.taskId ? payload.taskId : null }
+	event.waitUntil(
+		self.registration.showNotification(title, {
+			body,
+			tag,
+			data,
+			icon: '/icon-192.png',
+			badge: '/icon-192.png',
+		}),
+	)
+})
+
+// Click on a push notification → focus an existing tab on the relevant task,
+// or open a new one. Falls back to the dashboard root if no task id was sent.
+self.addEventListener('notificationclick', (event) => {
+	event.notification.close()
+	const data = event.notification.data || {}
+	const target = data.taskId ? `/tasks/${encodeURIComponent(data.taskId)}` : '/'
+	event.waitUntil(
+		self.clients
+			.matchAll({ type: 'window', includeUncontrolled: true })
+			.then((clientList) => {
+				for (const client of clientList) {
+					try {
+						const url = new URL(client.url)
+						if (url.origin === self.location.origin) {
+							client.focus()
+							client.navigate(target).catch(() => undefined)
+							return
+						}
+					} catch {
+						// ignore malformed client URLs
+					}
+				}
+				return self.clients.openWindow(target)
+			}),
+	)
+})
+
 function isPassthrough(url) {
 	return (
 		url.pathname.startsWith('/api/') ||

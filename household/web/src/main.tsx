@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { AppErrorBoundary } from './components/AppErrorBoundary.tsx'
 import { ConfirmDialogProvider } from './components/ConfirmDialog.tsx'
 import { registerServiceWorker } from './registerSW.ts'
 import { router } from './router.tsx'
@@ -43,14 +44,16 @@ if (!root) throw new Error('root element missing')
 
 createRoot(root).render(
 	<React.StrictMode>
-		<QueryClientProvider client={queryClient}>
-			<ThemeProvider theme={theme}>
-				<CssBaseline enableColorScheme />
-				<ConfirmDialogProvider>
-					<RouterProvider router={router} />
-				</ConfirmDialogProvider>
-			</ThemeProvider>
-		</QueryClientProvider>
+		<ThemeProvider theme={theme}>
+			<CssBaseline enableColorScheme />
+			<AppErrorBoundary>
+				<QueryClientProvider client={queryClient}>
+					<ConfirmDialogProvider>
+						<RouterProvider router={router} />
+					</ConfirmDialogProvider>
+				</QueryClientProvider>
+			</AppErrorBoundary>
+		</ThemeProvider>
 	</React.StrictMode>,
 )
 
