@@ -121,10 +121,11 @@ export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> 
 }
 
 /**
- * Enumerate every repo this PAT can access, via paginated `/user/repos`.
- * For fine-grained PATs the API filters down to the token's selected repos
- * automatically; for classic PATs it returns everything the user can reach.
- * Either way the return is the operator's effective allowlist.
+ * Enumerate every repo this PAT can write to, via paginated `/user/repos`.
+ * `/user/repos` returns repos the *user* can reach — for classic PATs that
+ * includes public org repos the user is only a read-only member of, which
+ * the PAT can't push to. Filter by `permissions.push` so the allowlist
+ * matches what the Member can actually do work on.
  */
 async function fetchAccessibleRepos(pat: string): Promise<string[]> {
 	const PER_PAGE = 100
@@ -139,9 +140,14 @@ async function fetchAccessibleRepos(pat: string): Promise<string[]> {
 				`GitHub /user/repos failed (${res.status}): ${body.slice(0, 200) || res.statusText}`,
 			)
 		}
-		const items = (await res.json()) as Array<{ full_name?: unknown }>
+		const items = (await res.json()) as Array<{
+			full_name?: unknown
+			permissions?: { push?: unknown; admin?: unknown }
+		}>
 		for (const r of items) {
-			if (typeof r.full_name === 'string') all.push(r.full_name)
+			if (typeof r.full_name !== 'string') continue
+			const canWrite = r.permissions?.push === true || r.permissions?.admin === true
+			if (canWrite) all.push(r.full_name)
 		}
 		if (items.length < PER_PAGE) break
 	}

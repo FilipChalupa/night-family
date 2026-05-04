@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig, type GithubIdentity } from './config.ts'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchGithubIdentity, loadConfig, type GithubIdentity } from './config.ts'
 
 const REQUIRED_ENV = [
 	'HOUSEHOLD_URL',
@@ -157,5 +157,57 @@ describe('loadConfig', () => {
 			throw new Error('GITHUB_PAT rejected by GitHub (401): Bad credentials')
 		}
 		await expect(loadConfig(fail)).rejects.toThrow(/GITHUB_PAT rejected by GitHub/)
+	})
+})
+
+describe('fetchGithubIdentity', () => {
+	const userResponse = { login: 'octo', name: 'Octo Cat' }
+
+	function mockFetch(reposPage: unknown[]) {
+		return vi.fn(async (input: string | URL | Request) => {
+			const url = typeof input === 'string' ? input : input.toString()
+			if (url.endsWith('/user')) {
+				return new Response(JSON.stringify(userResponse), { status: 200 })
+			}
+			if (url.includes('/user/repos')) {
+				return new Response(JSON.stringify(reposPage), { status: 200 })
+			}
+			throw new Error(`unexpected fetch: ${url}`)
+		})
+	}
+
+	let originalFetch: typeof globalThis.fetch
+	beforeEach(() => {
+		originalFetch = globalThis.fetch
+	})
+	afterEach(() => {
+		globalThis.fetch = originalFetch
+	})
+
+	it('keeps repos the PAT can push to', async () => {
+		globalThis.fetch = mockFetch([
+			{ full_name: 'octo/owned', permissions: { admin: true, push: true, pull: true } },
+			{ full_name: 'octo/collab', permissions: { admin: false, push: true, pull: true } },
+		]) as unknown as typeof globalThis.fetch
+		const id = await fetchGithubIdentity('ghp_test')
+		expect(id.repos).toEqual(['octo/owned', 'octo/collab'])
+	})
+
+	it('drops public org repos where the PAT only has read access', async () => {
+		globalThis.fetch = mockFetch([
+			{ full_name: 'octo/owned', permissions: { admin: true, push: true, pull: true } },
+			{ full_name: 'public-org/readme', permissions: { admin: false, push: false, pull: true } },
+		]) as unknown as typeof globalThis.fetch
+		const id = await fetchGithubIdentity('ghp_test')
+		expect(id.repos).toEqual(['octo/owned'])
+	})
+
+	it('treats missing permissions as no write access', async () => {
+		globalThis.fetch = mockFetch([
+			{ full_name: 'octo/no-perms' },
+			{ full_name: 'octo/owned', permissions: { admin: true, push: true, pull: true } },
+		]) as unknown as typeof globalThis.fetch
+		const id = await fetchGithubIdentity('ghp_test')
+		expect(id.repos).toEqual(['octo/owned'])
 	})
 })
