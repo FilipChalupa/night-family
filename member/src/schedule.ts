@@ -85,17 +85,22 @@ export interface ResolveScheduleResult {
 export function resolveSchedule(
 	envSchedulePath: string | undefined = process.env.SCHEDULE_FILE,
 ): ResolveScheduleResult {
-	const candidates: string[] = []
-	if (envSchedulePath) {
-		candidates.push(isAbsolute(envSchedulePath) ? envSchedulePath : resolve(envSchedulePath))
+	// Explicit env wins authoritatively. If the user pointed at X and X
+	// doesn't exist, fall back to built-in defaults rather than probing
+	// the auto-detected paths — that would surprise more than it helps.
+	if (envSchedulePath !== undefined && envSchedulePath !== '') {
+		const path = isAbsolute(envSchedulePath) ? envSchedulePath : resolve(envSchedulePath)
+		if (existsSync(path)) {
+			return { schedule: parseSchedule(readFileSync(path, 'utf8')), source: path }
+		}
+		return { schedule: BUILT_IN_DEFAULT, source: null }
 	}
-	candidates.push(FIXED_DOCKER_PATH)
+	const candidates: string[] = [FIXED_DOCKER_PATH]
 	const repoRoot = findRepoRoot()
 	if (repoRoot) candidates.push(resolve(repoRoot, DEFAULT_FILENAME))
 	for (const path of candidates) {
 		if (!existsSync(path)) continue
-		const raw = readFileSync(path, 'utf8')
-		return { schedule: parseSchedule(raw), source: path }
+		return { schedule: parseSchedule(readFileSync(path, 'utf8')), source: path }
 	}
 	return { schedule: BUILT_IN_DEFAULT, source: null }
 }
@@ -397,7 +402,7 @@ function addLocalDays(
  * the `package.json` whose `name` is `night-family`. Returns its dir or
  * `null` if not found within 5 levels.
  */
-function findRepoRoot(): string | null {
+export function findRepoRoot(): string | null {
 	let dir = dirname(fileURLToPath(import.meta.url))
 	for (let i = 0; i < 6; i++) {
 		const pkg = resolve(dir, 'package.json')

@@ -113,8 +113,10 @@ Each Member decides locally which skills (`implement` / `review` / `estimate` / 
 Customize by writing a `schedule.yaml`. Generate the starter and edit:
 
 ```bash
-npm run -w @night/member init-schedule > schedule.yaml
+npm run -w @night/member init-schedule
 ```
+
+That writes `schedule.yaml` to the repo root. Pass an explicit path with `-- /some/path.yaml` (note the `--`) to put it elsewhere, or `--force` to overwrite an existing file.
 
 Lookup chain (first hit wins): `SCHEDULE_FILE` env, `/etc/night-family/schedule.yaml`, `<repo-root>/schedule.yaml`, then the built-in default. For Docker, uncomment the `schedule.yaml` bind mount in [docker-compose.member.yml](docker-compose.member.yml). For `npm run dev`, just drop the file in the repo root — it's gitignored.
 

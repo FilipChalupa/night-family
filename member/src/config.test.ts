@@ -16,6 +16,7 @@ const REQUIRED_ENV = [
 const OPTIONAL_ENV = [
 	'WORKSPACE_DIR',
 	'SKILLS',
+	'SCHEDULE_FILE',
 	'WORKER_PROFILE',
 	'MAX_TOKENS_PER_TASK',
 	'MAX_TOKENS_PER_DAY',
@@ -47,6 +48,10 @@ describe('loadConfig', () => {
 		process.env.AI_MODEL = 'claude-opus-4-7'
 		process.env.AI_API_KEY = 'fake'
 		process.env.WORKSPACE_DIR = workspace
+		// Force the schedule resolver into "explicit non-existent path"
+		// mode so tests don't accidentally pick up a real `schedule.yaml`
+		// at the repo root (e.g. one a developer generated locally).
+		process.env.SCHEDULE_FILE = join(workspace, 'no-such-schedule.yaml')
 	})
 
 	afterEach(async () => {
