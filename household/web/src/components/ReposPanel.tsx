@@ -366,7 +366,7 @@ function RepoWizard({
 							you'll need it on GitHub, and re-adding the binding will rotate it.
 						</Alert>
 						<CopyField label="Payload URL" value={draft.payload_url} />
-						<CopyField label="Webhook secret" value={draft.webhook_secret} secret />
+						<CopyField label="Webhook secret" value={draft.webhook_secret} />
 						<Box>
 							<Button
 								variant="outlined"
@@ -416,7 +416,7 @@ function RepoWizard({
 	)
 }
 
-function CopyField({ label, value, secret }: { label: string; value: string; secret?: boolean }) {
+function CopyField({ label, value }: { label: string; value: string }) {
 	const [copied, setCopied] = useState(false)
 	const copy = async () => {
 		await navigator.clipboard.writeText(value)
@@ -427,7 +427,6 @@ function CopyField({ label, value, secret }: { label: string; value: string; sec
 		<TextField
 			label={label}
 			value={value}
-			type={secret ? 'password' : 'text'}
 			size="small"
 			fullWidth
 			slotProps={{
