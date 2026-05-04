@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import pino from 'pino'
-import type { Skill } from '@night/shared'
+import { ALL_SKILLS, type Skill } from '@night/shared'
 import { ScheduleController } from './scheduleController.ts'
 import type { Schedule } from './schedule.ts'
 
@@ -10,17 +10,10 @@ const TZ = 'UTC'
 
 const SCHEDULE: Schedule = {
 	timezone: TZ,
-	baseline: ['review', 'estimate'],
-	windows: [
-		{
-			name: 'night',
-			days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-			start: '22:00',
-			end: '08:00',
-			skills: ['implement', 'review', 'estimate'],
-		},
-	],
+	nightWindows: [{ name: 'night', start: '22:00', end: '08:00' }],
 }
+
+const FULL_SKILLS = [...ALL_SKILLS]
 
 class FakeClock {
 	now: Date
@@ -52,11 +45,12 @@ class FakeClock {
 	}
 }
 
-function makeController(start: Date) {
+function makeController(start: Date, fullSkills: readonly Skill[] = FULL_SKILLS) {
 	const clock = new FakeClock(start)
 	const events: Array<{ skills: readonly Skill[]; reason: string }> = []
 	const c = new ScheduleController({
 		schedule: SCHEDULE,
+		fullSkills,
 		onChange: (skills, reason) => events.push({ skills: [...skills], reason }),
 		logger: SILENT_LOGGER,
 		now: () => clock.now,
@@ -68,22 +62,24 @@ function makeController(start: Date) {
 }
 
 describe('ScheduleController', () => {
-	it('initial skills come from schedule eval at construction time', () => {
+	it('day mode drops `implement` from the configured set', () => {
 		const { controller } = makeController(new Date('2026-04-08T10:00:00Z'))
-		// Day → baseline.
-		expect([...controller.effectiveSkills()].sort()).toEqual(['estimate', 'review'])
+		expect([...controller.effectiveSkills()].sort()).toEqual(
+			['estimate', 'respond', 'review', 'summarize'].sort(),
+		)
+	})
+
+	it('night window adds `implement` back', () => {
+		const { controller } = makeController(new Date('2026-04-08T23:00:00Z'))
+		expect([...controller.effectiveSkills()].sort()).toEqual([...ALL_SKILLS].sort())
 	})
 
 	it('emits skills_updated when the timer fires across a transition', () => {
-		const { controller, clock, events } = makeController(new Date('2026-04-08T21:59:00Z'))
+		const { clock, events } = makeController(new Date('2026-04-08T21:59:00Z'))
 		clock.advanceTo(new Date('2026-04-08T22:00:30Z'))
 		expect(events).toHaveLength(1)
 		expect(events[0]?.reason).toBe('schedule:night')
-		expect([...controller.effectiveSkills()].sort()).toEqual([
-			'estimate',
-			'implement',
-			'review',
-		])
+		expect(events[0]?.skills).toContain('implement')
 	})
 
 	it('override takes immediate effect and emits with reason "override"', () => {
@@ -95,17 +91,14 @@ describe('ScheduleController', () => {
 	})
 
 	it('override expiry restores schedule and emits "override_expired"', () => {
-		const { clock, events } = makeController(new Date('2026-04-08T10:00:00Z'))
-		const expires = new Date(clock.now.getTime() + 30 * 60 * 1000)
-		const c = events.length
-		const _ = c
-		// Install override that lasts 30 min.
 		const ctrl = makeController(new Date('2026-04-08T10:00:00Z'))
+		const expires = new Date(ctrl.clock.now.getTime() + 30 * 60 * 1000)
 		ctrl.controller.setOverride(['implement'], expires)
 		ctrl.clock.advanceTo(new Date(expires.getTime() + 1_000))
 		const reasons = ctrl.events.map((e) => e.reason)
 		expect(reasons).toContain('override_expired')
-		expect([...ctrl.controller.effectiveSkills()].sort()).toEqual(['estimate', 'review'])
+		// Day mode → no implement.
+		expect([...ctrl.controller.effectiveSkills()]).not.toContain('implement')
 	})
 
 	it('clearOverride before expiry emits "override_cleared"', () => {
@@ -117,12 +110,16 @@ describe('ScheduleController', () => {
 
 	it('does not emit when override skills equal the active set', () => {
 		const { controller, clock, events } = makeController(new Date('2026-04-08T23:00:00Z'))
-		// Already in night → all-skills set.
+		// Already night → full skills.
 		const before = events.length
-		controller.setOverride(
-			['implement', 'review', 'estimate'],
-			new Date(clock.now.getTime() + 30 * 60 * 1000),
-		)
+		controller.setOverride([...ALL_SKILLS], new Date(clock.now.getTime() + 30 * 60 * 1000))
 		expect(events.length).toBe(before)
+	})
+
+	it('member with `SKILLS=review` (no implement configured) is unaffected by night window', () => {
+		const { clock, events } = makeController(new Date('2026-04-08T21:59:00Z'), ['review'])
+		clock.advanceTo(new Date('2026-04-08T22:30:00Z'))
+		// No transition events — implement was never in fullSkills.
+		expect(events).toHaveLength(0)
 	})
 })

@@ -1,25 +1,33 @@
 import type { Logger } from 'pino'
 import type { Skill } from '@night/shared'
-import { evaluateSchedule, nextTransition, type Schedule } from './schedule.ts'
+import { isNightAt, nextTransition, type Schedule } from './schedule.ts'
 
 /**
  * Owns the live "what skills does this Member offer right now?" state.
  *
  * Combines:
- *   - the static `Schedule` (loaded from YAML or built-in defaults), and
+ *   - the configured skill set (from `SKILLS` env, default = all),
+ *   - the static `Schedule` (loaded from YAML or built-in defaults), which
+ *     gates the `implement` skill in time, and
  *   - an optional ephemeral override pushed by Household ("force
  *     implement-mode for the next 2 hours") with an expiry timestamp.
  *
- * Every time the effective set changes — schedule transition fired,
- * override installed, override cleared, override expired — the controller
- * calls `onChange(skills, reason)`. The wiring in `connection.ts`
- * translates that into a `member.skills_updated` wire message when the WS
- * is open. Transitions that fire while disconnected are still recorded in
- * internal state, so the next handshake carries the right `skills`.
+ * Effective rule with no override:
+ *   any nightWindow active  →  fullSkills
+ *   no nightWindow active   →  fullSkills minus `implement`
+ *
+ * Override replaces both with the supplied skill set until expiry. Every
+ * change to the effective set fires `onChange(skills, reason)`. The
+ * wiring in `connection.ts` translates that into a `member.skills_updated`
+ * wire message when the WS is open. Transitions that fire while
+ * disconnected stay in `effectiveSkills()` so the next handshake carries
+ * the right value.
  */
 
 export interface ScheduleControllerOpts {
 	schedule: Schedule
+	/** Skill set the Member is configured to do at all (from `SKILLS` env). */
+	fullSkills: readonly Skill[]
 	onChange: (skills: readonly Skill[], reason: string) => void
 	logger: Logger
 	/** Test seam. Defaults to `() => new Date()`. */
@@ -34,19 +42,13 @@ interface Override {
 	expiresAt: Date
 }
 
-export interface ScheduleStatus {
-	skills: readonly Skill[]
-	activeName: string
-	scheduleEvalAt: string
-	override: { skills: readonly Skill[]; expiresAt: string } | null
-	nextTransitionAt: string
-}
-
 export class ScheduleController {
 	private current: readonly Skill[]
 	private override: Override | null = null
 	private timer: NodeJS.Timeout | null = null
 	private readonly schedule: Schedule
+	private readonly fullSkills: readonly Skill[]
+	private readonly daySkills: readonly Skill[]
 	/**
 	 * Public to allow late wiring: `connection.ts` constructs the controller
 	 * before it has access to the WS send function, then replaces this
@@ -60,13 +62,14 @@ export class ScheduleController {
 
 	constructor(opts: ScheduleControllerOpts) {
 		this.schedule = opts.schedule
+		this.fullSkills = [...opts.fullSkills]
+		this.daySkills = this.fullSkills.filter((s) => s !== 'implement')
 		this.onChange = opts.onChange
 		this.logger = opts.logger
 		this.now = opts.now ?? (() => new Date())
 		this.setTimeoutFn = opts.setTimeoutFn ?? setTimeout
 		this.clearTimeoutFn = opts.clearTimeoutFn ?? clearTimeout
-		const initial = evaluateSchedule(this.schedule, this.now())
-		this.current = initial.skills
+		this.current = this.computeFromSchedule(this.now()).skills
 	}
 
 	start(): void {
@@ -89,7 +92,7 @@ export class ScheduleController {
 			)
 			return
 		}
-		this.override = { skills, expiresAt }
+		this.override = { skills: [...skills], expiresAt }
 		this.logger.info(
 			{ skills, expiresAt: expiresAt.toISOString() },
 			'schedule override installed',
@@ -104,21 +107,10 @@ export class ScheduleController {
 		this.recompute('override_cleared')
 	}
 
-	status(): ScheduleStatus {
-		const now = this.now()
-		const ev = evaluateSchedule(this.schedule, now)
-		return {
-			skills: this.current,
-			activeName: this.override ? 'override' : ev.activeName,
-			scheduleEvalAt: now.toISOString(),
-			override: this.override
-				? {
-						skills: this.override.skills,
-						expiresAt: this.override.expiresAt.toISOString(),
-					}
-				: null,
-			nextTransitionAt: this.computeNextEdge(now).toISOString(),
-		}
+	private computeFromSchedule(now: Date): { skills: readonly Skill[]; activeName: string } {
+		const { active, window } = isNightAt(this.schedule, now)
+		if (active) return { skills: this.fullSkills, activeName: window ?? 'night' }
+		return { skills: this.daySkills, activeName: 'day' }
 	}
 
 	private recompute(reasonHint: 'override' | 'override_cleared' | 'tick'): void {
@@ -130,7 +122,7 @@ export class ScheduleController {
 		}
 		const next = this.override
 			? { skills: this.override.skills, activeName: 'override' as const }
-			: evaluateSchedule(this.schedule, now)
+			: this.computeFromSchedule(now)
 		if (!skillsEqual(this.current, next.skills)) {
 			this.current = next.skills
 			let reason: string

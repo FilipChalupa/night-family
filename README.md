@@ -106,9 +106,9 @@ and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
 
 Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
 
-## Member schedule (day vs. night skills)
+## Member schedule (when does it implement?)
 
-Each Member decides locally which skills (`implement` / `review` / `estimate` / `respond` / `summarize`) it accepts at a given time. Out of the box: review-only by day, full implementation at night (22:00–08:00 local), implementation also during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
+The configured skill set comes from `SKILLS` env (default = all of `implement` / `review` / `estimate` / `respond` / `summarize`). Whatever's there is what the Member can do _in principle_. The schedule then gates `implement` in time: when any `nightWindow` is active, all configured skills are offered; outside every window, `implement` is dropped and the rest pass through. Out of the box: full implementation at night (22:00–08:00 local) and during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
 
 Customize by writing a `schedule.yaml`. Generate the starter and edit:
 
@@ -118,9 +118,11 @@ npm run -w @night/member init-schedule
 
 That writes `schedule.yaml` to the repo root. Pass an explicit path with `-- /some/path.yaml` (note the `--`) to put it elsewhere, or `--force` to overwrite an existing file.
 
+Each `nightWindow` has either `days` (weekdays it applies to) or `dates` (specific calendar dates — useful for vacations). `start` and `end` are optional `HH:MM` strings — omit both for an all-day window. `start > end` wraps past midnight.
+
 Lookup chain (first hit wins): `SCHEDULE_FILE` env, `/etc/night-family/schedule.yaml`, `<repo-root>/schedule.yaml`, then the built-in default. For Docker, uncomment the `schedule.yaml` bind mount in [docker-compose.member.yml](docker-compose.member.yml). For `npm run dev`, just drop the file in the repo root — it's gitignored.
 
-If `SKILLS` env is set explicitly, it overrides the schedule with a static skill list (pre-2.1 behavior). Admins can also push a temporary override ("Implement-only for the next 2h") from the Member detail page in the dashboard; it expires automatically.
+Admins can also push a temporary override ("Implement-only for the next 2h") from the Member detail page in the dashboard; it expires automatically.
 
 ## Repo layout
 

@@ -11,6 +11,7 @@ const config = await loadConfig()
 const scheduleLogger = logger.child({ component: 'schedule' })
 const scheduleController = new ScheduleController({
 	schedule: config.schedule,
+	fullSkills: config.skills,
 	// Replaced by `connection.ts` once it owns the WS send. Until then,
 	// internal transitions are kept in `effectiveSkills()` for the next
 	// handshake.
@@ -31,7 +32,7 @@ logger.info(
 		schedule: {
 			source: config.scheduleSource ?? 'built-in',
 			timezone: config.schedule.timezone,
-			windows: config.schedule.windows.map((w) => w.name),
+			nightWindows: config.schedule.nightWindows.map((w) => w.name),
 		},
 		profile: config.workerProfile,
 		limits: config.limits,

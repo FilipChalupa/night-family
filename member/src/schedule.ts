@@ -2,12 +2,16 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
-import { ALL_SKILLS, type Skill } from '@night/shared'
 
 /**
- * Per-Member schedule that decides which skills the Member offers right
- * now. Everything here is pure (no clocks, no timers, no I/O) so it can
- * be exhaustively tested. Connection wiring lives in `connection.ts`.
+ * Per-Member schedule that gates the `implement` skill in time. Skill
+ * sets themselves come from `SKILLS` env (Member config); this module
+ * only answers "is the Member willing to implement *right now*?".
+ *
+ *   - When *any* `nightWindow` is active in the local timezone, the
+ *     Member offers everything in `SKILLS`.
+ *   - Outside every window, `implement` is dropped from the offered set
+ *     (other skills like `review` / `respond` keep flowing).
  *
  * Lookup chain for the YAML source (first hit wins):
  *
@@ -15,58 +19,49 @@ import { ALL_SKILLS, type Skill } from '@night/shared'
  *   2. `/etc/night-family/schedule.yaml` — Docker bind-mount convention.
  *   3. `<repo-root>/schedule.yaml` — convenience for `npm run dev`.
  *
- * Nothing found = built-in default (defined below). Never throws on
- * missing file; only on malformed YAML or invalid shape.
+ * Nothing found = built-in default. Never throws on missing file; only
+ * on malformed YAML or invalid shape.
  */
 
 export type Day = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 const ALL_DAYS: readonly Day[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
-export interface ScheduleWindow {
+export interface NightWindow {
 	name: string
-	/** Days on which the window's *start* falls. Default = every day. */
-	days: readonly Day[]
-	/** Local-time `HH:MM` of window start. */
+	/** Match by local weekday of the window's start. Mutually exclusive with `dates`. */
+	days?: readonly Day[]
+	/** Match by exact local calendar date (`YYYY-MM-DD`). Mutually exclusive with `days`. */
+	dates?: readonly string[]
+	/** Local-time `HH:MM` of window start. Default `00:00`. */
 	start: string
-	/** Local-time `HH:MM` of window end. If `<= start`, the window wraps midnight. */
+	/** Local-time `HH:MM` of window end (1440 minutes = end-of-day default). If `<= start`, wraps midnight. */
 	end: string
-	skills: readonly Skill[]
 }
 
 export interface Schedule {
 	/** IANA timezone identifier (e.g. `Europe/Prague`). */
 	timezone: string
-	/** Skills used outside any active window. */
-	baseline: readonly Skill[]
-	windows: readonly ScheduleWindow[]
-}
-
-export interface ScheduleEvaluation {
-	skills: readonly Skill[]
-	/** Name of the active window, or `'baseline'` when none matches. */
-	activeName: string
+	nightWindows: readonly NightWindow[]
 }
 
 const FIXED_DOCKER_PATH = '/etc/night-family/schedule.yaml'
 const DEFAULT_FILENAME = 'schedule.yaml'
+const DAY_END = '24:00'
 
 const BUILT_IN_DEFAULT: Schedule = {
 	timezone: process.env.TZ || 'UTC',
-	baseline: ['review', 'estimate', 'respond', 'summarize'],
-	windows: [
+	nightWindows: [
 		{
 			name: 'night',
 			days: ALL_DAYS,
 			start: '22:00',
 			end: '08:00',
-			skills: ['implement', 'review', 'estimate', 'respond', 'summarize'],
 		},
 		{
 			name: 'lunch',
 			days: ['mon', 'tue', 'wed', 'thu', 'fri'],
 			start: '12:00',
 			end: '13:00',
-			skills: ['implement'],
 		},
 	],
 }
@@ -77,17 +72,9 @@ export interface ResolveScheduleResult {
 	source: string | null
 }
 
-/**
- * Resolve and parse the active schedule for this Member. See lookup
- * chain in the file header. Pass `envSchedulePath` to override the env
- * lookup in tests.
- */
 export function resolveSchedule(
 	envSchedulePath: string | undefined = process.env.SCHEDULE_FILE,
 ): ResolveScheduleResult {
-	// Explicit env wins authoritatively. If the user pointed at X and X
-	// doesn't exist, fall back to built-in defaults rather than probing
-	// the auto-detected paths — that would surprise more than it helps.
 	if (envSchedulePath !== undefined && envSchedulePath !== '') {
 		const path = isAbsolute(envSchedulePath) ? envSchedulePath : resolve(envSchedulePath)
 		if (existsSync(path)) {
@@ -105,10 +92,6 @@ export function resolveSchedule(
 	return { schedule: BUILT_IN_DEFAULT, source: null }
 }
 
-/**
- * Parse and validate a schedule YAML document. Throws on shape errors
- * with a message that points at the offending field.
- */
 export function parseSchedule(yaml: string): Schedule {
 	const doc = parseYaml(yaml) as unknown
 	if (!doc || typeof doc !== 'object') {
@@ -119,31 +102,35 @@ export function parseSchedule(yaml: string): Schedule {
 	if (!isValidTimezone(timezone)) {
 		throw new Error(`schedule.timezone: not a valid IANA timezone: ${timezone}`)
 	}
-	const baseline = expectSkills(o.baseline, 'baseline')
-	const windowsRaw = o.windows
-	if (windowsRaw !== undefined && !Array.isArray(windowsRaw)) {
-		throw new Error('schedule.windows: must be an array')
+	const raw = o.nightWindows
+	if (raw !== undefined && !Array.isArray(raw)) {
+		throw new Error('schedule.nightWindows: must be an array')
 	}
-	const windows: ScheduleWindow[] = []
-	for (const [i, raw] of (windowsRaw ?? []).entries()) {
-		windows.push(parseWindow(raw, `windows[${i}]`))
+	const nightWindows: NightWindow[] = []
+	for (const [i, w] of (raw ?? []).entries()) {
+		nightWindows.push(parseNightWindow(w, `nightWindows[${i}]`))
 	}
-	return { timezone, baseline, windows }
+	return { timezone, nightWindows }
 }
 
-function parseWindow(raw: unknown, ctx: string): ScheduleWindow {
+function parseNightWindow(raw: unknown, ctx: string): NightWindow {
 	if (!raw || typeof raw !== 'object') throw new Error(`${ctx}: must be an object`)
 	const o = raw as Record<string, unknown>
 	const name = expectString(o.name, `${ctx}.name`)
-	const start = expectTime(o.start, `${ctx}.start`)
-	const end = expectTime(o.end, `${ctx}.end`)
-	const skills = expectSkills(o.skills, `${ctx}.skills`)
-	const days = parseDays(o.days, `${ctx}.days`)
-	return { name, days, start, end, skills }
+	const start = o.start === undefined ? '00:00' : expectTime(o.start, `${ctx}.start`)
+	const end = o.end === undefined ? DAY_END : expectTime(o.end, `${ctx}.end`, { allow24: true })
+	const hasDays = o.days !== undefined
+	const hasDates = o.dates !== undefined
+	if (hasDays && hasDates) {
+		throw new Error(`${ctx}: specify either \`days\` or \`dates\`, not both`)
+	}
+	if (hasDays) return { name, days: parseDays(o.days, `${ctx}.days`), start, end }
+	if (hasDates) return { name, dates: parseDates(o.dates, `${ctx}.dates`), start, end }
+	// Neither: window is active every day in the [start, end) window.
+	return { name, days: ALL_DAYS, start, end }
 }
 
 function parseDays(raw: unknown, ctx: string): readonly Day[] {
-	if (raw === undefined) return ALL_DAYS
 	if (!Array.isArray(raw)) throw new Error(`${ctx}: must be an array`)
 	const out: Day[] = []
 	for (const [i, d] of raw.entries()) {
@@ -157,6 +144,31 @@ function parseDays(raw: unknown, ctx: string): readonly Day[] {
 	return out
 }
 
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+function parseDates(raw: unknown, ctx: string): readonly string[] {
+	if (!Array.isArray(raw)) throw new Error(`${ctx}: must be an array`)
+	const out: string[] = []
+	for (const [i, d] of raw.entries()) {
+		if (typeof d !== 'string' || !DATE_RE.test(d)) {
+			throw new Error(`${ctx}[${i}]: must be YYYY-MM-DD, got ${JSON.stringify(d)}`)
+		}
+		const m = DATE_RE.exec(d)!
+		const year = Number(m[1])
+		const month = Number(m[2])
+		const day = Number(m[3])
+		if (month < 1 || month > 12 || day < 1 || day > 31) {
+			throw new Error(`${ctx}[${i}]: invalid calendar date ${d}`)
+		}
+		// Normalize formatting (e.g. drop accidental leading whitespace).
+		out.push(
+			`${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day
+				.toString()
+				.padStart(2, '0')}`,
+		)
+	}
+	return out
+}
+
 function expectString(v: unknown, ctx: string): string {
 	if (typeof v !== 'string' || v.length === 0) {
 		throw new Error(`${ctx}: must be a non-empty string`)
@@ -165,25 +177,12 @@ function expectString(v: unknown, ctx: string): string {
 }
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
-function expectTime(v: unknown, ctx: string): string {
+function expectTime(v: unknown, ctx: string, opts: { allow24?: boolean } = {}): string {
+	if (typeof v === 'string' && opts.allow24 && v === DAY_END) return DAY_END
 	if (typeof v !== 'string' || !TIME_RE.test(v)) {
 		throw new Error(`${ctx}: must be HH:MM (00:00–23:59), got ${JSON.stringify(v)}`)
 	}
 	return v
-}
-
-function expectSkills(raw: unknown, ctx: string): readonly Skill[] {
-	if (!Array.isArray(raw)) throw new Error(`${ctx}: must be an array`)
-	const out: Skill[] = []
-	for (const [i, s] of raw.entries()) {
-		if (typeof s !== 'string' || !ALL_SKILLS.includes(s as Skill)) {
-			throw new Error(
-				`${ctx}[${i}]: must be one of ${ALL_SKILLS.join('|')}, got ${JSON.stringify(s)}`,
-			)
-		}
-		out.push(s as Skill)
-	}
-	return out
 }
 
 function isValidTimezone(tz: string): boolean {
@@ -196,37 +195,33 @@ function isValidTimezone(tz: string): boolean {
 }
 
 /**
- * Decide which skills are active at a given moment under a schedule.
- * Windows are evaluated in declaration order; the *last* one whose span
- * contains `now` wins, so generic windows can be put first and exceptions
- * last (e.g. `night`, then `lunch`). When no window matches, returns
- * `baseline`.
+ * Is *any* night-window active at the given moment?
  */
-export function evaluateSchedule(schedule: Schedule, now: Date): ScheduleEvaluation {
-	let match: ScheduleWindow | null = null
-	for (const w of schedule.windows) {
-		if (windowContains(w, now, schedule.timezone)) match = w
+export function isNightAt(
+	schedule: Schedule,
+	now: Date,
+): { active: boolean; window: string | null } {
+	for (const w of schedule.nightWindows) {
+		if (windowContains(w, now, schedule.timezone)) {
+			return { active: true, window: w.name }
+		}
 	}
-	if (match) return { skills: match.skills, activeName: match.name }
-	return { skills: schedule.baseline, activeName: 'baseline' }
+	return { active: false, window: null }
 }
 
 /**
- * Compute the next moment, strictly after `now`, at which `evaluateSchedule`
- * could produce a different result. Bound by 7 days into the future (full
- * week cycle), which means the worst case keeps the timer fresh weekly even
- * if no transitions exist.
+ * Compute the next moment, strictly after `now`, at which `isNightAt`
+ * could flip. Bounded by 7 days into the future so an empty schedule
+ * still keeps the timer alive weekly.
  */
 export function nextTransition(schedule: Schedule, now: Date): Date {
 	const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
 	let earliest: Date | null = null
-	for (const w of schedule.windows) {
-		for (const d of w.days) {
-			for (const edge of windowEdges(w, d, schedule.timezone, now)) {
-				if (edge.getTime() <= now.getTime()) continue
-				if (edge.getTime() > horizon.getTime()) continue
-				if (!earliest || edge.getTime() < earliest.getTime()) earliest = edge
-			}
+	for (const w of schedule.nightWindows) {
+		for (const edge of windowEdges(w, schedule.timezone, now)) {
+			if (edge.getTime() <= now.getTime()) continue
+			if (edge.getTime() > horizon.getTime()) continue
+			if (!earliest || edge.getTime() < earliest.getTime()) earliest = edge
 		}
 	}
 	return earliest ?? horizon
@@ -241,9 +236,9 @@ interface LocalDateParts {
 	weekday: Day
 }
 
-const WEEKDAY_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>()
+const FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>()
 function localFormatter(timezone: string): Intl.DateTimeFormat {
-	let f = WEEKDAY_FORMATTER_CACHE.get(timezone)
+	let f = FORMATTER_CACHE.get(timezone)
 	if (!f) {
 		f = new Intl.DateTimeFormat('en-US', {
 			timeZone: timezone,
@@ -255,7 +250,7 @@ function localFormatter(timezone: string): Intl.DateTimeFormat {
 			weekday: 'short',
 			hour12: false,
 		})
-		WEEKDAY_FORMATTER_CACHE.set(timezone, f)
+		FORMATTER_CACHE.set(timezone, f)
 	}
 	return f
 }
@@ -277,7 +272,6 @@ function localParts(now: Date, timezone: string): LocalDateParts {
 	) as Record<string, string>
 	const weekday = WEEKDAY_NAME_TO_DAY[parts.weekday ?? ''] ?? 'mon'
 	let hour = Number(parts.hour ?? '0')
-	// Some Intl backends emit `24:xx` for midnight in `hour12: false`; normalize.
 	if (hour === 24) hour = 0
 	return {
 		year: Number(parts.year),
@@ -289,17 +283,18 @@ function localParts(now: Date, timezone: string): LocalDateParts {
 	}
 }
 
-function parseHHMM(t: string): { h: number; m: number } {
-	const [h, m] = t.split(':')
-	return { h: Number(h), m: Number(m) }
+function isoDate(p: { year: number; month: number; day: number }): string {
+	return `${p.year.toString().padStart(4, '0')}-${p.month.toString().padStart(2, '0')}-${p.day
+		.toString()
+		.padStart(2, '0')}`
 }
 
-/**
- * Project a local-time `HH:MM` on a given date into a UTC `Date` for the
- * schedule's timezone. Iterates a small offset search to invert
- * `Intl.DateTimeFormat`, since DST means a naïve UTC subtraction is off
- * twice a year.
- */
+function timeMinutes(t: string): number {
+	if (t === DAY_END) return 1440
+	const [h, m] = t.split(':')
+	return Number(h) * 60 + Number(m)
+}
+
 function localTimeToUtc(
 	year: number,
 	month: number,
@@ -308,40 +303,48 @@ function localTimeToUtc(
 	minute: number,
 	timezone: string,
 ): Date {
-	// First pass: assume UTC, then iteratively correct using observed offset.
 	let guess = Date.UTC(year, month - 1, day, hour, minute)
 	for (let i = 0; i < 3; i++) {
 		const parts = localParts(new Date(guess), timezone)
-		const driftMin =
+		const drift =
 			(parts.year - year) * 525_600 +
 			(parts.month - month) * 43_200 +
 			(parts.day - day) * 1_440 +
 			(parts.hour - hour) * 60 +
 			(parts.minute - minute)
-		if (driftMin === 0) return new Date(guess)
-		guess -= driftMin * 60_000
+		if (drift === 0) return new Date(guess)
+		guess -= drift * 60_000
 	}
 	return new Date(guess)
 }
 
-function windowContains(w: ScheduleWindow, now: Date, timezone: string): boolean {
+function windowMatchesAnchor(w: NightWindow, anchor: { weekday: Day; date: string }): boolean {
+	if (w.dates) return w.dates.includes(anchor.date)
+	if (w.days) return w.days.includes(anchor.weekday)
+	return true
+}
+
+function windowContains(w: NightWindow, now: Date, timezone: string): boolean {
 	const np = localParts(now, timezone)
-	const start = parseHHMM(w.start)
-	const end = parseHHMM(w.end)
-	const startMin = start.h * 60 + start.m
-	const endMin = end.h * 60 + end.m
+	const startMin = timeMinutes(w.start)
+	const endMin = timeMinutes(w.end)
 	const nowMin = np.hour * 60 + np.minute
+	const todayAnchor = { weekday: np.weekday, date: isoDate(np) }
 	if (startMin < endMin) {
-		// Same-day window: the window's day-of-week is the local day-of-week now.
-		if (!w.days.includes(np.weekday)) return false
+		// Same-day window.
+		if (!windowMatchesAnchor(w, todayAnchor)) return false
 		return nowMin >= startMin && nowMin < endMin
 	}
 	// Wrap-midnight window: started either today or yesterday.
-	if (nowMin >= startMin) {
-		return w.days.includes(np.weekday)
-	}
+	if (nowMin >= startMin && windowMatchesAnchor(w, todayAnchor)) return true
 	if (nowMin < endMin) {
-		return w.days.includes(prevDay(np.weekday))
+		const yesterday = addLocalDays(
+			{ year: np.year, month: np.month, day: np.day },
+			-1,
+			timezone,
+		)
+		const yAnchor = { weekday: prevDay(np.weekday), date: isoDate(yesterday) }
+		if (windowMatchesAnchor(w, yAnchor)) return true
 	}
 	return false
 }
@@ -349,41 +352,6 @@ function windowContains(w: ScheduleWindow, now: Date, timezone: string): boolean
 function prevDay(d: Day): Day {
 	const idx = ALL_DAYS.indexOf(d)
 	return ALL_DAYS[(idx + ALL_DAYS.length - 1) % ALL_DAYS.length]!
-}
-
-/**
- * Emit start+end edge timestamps for every occurrence of `(window, startDay)`
- * within roughly a week-wide window centered on `now`. The caller drops
- * past edges. Probing weekOffsets `[-1, 0, +1]` covers the wrap-midnight
- * case where the *end* is in the future even though the *start* was last
- * week.
- */
-function windowEdges(w: ScheduleWindow, startDay: Day, timezone: string, now: Date): Date[] {
-	const np = localParts(now, timezone)
-	const start = parseHHMM(w.start)
-	const end = parseHHMM(w.end)
-	const wraps = end.h * 60 + end.m <= start.h * 60 + start.m
-	const todayIdx = ALL_DAYS.indexOf(np.weekday)
-	const targetIdx = ALL_DAYS.indexOf(startDay)
-	const baseDelta = (targetIdx - todayIdx + 7) % 7
-	const out: Date[] = []
-	for (const weekOffset of [-1, 0, 1]) {
-		const delta = baseDelta + weekOffset * 7
-		const startLocal = addLocalDays(np, delta, timezone)
-		out.push(toUtc(startLocal, start.h, start.m, timezone))
-		const endLocal = wraps ? addLocalDays(startLocal, 1, timezone) : startLocal
-		out.push(toUtc(endLocal, end.h, end.m, timezone))
-	}
-	return out
-}
-
-function toUtc(
-	p: { year: number; month: number; day: number },
-	hour: number,
-	minute: number,
-	timezone: string,
-): Date {
-	return localTimeToUtc(p.year, p.month, p.day, hour, minute, timezone)
 }
 
 function addLocalDays(
@@ -395,6 +363,66 @@ function addLocalDays(
 	const shifted = new Date(utcMid + days * 24 * 60 * 60 * 1000)
 	const parts = localParts(shifted, timezone)
 	return { year: parts.year, month: parts.month, day: parts.day }
+}
+
+/**
+ * Emit candidate edge timestamps (start + end) for occurrences of `w` in
+ * the rolling week around `now`. The caller filters the past.
+ *
+ *   - For `days`-anchored windows, project each listed weekday onto
+ *     `[-1, 0, +1]` weeks relative to `now`.
+ *   - For `dates`-anchored windows, the listed dates are absolute, so we
+ *     emit each one's start/end directly.
+ */
+function windowEdges(w: NightWindow, timezone: string, now: Date): Date[] {
+	const out: Date[] = []
+	const startMin = timeMinutes(w.start)
+	const endMin = timeMinutes(w.end)
+	const wraps = endMin <= startMin
+	const np = localParts(now, timezone)
+
+	const emit = (date: { year: number; month: number; day: number }) => {
+		const startH = Math.floor(startMin / 60)
+		const startMm = startMin % 60
+		const endH = Math.floor(endMin / 60)
+		const endMm = endMin % 60
+		const startEdge = localTimeToUtc(date.year, date.month, date.day, startH, startMm, timezone)
+		// `24:00` end of same day == `00:00` next day.
+		const endRollOver = endMin === 1440
+		let endDate = wraps || endRollOver ? addLocalDays(date, 1, timezone) : date
+		const endHour = endRollOver ? 0 : endH
+		const endMinute = endRollOver ? 0 : endMm
+		out.push(
+			startEdge,
+			localTimeToUtc(endDate.year, endDate.month, endDate.day, endHour, endMinute, timezone),
+		)
+	}
+
+	if (w.dates) {
+		for (const d of w.dates) {
+			const m = DATE_RE.exec(d)
+			if (!m) continue
+			emit({ year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) })
+		}
+		return out
+	}
+
+	const daysList = w.days ?? ALL_DAYS
+	const todayIdx = ALL_DAYS.indexOf(np.weekday)
+	for (const d of daysList) {
+		const targetIdx = ALL_DAYS.indexOf(d)
+		const baseDelta = (targetIdx - todayIdx + 7) % 7
+		for (const weekOffset of [-1, 0, 1]) {
+			const delta = baseDelta + weekOffset * 7
+			const startDate = addLocalDays(
+				{ year: np.year, month: np.month, day: np.day },
+				delta,
+				timezone,
+			)
+			emit(startDate)
+		}
+	}
+	return out
 }
 
 /**
@@ -427,33 +455,35 @@ export function findRepoRoot(): string | null {
  */
 export function defaultScheduleYaml(): string {
 	return `# Night Family member schedule.
-# Decides which skills the member offers at any given moment.
+# Decides WHEN this member is willing to do \`implement\` tasks. The skill
+# set itself is configured via SKILLS in .env.member; this file only
+# gates the \`implement\` skill in time. Outside any window below, the
+# member offers everything in SKILLS minus \`implement\`.
+#
 # Edit and restart the member to apply changes.
 
 # IANA timezone for all the HH:MM times below.
 timezone: ${BUILT_IN_DEFAULT.timezone}
 
-# Skills used outside any window — i.e. "daytime" by default. The member
-# will only accept tasks whose kind is in this list.
-baseline: [review, estimate, respond, summarize]
-
-# Time windows that override the baseline. Evaluated in order; the LAST
-# matching window wins, so put generic windows first and exceptions last.
-windows:
-    # Implement-heavy mode while humans sleep. \`start\` > \`end\` means it
-    # wraps past midnight (here: 22:00 today through 08:00 tomorrow).
+# Time windows during which \`implement\` is offered. Active if any window
+# matches. Each window has either \`days\` (weekdays) or \`dates\`
+# (specific calendar dates). Both \`start\` and \`end\` are optional —
+# omit them for an all-day window. \`start\` > \`end\` wraps past midnight.
+nightWindows:
+    # While humans sleep.
     - name: night
       start: '22:00'
       end: '08:00'
-      skills: [implement, review, estimate, respond, summarize]
 
-    # Lunch break — humans away from keyboard, OK to implement. \`days\`
-    # restricts to weekdays. Listed AFTER \`night\`, so on the rare overlap
-    # (none here) the lunch entry would win.
+    # Weekday lunch — humans away from keyboard, OK to implement.
     - name: lunch
       days: [mon, tue, wed, thu, fri]
       start: '12:00'
       end: '13:00'
-      skills: [implement]
+
+    # Example: a weekend or vacation block where you also want
+    # implementation to run all day. Uncomment and edit:
+    # - name: vacation
+    #   dates: ['2026-07-15', '2026-07-16', '2026-07-17']
 `
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	defaultScheduleYaml,
-	evaluateSchedule,
+	isNightAt,
 	nextTransition,
 	parseSchedule,
 	type Schedule,
@@ -11,8 +11,8 @@ const TZ = 'Europe/Prague'
 
 function localDate(iso: string, tz = TZ): Date {
 	// Build a UTC instant by treating `iso` (`YYYY-MM-DDTHH:MM`) as wall-clock
-	// time in `tz`. We need this for tests so we can write "Wednesday 03:00
-	// Prague" without juggling DST math by hand.
+	// time in `tz`. We need this so tests can write "Wednesday 03:00 Prague"
+	// without juggling DST math by hand.
 	const [datePart, timePart] = iso.split('T')
 	const [y, mo, d] = datePart!.split('-').map(Number)
 	const [h, mi] = timePart!.split(':').map(Number)
@@ -51,62 +51,75 @@ function localDate(iso: string, tz = TZ): Date {
 
 const SCHEDULE: Schedule = {
 	timezone: TZ,
-	baseline: ['review', 'estimate', 'respond', 'summarize'],
-	windows: [
-		{
-			name: 'night',
-			days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-			start: '22:00',
-			end: '08:00',
-			skills: ['implement', 'review', 'estimate', 'respond', 'summarize'],
-		},
-		{
-			name: 'lunch',
-			days: ['mon', 'tue', 'wed', 'thu', 'fri'],
-			start: '12:00',
-			end: '13:00',
-			skills: ['implement'],
-		},
+	nightWindows: [
+		{ name: 'night', start: '22:00', end: '08:00' },
+		{ name: 'lunch', days: ['mon', 'tue', 'wed', 'thu', 'fri'], start: '12:00', end: '13:00' },
 	],
 }
 
-describe('evaluateSchedule', () => {
-	it('returns baseline at 10:00 on a Wednesday', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-08T10:00'))
-		expect(r.activeName).toBe('baseline')
-		expect(r.skills).toEqual(['review', 'estimate', 'respond', 'summarize'])
+describe('isNightAt', () => {
+	it('inactive at 10:00 on a Wednesday', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-08T10:00'))
+		expect(r.active).toBe(false)
+		expect(r.window).toBeNull()
 	})
 
-	it('matches `night` at 23:30 (late part of wrap window)', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-08T23:30'))
-		expect(r.activeName).toBe('night')
-		expect(r.skills).toContain('implement')
+	it('active at 23:30 (late part of wrap window)', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-08T23:30'))
+		expect(r.active).toBe(true)
+		expect(r.window).toBe('night')
 	})
 
-	it('matches `night` at 03:00 (early part of yesterday-started wrap)', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-09T03:00'))
-		expect(r.activeName).toBe('night')
+	it('active at 03:00 (early part of yesterday-started wrap)', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-09T03:00'))
+		expect(r.active).toBe(true)
+		expect(r.window).toBe('night')
 	})
 
-	it('lunch overrides baseline on weekdays', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-08T12:30'))
-		expect(r.activeName).toBe('lunch')
-		expect(r.skills).toEqual(['implement'])
+	it('lunch active on weekdays', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-08T12:30'))
+		expect(r.active).toBe(true)
+		expect(r.window).toBe('lunch')
 	})
 
-	it('lunch is skipped on weekends (no `sat` in days)', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-11T12:30'))
-		expect(r.activeName).toBe('baseline')
+	it('lunch skipped on weekends', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-11T12:30'))
+		expect(r.active).toBe(false)
 	})
 
-	it('end is exclusive (08:00 sharp = baseline)', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-08T08:00'))
-		expect(r.activeName).toBe('baseline')
+	it('end is exclusive (08:00 sharp = inactive)', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-08T08:00'))
+		expect(r.active).toBe(false)
 	})
 
-	it('start is inclusive (22:00 sharp = night)', () => {
-		const r = evaluateSchedule(SCHEDULE, localDate('2026-04-08T22:00'))
-		expect(r.activeName).toBe('night')
+	it('start is inclusive (22:00 sharp = active)', () => {
+		const r = isNightAt(SCHEDULE, localDate('2026-04-08T22:00'))
+		expect(r.active).toBe(true)
+	})
+
+	it('matches a calendar-date window all day by default', () => {
+		const dateOnly = parseSchedule(`
+timezone: ${TZ}
+nightWindows:
+  - name: vacation
+    dates: ['2026-07-15']
+`)
+		expect(isNightAt(dateOnly, localDate('2026-07-15T00:00')).active).toBe(true)
+		expect(isNightAt(dateOnly, localDate('2026-07-15T23:59')).active).toBe(true)
+		expect(isNightAt(dateOnly, localDate('2026-07-16T00:00')).active).toBe(false)
+		expect(isNightAt(dateOnly, localDate('2026-07-14T23:59')).active).toBe(false)
+	})
+
+	it('date-anchored window respects start/end', () => {
+		const dateBlock: Schedule = {
+			timezone: TZ,
+			nightWindows: [
+				{ name: 'evening', dates: ['2026-07-15'], start: '18:00', end: '23:00' },
+			],
+		}
+		expect(isNightAt(dateBlock, localDate('2026-07-15T18:30')).active).toBe(true)
+		expect(isNightAt(dateBlock, localDate('2026-07-15T23:00')).active).toBe(false)
+		expect(isNightAt(dateBlock, localDate('2026-07-15T17:59')).active).toBe(false)
 	})
 })
 
@@ -136,7 +149,7 @@ describe('nextTransition', () => {
 	})
 
 	it('returns 7-day horizon when no windows defined', () => {
-		const empty: Schedule = { timezone: TZ, baseline: ['review'], windows: [] }
+		const empty: Schedule = { timezone: TZ, nightWindows: [] }
 		const now = localDate('2026-04-08T10:00')
 		const t = nextTransition(empty, now)
 		const expected = now.getTime() + 7 * 24 * 60 * 60 * 1000
@@ -148,54 +161,75 @@ describe('parseSchedule', () => {
 	it('parses a minimal valid YAML', () => {
 		const s = parseSchedule(`
 timezone: Europe/Prague
-baseline: [review, respond]
-windows:
+nightWindows:
   - name: night
     start: "22:00"
     end: "08:00"
-    skills: [implement, review]
 `)
 		expect(s.timezone).toBe('Europe/Prague')
-		expect(s.baseline).toEqual(['review', 'respond'])
-		expect(s.windows).toHaveLength(1)
-		expect(s.windows[0]?.name).toBe('night')
-		expect(s.windows[0]?.days).toHaveLength(7)
+		expect(s.nightWindows).toHaveLength(1)
+		expect(s.nightWindows[0]?.name).toBe('night')
 	})
 
 	it('parses the default YAML emitted by init-schedule', () => {
 		const s = parseSchedule(defaultScheduleYaml())
-		expect(s.windows.map((w) => w.name)).toEqual(['night', 'lunch'])
+		expect(s.nightWindows.map((w) => w.name)).toEqual(['night', 'lunch'])
 	})
 
-	it('rejects unknown skill values with a useful path', () => {
+	it('rejects mixing days and dates on one window', () => {
 		expect(() =>
 			parseSchedule(`
 timezone: UTC
-baseline: [review, deploy]
+nightWindows:
+  - name: x
+    days: [mon]
+    dates: ['2026-04-08']
+    start: "10:00"
+    end: "11:00"
 `),
-		).toThrow(/baseline\[1\]/)
+		).toThrow(/either `days` or `dates`/)
 	})
 
 	it('rejects bogus HH:MM', () => {
 		expect(() =>
 			parseSchedule(`
 timezone: UTC
-baseline: [review]
-windows:
+nightWindows:
   - name: x
     start: "25:00"
     end: "08:00"
-    skills: [implement]
 `),
 		).toThrow(/start/)
+	})
+
+	it('rejects bogus calendar date', () => {
+		expect(() =>
+			parseSchedule(`
+timezone: UTC
+nightWindows:
+  - name: x
+    dates: ["2026-13-40"]
+`),
+		).toThrow(/dates/)
 	})
 
 	it('rejects an unknown timezone', () => {
 		expect(() =>
 			parseSchedule(`
 timezone: Mars/Olympus
-baseline: [review]
+nightWindows: []
 `),
 		).toThrow(/timezone/)
+	})
+
+	it('defaults missing start/end to all-day', () => {
+		const s = parseSchedule(`
+timezone: UTC
+nightWindows:
+  - name: weekend
+    days: [sat, sun]
+`)
+		expect(s.nightWindows[0]?.start).toBe('00:00')
+		expect(s.nightWindows[0]?.end).toBe('24:00')
 	})
 })

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ALL_SKILLS } from '@night/shared'
 import { fetchGithubIdentity, loadConfig, type GithubIdentity } from './config.ts'
 
 const REQUIRED_ENV = [
@@ -79,9 +80,11 @@ describe('loadConfig', () => {
 		expect(cfg.limits.maxTaskDurationMinutes).toBe(120)
 		expect(cfg.limits.maxTokensPerTask).toBeNull()
 		expect(cfg.limits.maxTokensPerDay).toBeNull()
-		// No SKILLS env set → schedule mode kicks in. Built-in default has
-		// `night` and `lunch` windows, so the schedule isn't degenerate.
-		expect(cfg.schedule.windows.map((w) => w.name)).toContain('night')
+		// No SKILLS env → fullSkills defaults to all five.
+		expect(cfg.skills).toEqual([...ALL_SKILLS])
+		// No SCHEDULE_FILE pointing at an existing file → built-in default,
+		// which has `night` and `lunch` windows.
+		expect(cfg.schedule.nightWindows.map((w) => w.name)).toContain('night')
 		expect(cfg.scheduleSource).toBeNull()
 	})
 
@@ -114,13 +117,10 @@ describe('loadConfig', () => {
 		await expect(loadConfig(stubIdentity)).rejects.toThrow(/WORKER_PROFILE must be/)
 	})
 
-	it('parses SKILLS, trimming whitespace and dropping empties (degenerate schedule)', async () => {
+	it('parses SKILLS, trimming whitespace and dropping empties', async () => {
 		process.env.SKILLS = ' implement , review ,, '
 		const cfg = await loadConfig(stubIdentity)
-		// Backwards-compat path: SKILLS env yields a no-windows schedule
-		// whose baseline is the parsed list.
-		expect(cfg.schedule.baseline).toEqual(['implement', 'review'])
-		expect(cfg.schedule.windows).toEqual([])
+		expect(cfg.skills).toEqual(['implement', 'review'])
 	})
 
 	it('rejects an unknown skill (typo guard)', async () => {
