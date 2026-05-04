@@ -126,6 +126,12 @@ export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> 
  * includes public org repos the user is only a read-only member of, which
  * the PAT can't push to. Filter by `permissions.push` so the allowlist
  * matches what the Member can actually do work on.
+ *
+ * Note: `permissions` here reflects the *user's* role, not the token's
+ * effective scopes. A fine-grained PAT scoped to `Contents: Read` on a
+ * repo the user owns will still come back as pushable. The Repos panel
+ * surfaces this list as suggestions only; the actual push attempt at
+ * task time is the final source of truth.
  */
 async function fetchAccessibleRepos(pat: string): Promise<string[]> {
 	const PER_PAGE = 100

@@ -1,5 +1,6 @@
 import {
 	Alert,
+	Autocomplete,
 	Box,
 	Button,
 	IconButton,
@@ -108,6 +109,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 				showWizard ? (
 					<RepoWizard
 						initialRepo={prefillRepo}
+						suggestions={suggested}
 						onCreated={() => {
 							setShowWizard(false)
 							refresh()
@@ -190,72 +192,18 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 					</Table>
 				</TableContainer>
 			)}
-
-			{suggested.length > 0 ? (
-				<Stack spacing={1}>
-					<Typography variant="subtitle2" color="text.secondary">
-						Suggested by connected members
-					</Typography>
-					<Typography variant="caption" color="text.secondary">
-						These repos are reachable by at least one member's PAT but aren't bound yet.
-						Bind them to receive issue/PR webhooks.
-					</Typography>
-					<TableContainer component={Paper} variant="outlined">
-						<Table size="small">
-							<TableHead>
-								<TableRow>
-									<TableCell>Repo</TableCell>
-									<TableCell>Suggested by</TableCell>
-									<TableCell />
-								</TableRow>
-							</TableHead>
-							<TableBody>
-								{suggested.map((s) => (
-									<TableRow key={s.repo} hover>
-										<TableCell>
-											<Typography
-												component="code"
-												sx={{ fontFamily: 'monospace' }}
-											>
-												{s.repo}
-											</Typography>
-										</TableCell>
-										<TableCell>
-											<Typography variant="body2" color="text.secondary">
-												{s.members
-													.map((m) => m.displayName || m.memberName)
-													.join(', ')}
-											</Typography>
-										</TableCell>
-										<TableCell align="right">
-											{canManage ? (
-												<Button
-													size="small"
-													variant="outlined"
-													startIcon={<AddIcon />}
-													onClick={() => startWizard(s.repo)}
-												>
-													Bind
-												</Button>
-											) : null}
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					</TableContainer>
-				</Stack>
-			) : null}
 		</Stack>
 	)
 }
 
 function RepoWizard({
 	initialRepo,
+	suggestions,
 	onCreated,
 	onCancel,
 }: {
 	initialRepo: string
+	suggestions: SuggestedRepo[]
 	onCreated: () => void
 	onCancel: () => void
 }) {
@@ -327,18 +275,59 @@ function RepoWizard({
 					<form onSubmit={requestDraft}>
 						<Stack spacing={2}>
 							<Typography variant="body2" color="text.secondary">
-								Enter the repository in <code>org/name</code> form. After this we'll
-								generate a webhook secret and walk you through adding it on GitHub.
+								Enter the repository in <code>org/name</code> form. Suggestions
+								below come from connected members' PATs — pick one or type your own.
+								After this we'll generate a webhook secret and walk you through
+								adding it on GitHub.
 							</Typography>
-							<TextField
-								label="GitHub repository"
-								placeholder="org/name"
-								value={repo}
-								onChange={(e) => setRepo(e.target.value)}
-								required
-								slotProps={{ htmlInput: { pattern: '[^/]+/[^/]+' } }}
+							<Autocomplete<SuggestedRepo, false, false, true>
+								freeSolo
+								options={suggestions}
+								getOptionLabel={(option) =>
+									typeof option === 'string' ? option : option.repo
+								}
+								isOptionEqualToValue={(option, value) =>
+									option.repo === (typeof value === 'string' ? value : value.repo)
+								}
+								renderOption={(props, option) => {
+									const { key, ...rest } = props as typeof props & {
+										key?: string
+									}
+									return (
+										<li key={option.repo} {...rest}>
+											<Stack>
+												<Typography
+													component="code"
+													variant="body2"
+													sx={{ fontFamily: 'monospace' }}
+												>
+													{option.repo}
+												</Typography>
+												<Typography
+													variant="caption"
+													color="text.secondary"
+												>
+													Suggested by{' '}
+													{option.members
+														.map((m) => m.displayName || m.memberName)
+														.join(', ')}
+												</Typography>
+											</Stack>
+										</li>
+									)
+								}}
+								inputValue={repo}
+								onInputChange={(_e, value) => setRepo(value)}
 								size="small"
-								autoFocus
+								renderInput={(params) => (
+									<TextField
+										{...params}
+										label="GitHub repository"
+										placeholder="org/name"
+										required
+										autoFocus
+									/>
+								)}
 							/>
 							<Stack
 								direction="row"
