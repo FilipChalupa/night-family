@@ -252,13 +252,18 @@ function TasksTable({
 				<TableHead>
 					<TableRow>
 						<TableCell>Title</TableCell>
-						<TableCell>Kind</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Kind</TableCell>
 						<TableCell>Status</TableCell>
-						<TableCell>Assigned</TableCell>
-						<TableCell>Repo</TableCell>
-						<TableCell>Estimate</TableCell>
-						<TableCell align="right">Tokens</TableCell>
-						<TableCell>Created</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Assigned</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Repo</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Estimate</TableCell>
+						<TableCell
+							align="right"
+							sx={{ display: { xs: 'none', lg: 'table-cell' } }}
+						>
+							Tokens
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Created</TableCell>
 						<TableCell />
 					</TableRow>
 				</TableHead>
@@ -306,7 +311,7 @@ function TasksTable({
 									</Typography>
 								) : null}
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								<Typography variant="body2" color="text.secondary">
 									{t.kind}
 								</Typography>
@@ -324,7 +329,7 @@ function TasksTable({
 									) : null}
 								</Stack>
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								{t.assignedMemberId ? (
 									<RouterLink
 										to="/members/$memberId"
@@ -344,7 +349,7 @@ function TasksTable({
 									</Typography>
 								)}
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
 								{t.repo ? (
 									<Link
 										href={`https://github.com/${t.repo}`}
@@ -362,7 +367,7 @@ function TasksTable({
 									</Typography>
 								)}
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								{t.estimateSize ? (
 									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
 										<Tooltip title={estimateTooltip(t.estimateSize)}>
@@ -391,7 +396,10 @@ function TasksTable({
 									</Typography>
 								)}
 							</TableCell>
-							<TableCell align="right">
+							<TableCell
+								align="right"
+								sx={{ display: { xs: 'none', lg: 'table-cell' } }}
+							>
 								{(() => {
 									const n = tokensByTask[t.id]
 									if (!n) {
@@ -414,7 +422,7 @@ function TasksTable({
 									)
 								})()}
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
 								<Tooltip title={t.createdAt}>
 									<Typography variant="body2" color="text.secondary">
 										{relativeTime(t.createdAt)}

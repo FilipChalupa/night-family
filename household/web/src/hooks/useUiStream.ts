@@ -6,11 +6,18 @@ export function useUiStream(enabled: boolean): {
 	tasks: TaskRecord[]
 	connected: boolean
 	householdProtocolVersion: string | null
+	/**
+	 * Wall-clock time (ms since epoch) the WebSocket last received any message.
+	 * `null` until the first message arrives. Lets the UI flag a stale
+	 * connection — socket nominally open but server stopped sending.
+	 */
+	lastMessageAt: number | null
 } {
 	const [members, setMembers] = useState<MemberSnapshot[]>([])
 	const [tasks, setTasks] = useState<TaskRecord[]>([])
 	const [connected, setConnected] = useState(false)
 	const [householdProtocolVersion, setHouseholdProtocolVersion] = useState<string | null>(null)
+	const [lastMessageAt, setLastMessageAt] = useState<number | null>(null)
 	const wsRef = useRef<WebSocket | null>(null)
 	const reconnectTimer = useRef<number | null>(null)
 	const closedManually = useRef(false)
@@ -20,6 +27,7 @@ export function useUiStream(enabled: boolean): {
 			setConnected(false)
 			setMembers([])
 			setTasks([])
+			setLastMessageAt(null)
 			closedManually.current = true
 			wsRef.current?.close()
 			if (reconnectTimer.current !== null) {
@@ -45,6 +53,7 @@ export function useUiStream(enabled: boolean): {
 				} catch {
 					return
 				}
+				setLastMessageAt(Date.now())
 				switch (msg.type) {
 					case 'snapshot':
 						setMembers(msg.members)
@@ -101,7 +110,7 @@ export function useUiStream(enabled: boolean): {
 		}
 	}, [enabled])
 
-	return { members, tasks, connected, householdProtocolVersion }
+	return { members, tasks, connected, householdProtocolVersion, lastMessageAt }
 }
 
 function upsert<T>(prev: T[], item: T, key: (x: T) => string): T[] {

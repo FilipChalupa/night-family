@@ -62,13 +62,19 @@ export function MembersPanel({
 					<TableRow>
 						<TableCell>Name</TableCell>
 						<TableCell>Status</TableCell>
-						<TableCell>Provider · Model</TableCell>
-						<TableCell>Skills</TableCell>
-						<TableCell>Profile</TableCell>
-						<TableCell>Protocol</TableCell>
-						{tokens ? <TableCell>Token</TableCell> : null}
-						<TableCell>Connected</TableCell>
-						<TableCell>First seen</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+							Provider · Model
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Skills</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Profile</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Protocol</TableCell>
+						{tokens ? (
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Token</TableCell>
+						) : null}
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Connected</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+							First seen
+						</TableCell>
 					</TableRow>
 				</TableHead>
 				<TableBody>
@@ -188,41 +194,41 @@ export function MembersPanel({
 									</Stack>
 								) : null}
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								<Typography variant="body2">{m.provider}</Typography>
 								<Typography variant="caption" color="text.secondary">
 									{m.model}
 								</Typography>
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 								<Typography variant="body2" color="text.secondary">
 									{m.skills.join(', ')}
 								</Typography>
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 								<Typography variant="body2" color="text.secondary">
 									{m.workerProfile}
 								</Typography>
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								<ProtocolCell
 									memberVersion={m.protocolVersion}
 									householdVersion={householdProtocolVersion}
 								/>
 							</TableCell>
 							{tokens ? (
-								<TableCell>
+								<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 									<TokenCell token={tokenById.get(m.tokenId) ?? null} fallbackId={m.tokenId} />
 								</TableCell>
 							) : null}
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
 								<Tooltip title={m.connectedAt}>
 									<Typography variant="body2" color="text.secondary">
 										{relativeTime(m.connectedAt)}
 									</Typography>
 								</Tooltip>
 							</TableCell>
-							<TableCell>
+							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 								<Tooltip title={m.firstConnectedAt}>
 									<Typography variant="body2" color="text.secondary">
 										{relativeTime(m.firstConnectedAt)}

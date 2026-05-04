@@ -14,6 +14,8 @@ export interface AppData {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
 	connected: boolean
+	/** Wall-clock time (ms) of the last WS message; null until the first arrives. */
+	lastMessageAt: number | null
 	householdProtocolVersion: string | null
 	isAdmin: boolean
 	canSeeUsers: boolean

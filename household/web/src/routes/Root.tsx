@@ -3,7 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet } from '@tanstack/react-router'
 import { AppDataProvider, type Health } from '../AppContext.tsx'
 import { ConnectionStatus } from '../components/ConnectionStatus.tsx'
+import { InstallButton } from '../components/InstallButton.tsx'
+import { NotificationsToggle } from '../components/NotificationsToggle.tsx'
 import { UpdateToast } from '../components/UpdateToast.tsx'
+import { useTaskNotifications } from '../hooks/useTaskNotifications.ts'
 import { useUiStream } from '../hooks/useUiStream.ts'
 import type { CurrentUser, TaskKind } from '../types.ts'
 
@@ -24,8 +27,9 @@ export function RootLayout() {
 		},
 	})
 	const shouldConnectUiStream = me?.authenticated === true || me?.require_ui_login !== true
-	const { members, tasks, connected, householdProtocolVersion } =
+	const { members, tasks, connected, householdProtocolVersion, lastMessageAt } =
 		useUiStream(shouldConnectUiStream)
+	useTaskNotifications(tasks)
 
 	const isAdmin =
 		(me?.authenticated === true && me.role === 'admin') || me?.oauth_configured === false
@@ -40,7 +44,7 @@ export function RootLayout() {
 
 	if (!me) {
 		return (
-			<Container maxWidth="lg" sx={{ py: 3 }}>
+			<Container maxWidth="lg" sx={{ py: 3, px: { xs: 1.5, sm: 3 } }}>
 				<EmptyState>Loading dashboard…</EmptyState>
 			</Container>
 		)
@@ -113,6 +117,7 @@ export function RootLayout() {
 				members,
 				tasks,
 				connected,
+				lastMessageAt,
 				householdProtocolVersion,
 				isAdmin,
 				canSeeUsers,
@@ -121,7 +126,7 @@ export function RootLayout() {
 				retryTask,
 			}}
 		>
-			<Container maxWidth="lg" sx={{ py: 3 }}>
+			<Container maxWidth="lg" sx={{ py: 3, px: { xs: 1.5, sm: 3 } }}>
 				<Stack
 					direction={{ xs: 'column', md: 'row' }}
 					spacing={1.5}
@@ -152,7 +157,10 @@ export function RootLayout() {
 								{health?.household ?? 'Night Family'}
 							</Typography>
 							{shouldConnectUiStream ? (
-								<ConnectionStatus connected={connected} />
+								<ConnectionStatus
+									connected={connected}
+									lastMessageAt={lastMessageAt}
+								/>
 							) : null}
 						</Stack>
 						<Typography variant="body2" color="text.secondary">
@@ -166,9 +174,15 @@ export function RootLayout() {
 						spacing={1.5}
 						sx={{ alignItems: 'center', flexWrap: 'wrap' }}
 					>
+						<InstallButton />
+						<NotificationsToggle />
 						{me.authenticated ? (
 							<>
-								<Typography variant="body2" color="text.secondary">
+								<Typography
+									variant="body2"
+									color="text.secondary"
+									sx={{ display: { xs: 'none', sm: 'inline' } }}
+								>
 									signed in as <strong>{me.username}</strong> · role {me.role}
 								</Typography>
 								<Button
