@@ -258,14 +258,14 @@ const PRESETS: Array<{ key: string; label: string; skills: string[] }> = [
 		skills: ['implement'],
 	},
 	{
-		key: 'implement-plus',
-		label: 'Implement + responses',
-		skills: ['implement', 'review', 'estimate', 'respond', 'summarize'],
+		key: 'night-mode',
+		label: 'Night mode (everything)',
+		skills: ['implement', 'review', 'triage', 'respond', 'summarize'],
 	},
 	{
-		key: 'review-only',
-		label: 'Review-only',
-		skills: ['review', 'estimate', 'respond', 'summarize'],
+		key: 'day-mode',
+		label: 'Day mode (no implement)',
+		skills: ['review', 'triage', 'respond', 'summarize'],
 	},
 ]
 

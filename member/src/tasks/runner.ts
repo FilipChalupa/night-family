@@ -137,7 +137,7 @@ export class TaskRunner {
 			const isNoWorkspace =
 				isReview ||
 				task.kind === 'respond' ||
-				task.kind === 'estimate' ||
+				task.kind === 'triage' ||
 				task.kind === 'summarize'
 
 			let workspace: Workspace | null = null
@@ -152,7 +152,8 @@ export class TaskRunner {
 				})
 				await emit('log', { message: 'workspace ready', branch: workspace.branch })
 			} else {
-				// estimate, summarize, review — just need a scratch dir for any file ops.
+				// triage, summarize, review, respond — just need a scratch dir
+				// for any file ops the agent does while reading context.
 				const scratch = join(this.deps.workspaceDir, task.taskId, 'scratch')
 				await mkdir(scratch, { recursive: true })
 			}
@@ -291,13 +292,11 @@ export class TaskRunner {
 						if (opened) {
 							prUrl = opened.url
 							await emit('log', { message: 'draft PR opened', url: opened.url })
-							if (task.kind !== 'estimate') {
-								await workspace.markPrReady(opened.url)
-								await emit('log', {
-									message: 'PR ready for review',
-									url: opened.url,
-								})
-							}
+							await workspace.markPrReady(opened.url)
+							await emit('log', {
+								message: 'PR ready for review',
+								url: opened.url,
+							})
 						} else {
 							await emit('log', { message: 'PR open skipped (gh failed)' })
 						}
@@ -369,12 +368,13 @@ export class TaskRunner {
 	}
 
 	/**
-	 * Shape the wire-level `result` based on task kind. Estimate must return
-	 * `{size, blockers}`; everything else returns the agent summary.
+	 * Shape the wire-level `result` based on task kind. Triage and review
+	 * each end with a JSON line the dispatcher reads to drive follow-up
+	 * decisions; everything else returns just the agent's summary string.
 	 */
 	private shapeResult(kind: TaskKind, summary: string): unknown {
-		if (kind === 'estimate') {
-			return parseEstimateOutput(summary)
+		if (kind === 'triage') {
+			return parseTriageOutput(summary)
 		}
 		if (kind === 'review') {
 			return parseReviewOutput(summary)
@@ -384,31 +384,35 @@ export class TaskRunner {
 }
 
 /**
- * Try to extract `{size, blockers}` from a summary string. The agent is
- * instructed to end with a JSON line; if it doesn't, we fall back to size=M.
+ * Extract the triage agent's final JSON line:
+ *   {"outcome":"question"}
+ *   {"outcome":"plan","size":"S|M|L|XL"}
+ *
+ * Falls back to `outcome:'unknown'` if the agent didn't end with a
+ * JSON line we can parse — the dispatcher treats that the same as a
+ * question (no implement task spawned).
  */
-function parseEstimateOutput(summary: string): {
-	size: 'S' | 'M' | 'L' | 'XL'
-	blockers: string[]
+function parseTriageOutput(summary: string): {
+	outcome: 'question' | 'plan' | 'unknown'
+	size?: 'S' | 'M' | 'L' | 'XL'
 } {
-	const match = summary.match(/\{[\s\S]*"size"[\s\S]*\}/)
+	const match = summary.match(/\{[\s\S]*"outcome"[\s\S]*\}/)
 	if (match) {
 		try {
-			const obj = JSON.parse(match[0]) as {
-				size?: string
-				blockers?: string[]
-			}
-			if (obj.size === 'S' || obj.size === 'M' || obj.size === 'L' || obj.size === 'XL') {
-				const blockers = Array.isArray(obj.blockers)
-					? obj.blockers.filter((b): b is string => typeof b === 'string')
-					: []
-				return { size: obj.size, blockers }
+			const obj = JSON.parse(match[0]) as { outcome?: string; size?: string }
+			if (obj.outcome === 'question') return { outcome: 'question' }
+			if (obj.outcome === 'plan') {
+				const size =
+					obj.size === 'S' || obj.size === 'M' || obj.size === 'L' || obj.size === 'XL'
+						? obj.size
+						: undefined
+				return size ? { outcome: 'plan', size } : { outcome: 'plan' }
 			}
 		} catch {
 			/* fall through */
 		}
 	}
-	return { size: 'M', blockers: [] }
+	return { outcome: 'unknown' }
 }
 
 /**
