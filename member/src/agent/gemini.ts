@@ -3,6 +3,7 @@
  */
 
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '@google/genai'
+import { buildAttributionInstruction } from '../attribution.ts'
 import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
@@ -187,7 +188,7 @@ export class GeminiProvider implements Provider {
 }
 
 function buildKickoffPrompt(task: AgentTask): string {
-	const { title, description, kind, prUrl, repo, metadata } = task
+	const { title, description, kind, prUrl, repo, metadata, attributionFooter } = task
 	const issueNumber = readIssueNumber(metadata)
 
 	if (kind === 'review' && prUrl) {
@@ -213,6 +214,8 @@ function buildKickoffPrompt(task: AgentTask): string {
 			`with the same body and still report your verdict accurately in the JSON`,
 			`block — the household tracks approvals internally.`,
 			``,
+			buildAttributionInstruction(attributionFooter),
+			``,
 			`End your summary with a JSON block on its own line:`,
 			`{"verdict":"approved"} or {"verdict":"changes_requested"} or {"verdict":"commented"}`,
 		].join('\n')
@@ -232,6 +235,9 @@ function buildKickoffPrompt(task: AgentTask): string {
 			`1. Run \`gh pr view ${prUrl} --comments\` to read the PR thread.`,
 			`2. Run \`gh pr diff ${prUrl}\` if you need to see the code context.`,
 			`3. Respond using: \`gh pr comment ${prUrl} --body "<your response>"\``,
+			``,
+			buildAttributionInstruction(attributionFooter),
+			``,
 			`When done, summarize the responses you posted.`,
 		].join('\n')
 	}

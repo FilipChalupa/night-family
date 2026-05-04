@@ -15,6 +15,13 @@ export interface AgentTask {
 	prUrl: string | null
 	metadata: Record<string, unknown> | null
 	systemPromptAddition: string | null
+	/**
+	 * Markdown line the agent must append to anything it posts back to GitHub
+	 * (PR reviews, PR comments). Built from member/task identity so a reader
+	 * can click through to the Household. PR bodies opened by the runner get
+	 * the same line via `buildPrDescription`.
+	 */
+	attributionFooter: string
 }
 
 /**

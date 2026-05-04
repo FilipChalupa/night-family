@@ -7,6 +7,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { buildAttributionInstruction } from '../attribution.ts'
 import type { AgentTask, Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
 const MAX_LOOP_ITERATIONS = 30
@@ -191,7 +192,7 @@ export class AnthropicProvider implements Provider {
 }
 
 function buildKickoffPrompt(task: AgentTask): string {
-	const { title, description, kind, prUrl, repo, metadata } = task
+	const { title, description, kind, prUrl, repo, metadata, attributionFooter } = task
 	const issueNumber = readIssueNumber(metadata)
 
 	if (kind === 'review' && prUrl) {
@@ -219,6 +220,8 @@ function buildKickoffPrompt(task: AgentTask): string {
 			`block — the household tracks approvals internally regardless of what the`,
 			`GitHub UI shows.`,
 			``,
+			buildAttributionInstruction(attributionFooter),
+			``,
 			`When done, write a brief summary of your findings and end with a JSON block`,
 			`on its own line — for example:`,
 			`{"verdict":"approved"}`,
@@ -244,6 +247,8 @@ function buildKickoffPrompt(task: AgentTask): string {
 			`2. Run \`gh pr diff ${prUrl}\` if you need to see the code context.`,
 			`3. Respond to the reviewer's comments using:`,
 			`   \`gh pr comment ${prUrl} --body "<your response>"\``,
+			``,
+			buildAttributionInstruction(attributionFooter),
 			``,
 			`Address each outstanding comment. If changes are needed, describe what`,
 			`you plan to do (a separate implement task will handle the code changes).`,

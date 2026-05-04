@@ -31,6 +31,7 @@ import {
 	type TokenUsage,
 } from '../agent/types.ts'
 import { createDefaultTools } from '../agent/tools.ts'
+import { buildAttributionFooter } from '../attribution.ts'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { Workspace } from './workspace.ts'
 
@@ -170,6 +171,13 @@ export class TaskRunner {
 				projectInstructions,
 			})
 
+			const attributionFooter = buildAttributionFooter({
+				memberName: this.deps.memberName,
+				memberId: this.deps.memberId,
+				taskId: task.taskId,
+				householdUrl: this.deps.householdUrl,
+			})
+
 			const agentTask: AgentTask = {
 				taskId: task.taskId,
 				kind: task.kind,
@@ -179,6 +187,7 @@ export class TaskRunner {
 				prUrl: task.prUrl,
 				metadata: task.metadata ?? null,
 				systemPromptAddition: projectInstructions,
+				attributionFooter,
 			}
 
 			const stats = new RunStats()
@@ -267,12 +276,9 @@ export class TaskRunner {
 						const description = buildPrDescription({
 							title: task.title,
 							summary: providerResult.summary,
-							memberName: this.deps.memberName,
-							memberId: this.deps.memberId,
-							householdUrl: this.deps.householdUrl,
+							attributionFooter,
 							provider: this.deps.provider.name,
 							model: this.deps.provider.model,
-							taskId: task.taskId,
 							stats,
 							issue: githubIssueRef(task.metadata),
 						})
@@ -475,12 +481,9 @@ function githubIssueRef(
 function buildPrDescription(opts: {
 	title: string
 	summary: string
-	memberName: string
-	memberId: string
-	householdUrl: string
+	attributionFooter: string
 	provider: string
 	model: string
-	taskId: string
 	stats: RunStats
 	issue: { number: number | null; url: string | null } | null
 }): string {
@@ -528,12 +531,7 @@ function buildPrDescription(opts: {
 	lines.push('')
 
 	lines.push('---')
-	const base = opts.householdUrl.replace(/\/$/, '')
-	const memberUrl = `${base}/members/${encodeURIComponent(opts.memberId)}`
-	const taskUrl = `${base}/tasks/${encodeURIComponent(opts.taskId)}`
-	lines.push(
-		`🤖 Authored by Night Family member [\`${opts.memberName}\`](${memberUrl}) · task [\`${opts.taskId.slice(0, 8)}\`](${taskUrl})`,
-	)
+	lines.push(opts.attributionFooter)
 	return lines.join('\n')
 }
 
