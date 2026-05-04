@@ -72,6 +72,7 @@ function fakeMember(opts: {
 	repos?: string[] | null
 	status?: 'idle' | 'busy'
 	send?: (m: unknown) => void
+	skills?: ConnectedMember['skills']
 }): ConnectedMember {
 	const sessionId = `sess-${opts.memberName}-${Math.random().toString(16).slice(2, 8)}`
 	return {
@@ -79,7 +80,7 @@ function fakeMember(opts: {
 		memberId: `mid-${sessionId}`,
 		memberName: opts.memberName,
 		displayName: opts.memberName,
-		skills: ['implement', 'review', 'estimate'],
+		skills: opts.skills ?? ['implement', 'review', 'estimate'],
 		repos: opts.repos ?? null,
 		provider: 'anthropic',
 		model: 'm',
@@ -345,5 +346,97 @@ describe('Dispatcher review-job republish', () => {
 		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
 		expect(latest?.failed).toBe(1)
 		expect(latest?.inProgress).toBe(0)
+	})
+})
+
+describe('Dispatcher triage → implement spawning', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function startTriage(opts: { repo: string; issueNumber: number }): {
+		triageId: string
+		member: ConnectedMember
+	} {
+		// Day-mode member: only `triage`. So the freshly-spawned implement
+		// task can't be claimed by anyone in this test, and we can assert
+		// it stays in `queued`.
+		const member = fakeMember({ memberName: 't-runner', status: 'idle', skills: ['triage'] })
+		rig.registry.add(member)
+		const task = rig.taskStore.create({
+			kind: 'triage',
+			title: 'Make widget faster',
+			description: 'Improve perf',
+			repo: opts.repo,
+			skipEstimate: true,
+			metadata: {
+				github_issue_number: opts.issueNumber,
+				github_issue_url: `https://github.com/${opts.repo}/issues/${opts.issueNumber}`,
+			},
+		})
+		const claimed = rig.taskStore.claimNextFor(['triage'], {
+			sessionId: member.sessionId,
+			memberId: member.memberId,
+		})!
+		expect(claimed.id).toBe(task.id)
+		rig.taskStore.transition(claimed.id, ['assigned'], 'in-progress', {})
+		return { triageId: claimed.id, member }
+	}
+
+	it('plan outcome spawns an implement task for the same issue and stores the size', () => {
+		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 42 })
+
+		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'M' }, null)
+
+		// Triage task itself moves to `done`.
+		expect(rig.taskStore.get(triageId)?.status).toBe('done')
+
+		// A new `implement` task exists for the same issue, in `queued`, with
+		// the size from the plan output.
+		const all = rig.taskStore.list({ repo: 'o/r' })
+		const implement = all.find((t) => t.kind === 'implement')
+		expect(implement).toBeDefined()
+		expect(implement?.status).toBe('queued')
+		expect(implement?.estimateSize).toBe('M')
+		expect(
+			(implement?.metadata as Record<string, unknown> | null)?.['github_issue_number'],
+		).toBe(42)
+		expect(
+			(implement?.metadata as Record<string, unknown> | null)?.['spawned_from_triage'],
+		).toBe(triageId)
+	})
+
+	it('question outcome does NOT spawn an implement task', () => {
+		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 43 })
+
+		rig.dispatcher.onCompleted(triageId, { outcome: 'question' }, null)
+
+		expect(rig.taskStore.get(triageId)?.status).toBe('done')
+		const all = rig.taskStore.list({ repo: 'o/r' })
+		expect(all.find((t) => t.kind === 'implement')).toBeUndefined()
+	})
+
+	it('does not spawn a duplicate implement when one is already in flight for the issue', () => {
+		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 44 })
+		// Pre-existing implement task for the same issue (e.g. from a prior triage).
+		rig.taskStore.create({
+			kind: 'implement',
+			title: 'pre-existing',
+			description: '',
+			repo: 'o/r',
+			skipEstimate: true,
+			metadata: { github_issue_number: 44 },
+		})
+
+		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'L' }, null)
+
+		const implements_ = rig.taskStore
+			.list({ repo: 'o/r' })
+			.filter((t) => t.kind === 'implement')
+		expect(implements_).toHaveLength(1)
+		// And the one that's there is the original — not overwritten.
+		expect(implements_[0]?.title).toBe('pre-existing')
 	})
 })

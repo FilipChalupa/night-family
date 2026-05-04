@@ -61,7 +61,11 @@ interface Props {
 	showCreateForm?: boolean
 }
 
-const KINDS: TaskKind[] = ['implement', 'review', 'respond', 'summarize', 'estimate']
+// Filter order roughly mirrors the typical lifecycle: triage runs first,
+// then implement, then review/respond, summarize is standalone. Estimate
+// stays at the end as deprecated — kept so old persisted tasks still
+// show up under their kind filter.
+const KINDS: TaskKind[] = ['triage', 'implement', 'review', 'respond', 'summarize', 'estimate']
 const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'new',
 	'estimating',

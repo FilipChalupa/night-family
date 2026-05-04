@@ -451,6 +451,17 @@ export class Dispatcher {
 						'triage finished without a plan; waiting for next human reply',
 					)
 				}
+				const issueNumber = readIssueNumber(task.metadata)
+				this.deps.notifSender
+					?.fire('triage.result', {
+						taskId,
+						title: task.title,
+						repo: task.repo,
+						issueNumber,
+						outcome: triage?.outcome ?? 'unknown',
+						size: triage?.outcome === 'plan' ? triage.size : null,
+					})
+					.catch(() => undefined)
 			}
 			const target: TaskStatus = task.kind === 'implement' ? 'in-review' : 'done'
 			let updated = this.deps.taskStore.transition(

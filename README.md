@@ -106,6 +106,8 @@ and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
 
 Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
 
+> **Operator how-tos** (setting up a repo, the `night` label, the schedule UI) live on the dashboard at <code>/docs</code>. The sections below are the developer-facing summary; <code>/docs</code> is what to point a teammate at.
+
 ## How an issue becomes a PR (triage → implement)
 
 Each labelled issue (label name: `night`) goes through two stages:

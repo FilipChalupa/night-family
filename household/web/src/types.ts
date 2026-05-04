@@ -1,12 +1,18 @@
-// Mirrored from household runtime. Kept narrow on purpose — UI does not
-// import from server packages directly.
+// Mirrored from household runtime. Protocol enums (`Skill`, `TaskKind`,
+// `TaskStatus`, …) are imported from `@night/shared` so the web stays in
+// lockstep with the wire format. Wider records (e.g. `MemberSnapshot`)
+// stay defined locally — they're API-shape, not protocol-shape, and the
+// web should not pull household runtime in.
+
+import type { Skill, TaskKind, TaskStatus } from '@night/shared'
+export type { Skill, TaskKind, TaskStatus }
 
 export interface MemberSnapshot {
 	sessionId: string
 	memberId: string
 	memberName: string
 	displayName: string
-	skills: string[]
+	skills: Skill[]
 	repos: string[] | null
 	provider: string
 	model: string
@@ -19,20 +25,6 @@ export interface MemberSnapshot {
 	currentTask: string | null
 	lastHeartbeat: string
 }
-
-export type TaskKind = 'estimate' | 'implement' | 'review' | 'respond' | 'summarize'
-
-export type TaskStatus =
-	| 'new'
-	| 'estimating'
-	| 'queued'
-	| 'assigned'
-	| 'in-progress'
-	| 'in-review'
-	| 'awaiting-merge'
-	| 'done'
-	| 'failed'
-	| 'disconnected'
 
 export interface ReviewJobsSummary {
 	pending: number

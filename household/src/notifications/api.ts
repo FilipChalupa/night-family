@@ -13,6 +13,7 @@ const ALL_EVENTS: NotificationEventName[] = [
 	'pr.merged',
 	'quota_exceeded',
 	'summarize.result',
+	'triage.result',
 	'member.disconnected',
 	'token.revoked',
 ]

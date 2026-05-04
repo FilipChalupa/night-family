@@ -6,6 +6,7 @@ import {
 	type ErrorComponentProps,
 } from '@tanstack/react-router'
 import { Dashboard } from './routes/Dashboard.tsx'
+import { DocPageView, DocsIndex } from './routes/Docs.tsx'
 import { MemberDetailPage } from './routes/MemberDetailPage.tsx'
 import { RootLayout } from './routes/Root.tsx'
 import { TaskDetailPage } from './routes/TaskDetailPage.tsx'
@@ -89,11 +90,28 @@ export const memberDetailRoute = createRoute({
 	component: MemberDetailPage,
 })
 
+export const docsIndexRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/docs',
+	component: DocsIndex,
+})
+
+export const docDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/docs/$slug',
+	component: function DocDetailRouteComponent() {
+		const { slug } = docDetailRoute.useParams()
+		return <DocPageView slug={slug} />
+	},
+})
+
 const routeTree = rootRoute.addChildren([
 	dashboardRoute,
 	tasksRoute,
 	taskDetailRoute,
 	memberDetailRoute,
+	docsIndexRoute,
+	docDetailRoute,
 ])
 
 function RouteError({ error, reset }: ErrorComponentProps) {

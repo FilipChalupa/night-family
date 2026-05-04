@@ -174,6 +174,15 @@ export function RootLayout() {
 						spacing={1.5}
 						sx={{ alignItems: 'center', flexWrap: 'wrap' }}
 					>
+						<Button
+							component={Link}
+							to="/docs"
+							variant="text"
+							size="small"
+							sx={{ color: 'text.secondary' }}
+						>
+							Docs
+						</Button>
 						<InstallButton />
 						<NotificationsToggle />
 						{me.authenticated ? (
