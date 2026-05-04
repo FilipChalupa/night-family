@@ -34,6 +34,31 @@ export type TaskStatus =
 	| 'failed'
 	| 'disconnected'
 
+export interface ReviewJobsSummary {
+	pending: number
+	inProgress: number
+	completed: number
+	failed: number
+}
+
+/**
+ * Decide what `in-review` is actually waiting on. Used to add a sub-label to
+ * the bare status chip — by itself the chip is ambiguous (the agent might
+ * still be reviewing, or it might be done and a human's turn). Returns:
+ *   - `agent`   — at least one review job is queued or running
+ *   - `human`   — every review job finished; the ball is on the human side
+ *                 (approve, push fixups, merge)
+ *   - `unknown` — no review jobs found yet (e.g. dispatcher hasn't run)
+ */
+export function reviewWaitState(
+	jobs: ReviewJobsSummary | null,
+): 'agent' | 'human' | 'unknown' {
+	if (!jobs) return 'unknown'
+	if (jobs.pending > 0 || jobs.inProgress > 0) return 'agent'
+	if (jobs.completed > 0 || jobs.failed > 0) return 'human'
+	return 'unknown'
+}
+
 export interface TaskRecord {
 	id: string
 	repo: string | null
@@ -52,6 +77,7 @@ export interface TaskRecord {
 	createdAt: string
 	updatedAt: string
 	metadata: Record<string, unknown> | null
+	reviewJobs: ReviewJobsSummary | null
 }
 
 export type UserRole = 'admin' | 'readonly'

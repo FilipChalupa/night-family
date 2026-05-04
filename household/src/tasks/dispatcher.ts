@@ -98,12 +98,14 @@ export class Dispatcher {
 				const parentTask = this.deps.taskStore.get(candidate.taskId)
 				if (!parentTask) {
 					this.deps.jobStore.fail(candidate.id, 'parent_task_missing')
+					this.deps.taskStore.republish(candidate.taskId)
 					continue
 				}
 				if (!this.memberCanWorkOnRepo(member, parentTask.repo)) continue
 				if (!this.canMemberClaimReview(member, candidate)) continue
 				const job = this.deps.jobStore.tryClaim(candidate.id, assignment)
 				if (!job) continue // raced against another claimer
+				this.deps.taskStore.republish(candidate.taskId)
 				this.sendReviewJob(conn, job, parentTask)
 				return
 			}
@@ -204,6 +206,7 @@ export class Dispatcher {
 
 		if (toDispatch.length === 0) {
 			const job = this.deps.jobStore.create(task.id, { prAuthorLogin })
+			this.deps.taskStore.republish(task.id)
 			this.deps.logger.info(
 				{ taskId: task.id, prAuthorLogin, jobId: job.id },
 				'no eligible idle reviewers; review job queued as pending',
@@ -229,6 +232,7 @@ export class Dispatcher {
 			if (!claimed) continue
 			this.sendReviewJob(conn, claimed, task)
 		}
+		this.deps.taskStore.republish(task.id)
 	}
 
 	// ─── WS event callbacks ──────────────────────────────────────────────────
@@ -238,6 +242,7 @@ export class Dispatcher {
 			clearTimeout(this.pendingJobAck.get(id)!.timer)
 			this.pendingJobAck.delete(id)
 			this.deps.jobStore.setInProgress(id)
+			this.republishParentForJob(id)
 			return
 		}
 
@@ -562,6 +567,7 @@ export class Dispatcher {
 
 		const verdict = parseReviewVerdict(result)
 		this.deps.jobStore.complete(jobId, verdict, result)
+		this.republishParentForJob(jobId)
 		this.deps.logger.info({ jobId, verdict }, 'review job completed')
 		this.tryDispatchAll()
 	}
@@ -571,8 +577,19 @@ export class Dispatcher {
 		this.pendingJobAck.delete(jobId)
 		this.clearSelfReviewWakeup(jobId)
 		this.deps.jobStore.fail(jobId, reason)
+		this.republishParentForJob(jobId)
 		this.deps.logger.warn({ jobId, reason }, 'review job failed')
 		this.tryDispatchAll()
+	}
+
+	/**
+	 * Re-emit `task.updated` for the parent of `jobId` so the dashboard sees
+	 * the updated `reviewJobs` summary (the task row itself didn't change).
+	 * Best-effort — silently no-ops if the job was already deleted.
+	 */
+	private republishParentForJob(jobId: string): void {
+		const job = this.deps.jobStore.get(jobId)
+		if (job) this.deps.taskStore.republish(job.taskId)
 	}
 
 	private clearSelfReviewWakeup(jobId: string): void {

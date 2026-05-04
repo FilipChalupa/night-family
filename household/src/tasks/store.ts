@@ -3,7 +3,20 @@ import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { EventEmitter } from 'node:events'
 import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Db } from '../db/index.ts'
-import { members, tasks } from '../db/schema.ts'
+import { members, taskJobs, tasks } from '../db/schema.ts'
+
+/**
+ * Per-task counts of review-kind jobs, grouped by the lifecycle bucket the UI
+ * cares about. Lets the dashboard tell apart "agent is still reviewing" from
+ * "agent is done; waiting on a human". `inProgress` collapses the wire
+ * statuses `assigned` + `in-progress` because the UI doesn't distinguish them.
+ */
+export interface ReviewJobsSummary {
+	pending: number
+	inProgress: number
+	completed: number
+	failed: number
+}
 
 export interface TaskRecord {
 	id: string
@@ -23,6 +36,8 @@ export interface TaskRecord {
 	createdAt: string
 	updatedAt: string
 	metadata: Record<string, unknown> | null
+	/** `null` when the task has no review jobs (i.e. never reached `in-review`). */
+	reviewJobs: ReviewJobsSummary | null
 }
 
 export interface CreateTaskInput {
@@ -50,7 +65,7 @@ interface TaskJoinRow {
 	memberName: string | null
 }
 
-function rowToRecord(row: TaskJoinRow): TaskRecord {
+function rowToRecord(row: TaskJoinRow, reviewJobs: ReviewJobsSummary | null = null): TaskRecord {
 	const t = row.task
 	return {
 		id: t.id,
@@ -70,6 +85,7 @@ function rowToRecord(row: TaskJoinRow): TaskRecord {
 		createdAt: t.createdAt.toISOString(),
 		updatedAt: t.updatedAt.toISOString(),
 		metadata: t.metadata ? (JSON.parse(t.metadata) as Record<string, unknown>) : null,
+		reviewJobs,
 	}
 }
 
@@ -113,7 +129,9 @@ export class TaskStore {
 			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
 			.where(eq(tasks.id, id))
 			.all()
-		return rows[0] ? rowToRecord(rows[0]) : null
+		if (!rows[0]) return null
+		const summary = this.reviewJobsSummaryByTaskIds([id]).get(id) ?? null
+		return rowToRecord(rows[0], summary)
 	}
 
 	list(filter?: { status?: TaskStatus[]; repo?: string }): TaskRecord[] {
@@ -132,7 +150,46 @@ export class TaskStore {
 			.where(where)
 			.orderBy(desc(tasks.createdAt))
 			.all()
-		return rows.map(rowToRecord)
+		const summaries = this.reviewJobsSummaryByTaskIds(rows.map((r) => r.task.id))
+		return rows.map((r) => rowToRecord(r, summaries.get(r.task.id) ?? null))
+	}
+
+	/**
+	 * Re-emit `task.updated` for `id` without changing any task fields. Used by
+	 * the dispatcher when a child review job's status changes — the task row
+	 * itself is unchanged but `reviewJobs` (computed in `get()`) needs to flow
+	 * to the UI so the dashboard can switch from "agent reviewing" to
+	 * "waiting for human".
+	 */
+	republish(id: string): void {
+		const record = this.get(id)
+		if (record) this.emit({ type: 'task.updated', task: record })
+	}
+
+	private reviewJobsSummaryByTaskIds(taskIds: string[]): Map<string, ReviewJobsSummary> {
+		const out = new Map<string, ReviewJobsSummary>()
+		if (taskIds.length === 0) return out
+		const rows = this.db
+			.select({
+				taskId: taskJobs.taskId,
+				pending: sql<number>`SUM(CASE WHEN ${taskJobs.status} = 'pending' THEN 1 ELSE 0 END)`,
+				inProgress: sql<number>`SUM(CASE WHEN ${taskJobs.status} IN ('assigned','in-progress') THEN 1 ELSE 0 END)`,
+				completed: sql<number>`SUM(CASE WHEN ${taskJobs.status} = 'completed' THEN 1 ELSE 0 END)`,
+				failed: sql<number>`SUM(CASE WHEN ${taskJobs.status} = 'failed' THEN 1 ELSE 0 END)`,
+			})
+			.from(taskJobs)
+			.where(and(inArray(taskJobs.taskId, taskIds), eq(taskJobs.kind, 'review')))
+			.groupBy(taskJobs.taskId)
+			.all()
+		for (const r of rows) {
+			out.set(r.taskId, {
+				pending: Number(r.pending) || 0,
+				inProgress: Number(r.inProgress) || 0,
+				completed: Number(r.completed) || 0,
+				failed: Number(r.failed) || 0,
+			})
+		}
+		return out
 	}
 
 	patch(id: string, input: PatchTaskInput): TaskRecord | null {

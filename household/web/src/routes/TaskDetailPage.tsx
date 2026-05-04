@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { ReviewWaitBadge } from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -149,6 +150,7 @@ function TaskDetailCard({
 						variant="outlined"
 					/>
 					<Chip label={task.kind} size="small" variant="outlined" />
+					{task.status === 'in-review' ? <ReviewWaitBadge jobs={task.reviewJobs} /> : null}
 				</Stack>
 
 				{task.failureReason ? (

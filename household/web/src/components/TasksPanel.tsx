@@ -23,12 +23,14 @@ import {
 	Typography,
 } from '@mui/material'
 import HistoryIcon from '@mui/icons-material/History'
+import HourglassTopIcon from '@mui/icons-material/HourglassTop'
+import PersonIcon from '@mui/icons-material/Person'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
 import { relativeTime } from '../time.ts'
-import type { TaskKind, TaskRecord, TaskStatus } from '../types.ts'
+import { reviewWaitState, type ReviewJobsSummary, type TaskKind, type TaskRecord, type TaskStatus } from '../types.ts'
 
 export interface PaginationControl {
 	page: number
@@ -310,12 +312,17 @@ function TasksTable({
 								</Typography>
 							</TableCell>
 							<TableCell>
-								<Chip
-									label={t.status}
-									size="small"
-									color={statusColor(t.status)}
-									variant="outlined"
-								/>
+								<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+									<Chip
+										label={t.status}
+										size="small"
+										color={statusColor(t.status)}
+										variant="outlined"
+									/>
+									{t.status === 'in-review' ? (
+										<ReviewWaitBadge jobs={t.reviewJobs} />
+									) : null}
+								</Stack>
 							</TableCell>
 							<TableCell>
 								{t.assignedMemberId ? (
@@ -639,6 +646,57 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 		default:
 			return 'default'
 	}
+}
+
+/**
+ * Sub-label shown beneath the `in-review` status chip explaining whether the
+ * task is waiting on an agent's review or on a human (approve / merge /
+ * push fixups). Tooltip includes the raw job counts so admins can sanity-check.
+ */
+export function ReviewWaitBadge({ jobs }: { jobs: ReviewJobsSummary | null }) {
+	const state = reviewWaitState(jobs)
+	if (state === 'unknown') return null
+
+	const open = (jobs?.pending ?? 0) + (jobs?.inProgress ?? 0)
+	const total =
+		(jobs?.pending ?? 0) +
+		(jobs?.inProgress ?? 0) +
+		(jobs?.completed ?? 0) +
+		(jobs?.failed ?? 0)
+
+	if (state === 'agent') {
+		return (
+			<Tooltip
+				title={`Agent reviewing — ${open} of ${total} review job${total === 1 ? '' : 's'} still open.`}
+			>
+				<Chip
+					icon={<HourglassTopIcon />}
+					label={total > 1 ? `agent reviewing (${open}/${total})` : 'agent reviewing'}
+					size="small"
+					color="warning"
+					variant="filled"
+					sx={{ fontWeight: 500 }}
+				/>
+			</Tooltip>
+		)
+	}
+
+	const completed = jobs?.completed ?? 0
+	const failed = jobs?.failed ?? 0
+	return (
+		<Tooltip
+			title={`Agent reviews finished (${completed} completed${failed > 0 ? `, ${failed} failed` : ''}). Waiting for a human to approve, push fixups, or merge.`}
+		>
+			<Chip
+				icon={<PersonIcon />}
+				label="waiting for human"
+				size="small"
+				color="info"
+				variant="filled"
+				sx={{ fontWeight: 500 }}
+			/>
+		</Tooltip>
+	)
 }
 
 function githubIssueRef(
