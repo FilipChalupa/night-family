@@ -4,6 +4,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { ConfirmDialogProvider } from './components/ConfirmDialog.tsx'
+import { registerServiceWorker } from './registerSW.ts'
 import { router } from './router.tsx'
 
 const queryClient = new QueryClient({
@@ -52,3 +53,5 @@ createRoot(root).render(
 		</QueryClientProvider>
 	</React.StrictMode>,
 )
+
+registerServiceWorker()

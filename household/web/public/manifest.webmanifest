@@ -1,0 +1,18 @@
+{
+	"name": "Night Family",
+	"short_name": "Night",
+	"description": "Dashboard for Night Family agents — tasks, members, reviews.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#0c0d10",
+	"theme_color": "#0c0d10",
+	"icons": [
+		{
+			"src": "/icon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	]
+}
