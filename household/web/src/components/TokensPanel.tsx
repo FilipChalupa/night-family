@@ -96,8 +96,8 @@ export function TokensPanel({ canManage, members }: Props) {
 					) : (
 						<>
 							<Box component="span" sx={{ display: 'block', mt: 1 }}>
-								The following {affectedMembers.length === 1 ? 'member' : 'members'} will be
-								disconnected immediately:
+								The following {affectedMembers.length === 1 ? 'member' : 'members'}{' '}
+								will be disconnected immediately:
 							</Box>
 							<Box
 								component="ul"
@@ -225,7 +225,9 @@ export function TokensPanel({ canManage, members }: Props) {
 								return (
 									<TableRow key={t.id} hover>
 										<TableCell>
-											<Typography sx={{ fontWeight: 600 }}>{t.name}</Typography>
+											<Typography sx={{ fontWeight: 600 }}>
+												{t.name}
+											</Typography>
 											<Typography variant="caption" color="text.secondary">
 												id: {t.id}
 											</Typography>

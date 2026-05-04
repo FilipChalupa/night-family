@@ -150,7 +150,9 @@ function TaskDetailCard({
 						variant="outlined"
 					/>
 					<Chip label={task.kind} size="small" variant="outlined" />
-					{task.status === 'in-review' ? <ReviewWaitBadge jobs={task.reviewJobs} /> : null}
+					{task.status === 'in-review' ? (
+						<ReviewWaitBadge jobs={task.reviewJobs} />
+					) : null}
 				</Stack>
 
 				{task.failureReason ? (

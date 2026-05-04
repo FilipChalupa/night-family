@@ -180,16 +180,17 @@ function TokenField({ token, fallbackId }: { token: TokenRecord | null; fallback
 				</Typography>
 			) : (
 				<Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-					<Typography
-						variant="body2"
-						sx={{ fontWeight: token.revoked_at ? 400 : 600 }}
-					>
+					<Typography variant="body2" sx={{ fontWeight: token.revoked_at ? 400 : 600 }}>
 						{token.name}
 					</Typography>
 					{token.revoked_at ? (
 						<Chip label="revoked" size="small" color="error" variant="outlined" />
 					) : null}
-					<Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+					<Typography
+						variant="caption"
+						color="text.secondary"
+						sx={{ fontFamily: 'monospace' }}
+					>
 						{token.id}
 					</Typography>
 				</Stack>

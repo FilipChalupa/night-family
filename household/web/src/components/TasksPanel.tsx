@@ -30,7 +30,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
 import { relativeTime } from '../time.ts'
-import { reviewWaitState, type ReviewJobsSummary, type TaskKind, type TaskRecord, type TaskStatus } from '../types.ts'
+import {
+	reviewWaitState,
+	type ReviewJobsSummary,
+	type TaskKind,
+	type TaskRecord,
+	type TaskStatus,
+} from '../types.ts'
 
 export interface PaginationControl {
 	page: number
@@ -252,18 +258,25 @@ function TasksTable({
 				<TableHead>
 					<TableRow>
 						<TableCell>Title</TableCell>
-						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Kind</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+							Kind
+						</TableCell>
 						<TableCell>Status</TableCell>
-						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Assigned</TableCell>
-						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Repo</TableCell>
-						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Estimate</TableCell>
-						<TableCell
-							align="right"
-							sx={{ display: { xs: 'none', lg: 'table-cell' } }}
-						>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+							Assigned
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+							Repo
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+							Estimate
+						</TableCell>
+						<TableCell align="right" sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 							Tokens
 						</TableCell>
-						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Created</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+							Created
+						</TableCell>
 						<TableCell />
 					</TableRow>
 				</TableHead>

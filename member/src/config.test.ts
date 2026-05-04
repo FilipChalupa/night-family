@@ -196,7 +196,10 @@ describe('fetchGithubIdentity', () => {
 	it('drops public org repos where the PAT only has read access', async () => {
 		globalThis.fetch = mockFetch([
 			{ full_name: 'octo/owned', permissions: { admin: true, push: true, pull: true } },
-			{ full_name: 'public-org/readme', permissions: { admin: false, push: false, pull: true } },
+			{
+				full_name: 'public-org/readme',
+				permissions: { admin: false, push: false, pull: true },
+			},
 		]) as unknown as typeof globalThis.fetch
 		const id = await fetchGithubIdentity('ghp_test')
 		expect(id.repos).toEqual(['octo/owned'])

@@ -37,9 +37,7 @@ const TICK_MS = 10_000
  * the dashboard could silently freeze with no visible explanation.
  */
 export function ConnectionStatus({ connected, lastMessageAt }: Props) {
-	const [online, setOnline] = useState(
-		typeof navigator === 'undefined' ? true : navigator.onLine,
-	)
+	const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
 	// Force a periodic re-render so the staleness check sees fresh `Date.now()`.
 	const [, setTick] = useState(0)
 
@@ -84,8 +82,7 @@ export function ConnectionStatus({ connected, lastMessageAt }: Props) {
 		)
 	}
 
-	const isStale =
-		lastMessageAt !== null && Date.now() - lastMessageAt > STALE_AFTER_MS
+	const isStale = lastMessageAt !== null && Date.now() - lastMessageAt > STALE_AFTER_MS
 	if (isStale) {
 		const seconds = Math.round((Date.now() - lastMessageAt!) / 1000)
 		return (

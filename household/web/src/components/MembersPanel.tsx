@@ -65,13 +65,23 @@ export function MembersPanel({
 						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 							Provider · Model
 						</TableCell>
-						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Skills</TableCell>
-						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Profile</TableCell>
-						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Protocol</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+							Skills
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+							Profile
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+							Protocol
+						</TableCell>
 						{tokens ? (
-							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Token</TableCell>
+							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+								Token
+							</TableCell>
 						) : null}
-						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Connected</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+							Connected
+						</TableCell>
 						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 							First seen
 						</TableCell>
@@ -218,7 +228,10 @@ export function MembersPanel({
 							</TableCell>
 							{tokens ? (
 								<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-									<TokenCell token={tokenById.get(m.tokenId) ?? null} fallbackId={m.tokenId} />
+									<TokenCell
+										token={tokenById.get(m.tokenId) ?? null}
+										fallbackId={m.tokenId}
+									/>
 								</TableCell>
 							) : null}
 							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
@@ -300,7 +313,9 @@ function ProtocolCell({
 function TokenCell({ token, fallbackId }: { token: TokenRecord | null; fallbackId: string }) {
 	if (!token) {
 		return (
-			<Tooltip title={`Unknown token (id: ${fallbackId}). It may have been revoked or deleted.`}>
+			<Tooltip
+				title={`Unknown token (id: ${fallbackId}). It may have been revoked or deleted.`}
+			>
 				<Typography variant="body2" color="text.secondary">
 					(unknown)
 				</Typography>

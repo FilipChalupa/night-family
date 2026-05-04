@@ -50,9 +50,7 @@ export interface ReviewJobsSummary {
  *                 (approve, push fixups, merge)
  *   - `unknown` — no review jobs found yet (e.g. dispatcher hasn't run)
  */
-export function reviewWaitState(
-	jobs: ReviewJobsSummary | null,
-): 'agent' | 'human' | 'unknown' {
+export function reviewWaitState(jobs: ReviewJobsSummary | null): 'agent' | 'human' | 'unknown' {
 	if (!jobs) return 'unknown'
 	if (jobs.pending > 0 || jobs.inProgress > 0) return 'agent'
 	if (jobs.completed > 0 || jobs.failed > 0) return 'human'

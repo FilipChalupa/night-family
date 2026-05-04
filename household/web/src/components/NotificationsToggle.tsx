@@ -47,7 +47,12 @@ export function NotificationsToggle() {
 		return (
 			<Tooltip title="Notifications were blocked. Re-enable them in your browser's site settings.">
 				<span>
-					<Button variant="outlined" size="small" startIcon={<NotificationsOffIcon />} disabled>
+					<Button
+						variant="outlined"
+						size="small"
+						startIcon={<NotificationsOffIcon />}
+						disabled
+					>
 						Notifications blocked
 					</Button>
 				</span>
