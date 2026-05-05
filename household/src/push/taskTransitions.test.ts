@@ -55,10 +55,10 @@ describe('TaskPushTransitionTracker', () => {
 		).toBeNull()
 	})
 
-	it('detects in-review → in-progress as "review requested changes"', () => {
+	it('detects in-review → queued as "review requested changes"', () => {
 		const tracker = new TaskPushTransitionTracker()
 		tracker.observe(task({ id: 't1', status: 'in-review' }))
-		const payload = tracker.observe(task({ id: 't1', status: 'in-progress' }))
+		const payload = tracker.observe(task({ id: 't1', status: 'queued' }))
 		expect(payload?.title).toBe('Review requested changes')
 	})
 

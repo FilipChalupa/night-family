@@ -5,7 +5,10 @@
  *   - PR `opened`/`synchronize` updates `pr_url` on the originating task.
  *   - PR `closed` with `merged: true` → task → `done`.
  *   - `behind_by > 0` after a base-branch push → send `task.rebase_suggested`.
- *   - PR review submitted with `state: changes_requested` → task → `in-progress`.
+ *   - PR review submitted with `state: changes_requested` → task → `queued`
+ *     (preserving `assignedMemberId` so the original implementer reclaims it
+ *     and reuses its warm workspace + prompt cache; falls back to any other
+ *     idle member if the original is unavailable).
  *   - PR review submitted with `state: approved`, mergeable_state: `clean` → `awaiting-merge`.
  *
  * Tasks are matched by branch name (`pr/night/<task-id-prefix>-…`) or by
@@ -140,10 +143,22 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 	if (!task) return
 
 	if (review.state === 'changes_requested') {
-		ctx.taskStore.transition(task.id, ['in-review', 'awaiting-merge'], 'in-progress', {
-			failureReason: null,
-		})
-		ctx.logger.info({ taskId: task.id }, 'review requested changes → in-progress')
+		// Send back to the queue (not `in-progress`) so the dispatcher picks it
+		// up. `assignedMemberId` is intentionally preserved — the dispatcher
+		// gives that member first dibs via `claimNextForPreferredMember`.
+		const updated = ctx.taskStore.transition(
+			task.id,
+			['in-review', 'awaiting-merge'],
+			'queued',
+			{ failureReason: null },
+		)
+		if (updated) {
+			ctx.logger.info(
+				{ taskId: task.id, preferredMemberId: updated.assignedMemberId },
+				'review requested changes → queued',
+			)
+			ctx.dispatcher.tryDispatchAll()
+		}
 	} else if (review.state === 'approved' && pr.mergeable_state === 'clean') {
 		ctx.taskStore.transition(task.id, ['in-review'], 'awaiting-merge')
 		ctx.logger.info({ taskId: task.id }, 'review approved + clean → awaiting-merge')

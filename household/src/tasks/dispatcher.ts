@@ -57,8 +57,22 @@ export class Dispatcher {
 	// ─── Public dispatch entry points ────────────────────────────────────────
 
 	tryDispatchAll(): void {
-		for (const member of this.deps.registry.list()) {
-			if (member.status !== 'idle') continue
+		// Bias: members who have a `queued` task already assigned to them (e.g.
+		// after a `changes_requested` review or a retry returned the task to the
+		// queue) get to iterate first, so they reclaim "their" task before any
+		// generic idle member races in for it.
+		const idle = this.deps.registry.list().filter((m) => m.status === 'idle')
+		const preferredMemberIds = new Set(
+			this.deps.taskStore
+				.list({ status: ['queued'] })
+				.map((t) => t.assignedMemberId)
+				.filter((id): id is string => id !== null),
+		)
+		const ordered = [
+			...idle.filter((m) => preferredMemberIds.has(m.memberId)),
+			...idle.filter((m) => !preferredMemberIds.has(m.memberId)),
+		]
+		for (const member of ordered) {
 			this.tryDispatchOne(member)
 		}
 	}
@@ -83,11 +97,21 @@ export class Dispatcher {
 		}
 
 		// Regular queued tasks matching member skills (triage / implement /
-		// review / respond / summarize).
+		// review / respond / summarize). Prefer tasks already assigned to this
+		// member (e.g. came back to `queued` after `changes_requested`) so the
+		// original implementer reuses its warm workspace + LLM prompt cache;
+		// fall back to the generic queue.
 		if (!task) {
 			const acceptable = member.skills as TaskKind[]
 			if (acceptable.length > 0) {
-				task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
+				task = this.deps.taskStore.claimNextForPreferredMember(
+					acceptable,
+					assignment,
+					member.repos,
+				)
+				if (!task) {
+					task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
+				}
 			}
 		}
 

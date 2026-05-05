@@ -302,6 +302,62 @@ export class TaskStore {
 	}
 
 	/**
+	 * Like {@link claimNextFor}, but only matches tasks whose
+	 * `assignedMemberId` already equals this member — i.e. tasks the member
+	 * worked on previously and that came back to `queued` (e.g. after a
+	 * `changes_requested` review or a retry). Used to give the original
+	 * implementer first dibs so its workspace + LLM prompt cache stay warm.
+	 */
+	claimNextForPreferredMember(
+		acceptableKinds: TaskKind[],
+		assignment: { sessionId: string; memberId: string },
+		repoAllowlist: string[] | null = null,
+	): TaskRecord | null {
+		if (acceptableKinds.length === 0) return null
+
+		const now = new Date()
+		const baseConds = [
+			eq(tasks.status, 'queued'),
+			inArray(tasks.kind, acceptableKinds),
+			eq(tasks.assignedMemberId, assignment.memberId),
+			or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
+		]
+		if (repoAllowlist) {
+			const repoCond =
+				repoAllowlist.length === 0
+					? isNull(tasks.repo)
+					: or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
+			if (repoCond) baseConds.push(repoCond)
+		}
+		const candidates = this.db
+			.select({ id: tasks.id })
+			.from(tasks)
+			.where(and(...baseConds))
+			.orderBy(tasks.createdAt)
+			.limit(1)
+			.all()
+		const candidate = candidates[0]
+		if (!candidate) return null
+
+		const result = this.db
+			.update(tasks)
+			.set({
+				status: 'assigned',
+				assignedSessionId: assignment.sessionId,
+				assignedMemberId: assignment.memberId,
+				updatedAt: new Date(),
+			})
+			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
+			.run()
+
+		if (result.changes === 0) return null
+
+		const record = this.get(candidate.id)!
+		this.emit({ type: 'task.updated', task: record })
+		return record
+	}
+
+	/**
 	 * Atomically claim a `new` task for an estimate dispatch.
 	 */
 	claimNextForEstimate(

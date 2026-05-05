@@ -67,7 +67,7 @@ function describe(task: TaskRecord, before: TaskStatus): PushPayload | null {
 			tag: `task:${task.id}`,
 		}
 	}
-	if (before === 'in-review' && task.status === 'in-progress') {
+	if (before === 'in-review' && task.status === 'queued') {
 		return {
 			title: 'Review requested changes',
 			body: task.title,

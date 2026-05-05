@@ -440,3 +440,100 @@ describe('Dispatcher triage → implement spawning', () => {
 		expect(implements_[0]?.title).toBe('pre-existing')
 	})
 })
+
+describe('Dispatcher preferred-member bias', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function queuedTaskAssignedTo(memberId: string, repo: string) {
+		const task = rig.taskStore.create({
+			kind: 'implement',
+			title: 't',
+			description: 'd',
+			repo,
+			skipEstimate: true,
+		})
+		// Queued + assignedMemberId set is the "came back from review" shape.
+		rig.taskStore.transition(task.id, ['queued'], 'queued', {
+			assignedMemberId: memberId,
+		})
+		return rig.taskStore.get(task.id)!
+	}
+
+	it('idle original assignee claims their own queued task before generic ones', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({ memberName: 'a', status: 'idle', send: aSent })
+		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
+		rig.registry.add(a)
+		rig.registry.add(b)
+
+		// Older generic queued task; newer queued task pre-assigned to 'a'.
+		rig.taskStore.create({
+			kind: 'implement',
+			title: 'generic',
+			description: '',
+			repo: 'o/r',
+			skipEstimate: true,
+		})
+		const preferred = queuedTaskAssignedTo(a.memberId, 'o/r')
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentTaskIds = (fn: ReturnType<typeof vi.fn>) =>
+			fn.mock.calls
+				.map((c) => c[0] as { type?: string; task?: { task_id: string } })
+				.filter((m) => m.type === 'task.assigned')
+				.map((m) => m.task?.task_id)
+		expect(sentTaskIds(aSent)).toContain(preferred.id)
+		// 'b' must not have grabbed the preferred task.
+		expect(sentTaskIds(bSent)).not.toContain(preferred.id)
+	})
+
+	it('falls back to the generic queue when the original assignee is offline', () => {
+		// 'a' connects (so its row lands in the members table for the FK target),
+		// then disconnects. The queued task still references 'a' but 'a' is gone.
+		const a = fakeMember({ memberName: 'a' })
+		rig.registry.add(a)
+		rig.registry.remove(a.sessionId)
+
+		const bSent = vi.fn()
+		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
+		rig.registry.add(b)
+
+		const orphaned = queuedTaskAssignedTo(a.memberId, 'o/r')
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentTaskIds = bSent.mock.calls
+			.map((c) => c[0] as { type?: string; task?: { task_id: string } })
+			.filter((m) => m.type === 'task.assigned')
+			.map((m) => m.task?.task_id)
+		// 'b' picks up the orphaned task via the generic claim path.
+		expect(sentTaskIds).toContain(orphaned.id)
+	})
+
+	it('falls back to the generic queue when the original assignee is busy', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({ memberName: 'a', status: 'busy', send: aSent })
+		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
+		rig.registry.add(a)
+		rig.registry.add(b)
+		const preferred = queuedTaskAssignedTo(a.memberId, 'o/r')
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentTaskIds = (fn: ReturnType<typeof vi.fn>) =>
+			fn.mock.calls
+				.map((c) => c[0] as { type?: string; task?: { task_id: string } })
+				.filter((m) => m.type === 'task.assigned')
+				.map((m) => m.task?.task_id)
+		// 'a' is busy; 'b' steps in.
+		expect(sentTaskIds(bSent)).toContain(preferred.id)
+		expect(sentTaskIds(aSent)).not.toContain(preferred.id)
+	})
+})
