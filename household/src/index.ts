@@ -3,7 +3,7 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { PROTOCOL_VERSION } from '@night/shared'
+import { ALL_SKILLS, PROTOCOL_VERSION } from '@night/shared'
 import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
@@ -201,9 +201,8 @@ app.post('/api/members/:memberId/override', async (c) => {
 		return c.json({ error: 'invalid_skills' }, 400)
 	}
 	const skills = b.skills as string[]
-	const ALLOWED = ['implement', 'review', 'estimate', 'respond', 'summarize']
 	for (const s of skills) {
-		if (typeof s !== 'string' || !ALLOWED.includes(s)) {
+		if (typeof s !== 'string' || !(ALL_SKILLS as readonly string[]).includes(s)) {
 			return c.json({ error: `invalid_skill:${s}` }, 400)
 		}
 	}
