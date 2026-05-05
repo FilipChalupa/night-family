@@ -392,6 +392,10 @@ export class TaskRunner {
 			rebaseResult = await workspace.rebaseOntoBase()
 		} catch (err) {
 			if (err instanceof RebaseConflictError) {
+				// TODO(rebase): LLM rescue path. v1 fails fast and lets a human
+				// resolve; eventually we'd hand the conflict context (paths +
+				// markers) to the agent loop and let it produce a resolution
+				// commit before retrying the push.
 				await emit('rebase', {
 					outcome: 'conflict',
 					stderr: err.gitStderr.slice(0, 1000),
@@ -413,6 +417,10 @@ export class TaskRunner {
 			baseRef,
 		})
 
+		// TODO(rebase): post-rebase repo sanity-checks. Today we trust the
+		// project's CI to catch breakage; ideally the runner would best-effort
+		// invoke `npm test` / lint / build before pushing and bail (or warn
+		// loudly) if the rebase silently broke things on top of green main.
 		try {
 			await workspace.pushWithLease()
 			await emit('log', {

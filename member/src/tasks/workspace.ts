@@ -138,6 +138,12 @@ export class Workspace {
 	 * Throws {@link RebaseSetupError} if the head branch isn't reachable
 	 * — that's a soft fail (PR might have been deleted between webhook
 	 * and dispatch); the caller should mark the task failed.
+	 *
+	 * TODO(rebase): integration test against a real git remote. The unit
+	 * tests cover the Household-side enqueue + dispatch routing, but this
+	 * fetch/worktree/rebase/push sequence is only validated end-to-end on
+	 * a live PR. A test harness with a local bare-repo fixture (or a
+	 * GitHub fixture repo) would catch regressions before they hit prod.
 	 */
 	static async createForRebase(opts: {
 		taskId: string

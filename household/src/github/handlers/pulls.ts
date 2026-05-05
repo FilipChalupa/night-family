@@ -173,6 +173,11 @@ function enqueueRebaseTask(ctx: PullsEventCtx, parent: TaskRecord, pr: PullReque
 	// member` bias keys off `previousMemberId`; copy the parent's
 	// implementer over so the rebase preferentially lands there.
 	ctx.taskStore.transition(created.id, ['queued'], 'queued', { prUrl: pr.html_url })
+	// TODO(rebase): fall back to `parent.previousMemberId` when
+	// `assignedMemberId` is null. That happens after a `changes_requested`
+	// review clears the active assignment but stamps the implementer into
+	// `previousMemberId`; today the rebase task loses the cache-warmth bias
+	// in that window.
 	if (parent.assignedMemberId) {
 		ctx.taskStore.stampPreviousMember(created.id, parent.assignedMemberId)
 	}
