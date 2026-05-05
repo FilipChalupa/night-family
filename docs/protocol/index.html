@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Protocol changelog — Night Family</title>
+		<meta
+			name="description"
+			content="Per-version changelog of the Night Family WebSocket protocol between Household and Members."
+		/>
+		<meta property="og:title" content="Night Family · Protocol changelog" />
+		<meta
+			property="og:description"
+			content="What changed in each PROTOCOL_VERSION of the Night Family wire protocol."
+		/>
+		<meta property="og:type" content="article" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0c0d10;
+				--fg: #e6e6e8;
+				--muted: #8a8f99;
+				--border: #25272d;
+				--card: #15171c;
+				--accent: #8ab4ff;
+				--accent-glow: rgba(138, 180, 255, 0.18);
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				background: var(--bg);
+				color: var(--fg);
+				font-family:
+					ui-sans-serif,
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					'Segoe UI',
+					sans-serif;
+				line-height: 1.55;
+			}
+			a {
+				color: var(--accent);
+				text-decoration: none;
+			}
+			a:hover {
+				text-decoration: underline;
+			}
+			.wrap {
+				max-width: 720px;
+				margin: 0 auto;
+				padding: 64px 24px 96px;
+			}
+			header {
+				display: flex;
+				align-items: center;
+				gap: 14px;
+				margin-bottom: 28px;
+			}
+			.logo {
+				width: 44px;
+				height: 44px;
+				border-radius: 12px;
+				background: radial-gradient(circle at 30% 30%, #2c5cdc 0%, #14193a 70%);
+				box-shadow: 0 0 0 4px var(--accent-glow);
+				display: grid;
+				place-items: center;
+				font-size: 22px;
+			}
+			h1 {
+				margin: 0;
+				font-size: 28px;
+				font-weight: 600;
+				letter-spacing: -0.01em;
+			}
+			h1 .sub {
+				display: block;
+				font-size: 13px;
+				font-weight: 400;
+				color: var(--muted);
+				margin-top: 2px;
+				letter-spacing: 0.02em;
+			}
+			h2 {
+				font-size: 20px;
+				margin: 36px 0 8px;
+				font-weight: 600;
+				letter-spacing: -0.005em;
+			}
+			h2 .meta {
+				display: block;
+				font-size: 13px;
+				font-weight: 400;
+				color: var(--muted);
+				margin-top: 2px;
+				letter-spacing: 0.02em;
+			}
+			p {
+				margin: 0 0 14px;
+			}
+			ul,
+			ol {
+				margin: 0;
+				padding: 0 0 0 22px;
+			}
+			ul li,
+			ol li {
+				margin-bottom: 6px;
+			}
+			code {
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 4px;
+				padding: 1px 6px;
+				font-size: 0.92em;
+			}
+			pre {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 14px 16px;
+				overflow-x: auto;
+				font-size: 0.9em;
+				line-height: 1.5;
+			}
+			pre code {
+				background: transparent;
+				border: none;
+				padding: 0;
+				font-size: 1em;
+			}
+			.lede {
+				font-size: 17px;
+				color: #cdd1d8;
+				margin-bottom: 24px;
+			}
+			.back {
+				display: inline-block;
+				margin-bottom: 24px;
+				color: var(--muted);
+				font-size: 14px;
+			}
+			.entry {
+				border-top: 1px solid var(--border);
+				padding-top: 24px;
+				margin-top: 32px;
+			}
+			.entry:first-of-type {
+				border-top: none;
+				padding-top: 0;
+				margin-top: 16px;
+			}
+			footer {
+				margin-top: 56px;
+				padding-top: 18px;
+				border-top: 1px solid var(--border);
+				color: var(--muted);
+				font-size: 13px;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="wrap">
+			<a class="back" href="../">← Night Family</a>
+			<header>
+				<div class="logo" aria-hidden="true">🌙</div>
+				<h1>
+					Protocol changelog
+					<span class="sub">Night Family WebSocket protocol — Household ⇄ Member</span>
+				</h1>
+			</header>
+
+			<p class="lede">
+				What changed in each <code>PROTOCOL_VERSION</code>. Newest first. The current value
+				lives in
+				<a
+					href="https://github.com/FilipChalupa/night-family/blob/main/shared/src/protocol.ts"
+					><code>shared/src/protocol.ts</code></a
+				>; versioning rules are in
+				<a
+					href="https://github.com/FilipChalupa/night-family/blob/main/README.md#protocol-versioning"
+					>README · Protocol versioning</a
+				>
+				and the discipline for picking a level is in
+				<a
+					href="https://github.com/FilipChalupa/night-family/blob/main/AGENTS.md#protocol-changes"
+					>AGENTS · Protocol changes</a
+				>.
+			</p>
+
+			<section class="entry">
+				<h2>2.2.0</h2>
+				<p>Triage workflow + deterministic comment attribution.</p>
+				<ul>
+					<li>
+						Adds <code>triage</code> task kind and skill. Household creates triage tasks
+						on <code>issue.opened</code> and human <code>issue_comment.created</code>.
+						Triage agent reads the issue thread, decides whether to ask a clarifying
+						question or to write a plan comment; in the plan case, an
+						<code>implement</code> task is enqueued for that issue. Day members offer
+						<code>triage</code>; night members offer <code>triage</code> +
+						<code>implement</code>.
+					</li>
+					<li>
+						Deprecates <code>estimate</code> as a task kind and skill (still in the type
+						union for forward compat, but Household no longer creates these tasks;
+						estimation is folded into the triage plan).
+					</li>
+					<li>
+						Comment attribution: every PR body, PR comment, PR review and issue comment
+						posted by a Member ends with a deterministic block:
+						<pre><code>---
+🤖 Authored by Night Family member [`&lt;login&gt;`](…) · task [`&lt;id&gt;`](…)
+&lt;!-- night-family:member=&lt;id&gt; task=&lt;id&gt; --&gt;</code></pre>
+						Household uses the HTML comment to detect bot-authored content and skip its
+						own webhooks (so we don't trigger triage cycles on our own comments).
+						Server-side for PRs (<code>workspace.ts</code>) and via dedicated agent
+						tools (<code>post_issue_comment</code> / <code>post_pr_comment</code> /
+						<code>post_pr_review</code>) for everything else; the bash tool refuses
+						<code>gh issue/pr comment/review/create/edit</code> with a redirect.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
+				<h2>2.1.0</h2>
+				<p>
+					Schedule-driven skill changes and admin overrides. Additive only — old peers
+					ignore both new message types.
+				</p>
+				<ul>
+					<li>
+						<code>member.skills_updated</code> (Member → Household): announces the
+						Member's effective skill set has changed (e.g. local night/day transition
+						fired, override expired). Household replaces the cached
+						<code>skills</code> for that session; the dispatcher reads fresh skills on
+						the next match attempt.
+					</li>
+					<li>
+						<code>schedule.override</code> (Household → Member): admin-driven temporary
+						override of the schedule, with <code>expires_at</code> (ISO).
+						<code>skills: null</code> clears the active override.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
+				<h2>2.0.0</h2>
+				<p>
+					Per-member GitHub identity. The single Household-side PAT (sent to Members via
+					<code>task.assigned.github_token</code>) is replaced by per-Member PATs in
+					Member env. Wire impact:
+				</p>
+				<ul>
+					<li>
+						<code>task.assigned</code> no longer carries <code>github_token</code> or
+						<code>repo_url</code>. Members read their own PAT from env
+						(<code>GITHUB_PAT</code>) and derive the repo URL from
+						<code>task.repo</code>.
+					</li>
+					<li>
+						<code>handshake</code> adds a required <code>display_name</code> (pretty
+						name from GitHub <code>/user</code>). <code>member_name</code> is now
+						constrained to be the GitHub login.
+					</li>
+				</ul>
+				<p>
+					Old Households reject new Members because the handshake schema differs; old
+					Members reject new Households for the same reason. There's no graceful fallback
+					— operators must update both sides together.
+				</p>
+			</section>
+
+			<section class="entry">
+				<h2>1.1.0</h2>
+				<p>
+					Added <code>firstConnectedAt</code> to the <code>MemberSnapshot</code> payload
+					pushed over <code>/ws/ui</code>
+					(earliest known connection for a member_id, scanned across all token usage
+					logs). Old UI clients ignore the field; old Households simply omit it.
+					Member↔Household wire messages unchanged.
+				</p>
+			</section>
+
+			<section class="entry">
+				<h2>1.0.0</h2>
+				<p>
+					Initial semver-tracked release. Switched <code>protocol_version</code> from a
+					single integer to a <code>"major.minor.patch"</code> string, added compatibility
+					checks (<code>compareProtocolVersions</code>), and started warning on minor skew
+					instead of rejecting outright. Household now also reports its own
+					<code>protocol_version</code> back to Member in <code>handshake.ack</code>. Both
+					sides validate every incoming WebSocket message against a runtime schema (<code
+						>parseMemberToHousehold</code
+					>
+					/ <code>parseHouseholdToMember</code>); messages that fail validation are
+					dropped with a log entry, which is the runtime implementation of the "ignore
+					unknown messages" half of the minor-bump compatibility rule.
+				</p>
+			</section>
+
+			<footer>
+				Add an entry whenever <code>PROTOCOL_VERSION</code> is bumped.
+				<a
+					href="https://github.com/FilipChalupa/night-family/blob/main/docs/protocol/index.html"
+					>Edit on GitHub</a
+				>.
+			</footer>
+		</main>
+	</body>
+</html>

@@ -110,11 +110,7 @@
 				font-variant-numeric: tabular-nums;
 			}
 			code {
-				font-family:
-					ui-monospace,
-					SFMono-Regular,
-					Menlo,
-					monospace;
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 				background: var(--card);
 				border: 1px solid var(--border);
 				border-radius: 4px;
@@ -179,59 +175,70 @@
 			</header>
 
 			<p class="lede">
-				While you sleep, your Night Family ships code. A self-hosted system that
-				turns labeled GitHub issues into reviewed pull requests, run by a fleet of
-				autonomous AI workers you control end-to-end.
+				While you sleep, your Night Family ships code. A self-hosted system that turns
+				labeled GitHub issues into reviewed pull requests, run by a fleet of autonomous AI
+				workers you control end-to-end.
 			</p>
 
 			<p>
-				A central <strong>Household</strong> orchestrates everything: it imports
-				issues, dispatches work, and serves a live dashboard. Around it, any
-				number of <strong>Members</strong> connect over WebSocket, each running
-				its own LLM (Anthropic, Gemini, or OpenAI) inside a sandboxed container
-				and acting under its own GitHub identity (one PAT per Member). Members
-				clone the repo, write code, open draft PRs, and review each other. The
-				final merge is always a human's call.
+				A central <strong>Household</strong> orchestrates everything: it imports issues,
+				dispatches work, and serves a live dashboard. Around it, any number of
+				<strong>Members</strong> connect over WebSocket, each running its own LLM
+				(Anthropic, Gemini, or OpenAI) inside a sandboxed container and acting under its own
+				GitHub identity (one PAT per Member). Members clone the repo, write code, open draft
+				PRs, and review each other. The final merge is always a human's call.
 			</p>
 
 			<h2>What it does</h2>
 			<div class="grid">
 				<div class="card">
 					<strong>Issue → PR pipeline</strong>
-					<span>Label an issue <code>night</code>; a Member picks it up, branches, commits, and opens a draft PR.</span>
+					<span
+						>Label an issue <code>night</code>; a Member picks it up, branches, commits,
+						and opens a draft PR.</span
+					>
 				</div>
 				<div class="card">
 					<strong>Parallel review</strong>
-					<span>Multiple Members (and humans) review the same PR. Branch protection decides when it can merge.</span>
+					<span
+						>Multiple Members (and humans) review the same PR. Branch protection decides
+						when it can merge.</span
+					>
 				</div>
 				<div class="card">
 					<strong>Multi-provider</strong>
-					<span>Each Member runs one of Anthropic, Gemini, or OpenAI. Mix and match per role or budget.</span>
+					<span
+						>Each Member runs one of Anthropic, Gemini, or OpenAI. Mix and match per
+						role or budget.</span
+					>
 				</div>
 				<div class="card">
 					<strong>You hold the keys</strong>
-					<span>Self-hosted. Each Member carries its own GitHub PAT — Household never holds your credentials. Members run in sandboxed containers on your VMs.</span>
+					<span
+						>Self-hosted. Each Member carries its own GitHub PAT — Household never holds
+						your credentials. Members run in sandboxed containers on your VMs.</span
+					>
 				</div>
 			</div>
 
 			<h2>Workflow</h2>
 			<p>
-				The dashboard supports manual task entry, but the day-to-day flow is
-				driven entirely by GitHub:
+				The dashboard supports manual task entry, but the day-to-day flow is driven entirely
+				by GitHub:
 			</p>
 			<ol>
 				<li>
 					You (or anyone with repo access) labels a GitHub issue
-					<code>night</code>. Household receives the
-					<code>issues.labeled</code> webhook and imports the issue as an
-					<em>implement</em> task. Issues opened with the label already attached
-					are imported on the <code>opened</code> event the same way.
+					<code>night</code>. Household receives the <code>issues.labeled</code> webhook
+					and imports the issue as an <em>implement</em> task. Issues opened with the
+					label already attached are imported on the <code>opened</code> event the same
+					way.
 				</li>
 				<li>
-					Household dispatches the task to an idle Member that matches its
-					skills. The Member clones the repo using its own GitHub PAT (set
-					locally as <code>GITHUB_PAT</code>) and creates a worktree on a branch
-					named <code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
+					Household dispatches the task to an idle Member that matches its skills. The
+					Member clones the repo using its own GitHub PAT (set locally as
+					<code>GITHUB_PAT</code>) and creates a worktree on a branch named
+					<code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
 				</li>
 				<li>
 					The Member's agent loop edits files, runs commands, and commits as
@@ -240,67 +247,62 @@
 				</li>
 				<li>
 					When the agent is done, the Member pushes the branch and opens a
-					<strong>draft PR</strong> via <code>gh pr create</code>. The PR body
-					ends with a <code>🤖 Authored by Night Family member</code> footer linking back
-					to the task.
+					<strong>draft PR</strong> via <code>gh pr create</code>. The PR body ends with a
+					<code>🤖 Authored by Night Family member</code> footer linking back to the task.
 				</li>
 				<li>
-					Household sees the <code>pull_request.opened</code> webhook, matches
-					the PR to the task by branch name, and transitions the task to
-					<code>in-review</code>. Other Members (and humans) can now review.
+					Household sees the <code>pull_request.opened</code> webhook, matches the PR to
+					the task by branch name, and transitions the task to <code>in-review</code>.
+					Other Members (and humans) can now review.
 				</li>
 				<li>
-					On approval the task moves to <code>awaiting-merge</code>; on merge
-					it transitions to <code>done</code> and a <code>pr.merged</code>
-					notification fires. Branch protection rules decide who can actually
-					merge — Members never self-merge.
+					On approval the task moves to <code>awaiting-merge</code>; on merge it
+					transitions to <code>done</code> and a <code>pr.merged</code>
+					notification fires. Branch protection rules decide who can actually merge —
+					Members never self-merge.
 				</li>
 			</ol>
 
 			<h2>Recommended branch protection</h2>
 			<p>
-				Branch protection isn't required for Night Family to track approvals —
-				the <em>verdict</em> a reviewer Member emits is recorded internally — but
-				it's how you keep humans in control of what actually merges. Suggested
-				ruleset on the target branch (typically <code>main</code>):
+				Branch protection isn't required for Night Family to track approvals — the
+				<em>verdict</em> a reviewer Member emits is recorded internally — but it's how you
+				keep humans in control of what actually merges. Suggested ruleset on the target
+				branch (typically <code>main</code>):
 			</p>
 			<ul>
 				<li>
-					<strong>Require pull request reviews before merging</strong>, with at
-					least <strong>1</strong> approving review. GitHub forbids approving
-					your own PR, so a Member can only satisfy this rule for a PR opened
-					by a different GitHub account — i.e. another Member running under a
-					different PAT, or a human reviewer.
+					<strong>Require pull request reviews before merging</strong>, with at least
+					<strong>1</strong> approving review. GitHub forbids approving your own PR, so a
+					Member can only satisfy this rule for a PR opened by a different GitHub account
+					— i.e. another Member running under a different PAT, or a human reviewer.
 				</li>
 				<li>
-					<strong>Dismiss stale reviews on push</strong> — when a Member
-					responds to feedback and pushes, the prior approval should not
-					silently carry over.
+					<strong>Dismiss stale reviews on push</strong> — when a Member responds to
+					feedback and pushes, the prior approval should not silently carry over.
 				</li>
 				<li>
-					Optionally <strong>require status checks</strong> (CI green) before
-					merging. Members can run tests in their sandbox, but CI is the
-					authoritative gate.
+					Optionally <strong>require status checks</strong> (CI green) before merging.
+					Members can run tests in their sandbox, but CI is the authoritative gate.
 				</li>
 			</ul>
 			<p>
-				Solo single-PAT setups can't satisfy "1 approving review" — same-account
-				reviews can only be of type <em>Comment</em>, never <em>Approve</em>.
-				You have two clean options:
+				Solo single-PAT setups can't satisfy "1 approving review" — same-account reviews can
+				only be of type <em>Comment</em>, never <em>Approve</em>. You have two clean
+				options:
 			</p>
 			<ul>
 				<li>
 					<strong>Run a second Member under a second GitHub account</strong>
-					(e.g. a <code>+alias</code> Gmail address) and use it as a dedicated
-					reviewer. Branch protection works fully.
+					(e.g. a <code>+alias</code> Gmail address) and use it as a dedicated reviewer.
+					Branch protection works fully.
 				</li>
 				<li>
-					<strong>Skip branch protection</strong> for solo setups and rely on
-					Household's internal verdict — Member approvals still drive
-					<code>awaiting-merge</code>, you just merge manually as the owner. Do
-					not require approval if your only Member is the same GitHub account
-					that opens PRs, or the loop deadlocks waiting for an approval that
-					can never happen.
+					<strong>Skip branch protection</strong> for solo setups and rely on Household's
+					internal verdict — Member approvals still drive <code>awaiting-merge</code>, you
+					just merge manually as the owner. Do not require approval if your only Member is
+					the same GitHub account that opens PRs, or the loop deadlocks waiting for an
+					approval that can never happen.
 				</li>
 			</ul>
 
@@ -308,46 +310,52 @@
 			<ul>
 				<li>
 					<strong>The <code>night</code> label drives the lifecycle.</strong>
-					Adding it imports / dispatches; removing it cancels the matching
-					task; closing the issue cancels too (unless the task is already
-					<code>done</code> or <code>awaiting-merge</code>, which the PR
-					webhook owns). Cancellation reaches an in-flight Member as
-					<code>task.cancel</code>.
+					Adding it imports / dispatches; removing it cancels the matching task; closing
+					the issue cancels too (unless the task is already
+					<code>done</code> or <code>awaiting-merge</code>, which the PR webhook owns).
+					Cancellation reaches an in-flight Member as <code>task.cancel</code>.
 				</li>
 				<li>
-					<strong>Branch prefix <code>pr/night/</code></strong> is how
-					Household matches PRs back to tasks. Don't rename agent-created
-					branches if you want status updates to keep flowing.
+					<strong>Branch prefix <code>pr/night/</code></strong> is how Household matches
+					PRs back to tasks. Don't rename agent-created branches if you want status
+					updates to keep flowing.
 				</li>
 				<li>
 					<strong>Task kinds:</strong>
 					<code>implement</code>, <code>review</code>, <code>respond</code>,
-					<code>summarize</code>, <code>estimate</code>. Webhook-driven imports
-					are always <code>implement</code>; the others are launched manually
-					from the dashboard or as side-effects of PR review.
+					<code>summarize</code>, <code>estimate</code>. Webhook-driven imports are always
+					<code>implement</code>; the others are launched manually from the dashboard or
+					as side-effects of PR review.
 				</li>
 				<li>
-					<strong>One Member, one provider.</strong> Each Member container
-					runs a single LLM (Anthropic / Gemini / OpenAI) — running a fleet
-					with mixed providers gives you an automatic second opinion during
-					parallel review.
+					<strong>One Member, one provider.</strong> Each Member container runs a single
+					LLM (Anthropic / Gemini / OpenAI) — running a fleet with mixed providers gives
+					you an automatic second opinion during parallel review.
 				</li>
 			</ul>
 
 			<h2>How it's built</h2>
 			<ul>
-				<li>TypeScript monorepo (<code>shared</code> · <code>household</code> · <code>member</code>)</li>
+				<li>
+					TypeScript monorepo (<code>shared</code> · <code>household</code> ·
+					<code>member</code>)
+				</li>
 				<li>Hono + Drizzle (SQLite) on the server, React + Vite for the dashboard</li>
 				<li>WebSocket protocol with reconnect-tolerant event replay</li>
 				<li>GitHub OAuth login, HMAC-validated webhooks, idempotent delivery dedup</li>
 			</ul>
 
-			<a class="cta" href="https://github.com/FilipChalupa/night-family">View on GitHub →</a>
+			<p style="margin-top: 28px">
+				<a class="cta" href="https://github.com/FilipChalupa/night-family"
+					>View on GitHub →</a
+				>
+				<a href="protocol/" style="margin-left: 12px">Protocol changelog →</a>
+			</p>
 
 			<footer>
-				This page exists primarily as the homepage URL for the GitHub OAuth app
-				that powers Night Family's web UI login. The project itself is open
-				source — follow the link above for source, design notes, and milestones.
+				This page exists primarily as the homepage URL for the GitHub OAuth app that powers
+				Night Family's web UI login. The project itself is open source — follow the link
+				above for source, design notes, and milestones.
 			</footer>
 		</main>
 	</body>
