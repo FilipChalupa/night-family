@@ -9,7 +9,6 @@ export type ReviewVerdict = 'approved' | 'changes_requested' | 'commented'
 export interface TaskJobRecord {
 	id: string
 	taskId: string
-	kind: string
 	status: JobStatus
 	assignedSessionId: string | null
 	assignedMemberId: string | null
@@ -32,7 +31,6 @@ function rowToRecord(row: JobJoinRow): TaskJobRecord {
 	return {
 		id: j.id,
 		taskId: j.taskId,
-		kind: j.kind,
 		status: j.status as JobStatus,
 		assignedSessionId: j.assignedSessionId,
 		assignedMemberId: j.assignedMemberId,
@@ -49,9 +47,14 @@ function rowToRecord(row: JobJoinRow): TaskJobRecord {
 export class TaskJobStore {
 	constructor(private readonly db: Db) {}
 
+	/**
+	 * Create a pending review job linked to `taskId`. The only job kind we
+	 * dispatch is review — earlier iterations had a `kind` column, dropped
+	 * in protocol 3.0.0 because hypothetical job kinds never arrived.
+	 */
 	create(
 		taskId: string,
-		opts: { prAuthorLogin: string | null; kind?: string } = { prAuthorLogin: null },
+		opts: { prAuthorLogin: string | null } = { prAuthorLogin: null },
 	): TaskJobRecord {
 		const id = randomUUID()
 		const now = new Date()
@@ -60,7 +63,6 @@ export class TaskJobStore {
 			.values({
 				id,
 				taskId,
-				kind: opts.kind ?? 'review',
 				status: 'pending',
 				prAuthorLogin: opts.prAuthorLogin,
 				createdAt: now,

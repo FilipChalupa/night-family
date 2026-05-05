@@ -208,12 +208,6 @@ export class HouseholdConnection {
 				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel received')
 				this.deps.taskRunner.cancel(msg.reason)
 				break
-			case 'task.rebase_suggested':
-				this.logger.info(
-					{ task: msg.task_id, behind_by: msg.behind_by },
-					'rebase suggested (M5)',
-				)
-				break
 			case 'events.replay_request':
 				await this.replayEvents(msg.task_id, msg.from_seq)
 				break

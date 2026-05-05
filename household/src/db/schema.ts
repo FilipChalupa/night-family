@@ -50,12 +50,14 @@ export const tasks = sqliteTable(
 	{
 		id: text('id').primaryKey(),
 		repo: text('repo'), // org/name; null for non-repo tasks (summarize)
-		kind: text('kind').notNull(), // estimate | implement | review | respond | summarize
+		kind: text('kind').notNull(), // implement | review | triage | respond | summarize | rebase
 		title: text('title').notNull(),
 		description: text('description').notNull(),
 		status: text('status').notNull(), // see TaskStatus enum in shared/protocol
-		estimateSize: text('estimate_size'), // S | M | L | XL
-		estimateBlockers: text('estimate_blockers'), // JSON array
+		// Plan size set by triage's plan-outcome JSON; consumed by the implement
+		// task spawned from triage. Also patchable by admins via PATCH /api/tasks/:id.
+		planSize: text('plan_size'), // S | M | L | XL
+		planBlockers: text('plan_blockers'), // JSON array
 		prUrl: text('pr_url'),
 		assignedSessionId: text('assigned_session_id'),
 		/**
@@ -184,7 +186,6 @@ export const taskJobs = sqliteTable(
 	{
 		id: text('id').primaryKey(),
 		taskId: text('task_id').notNull(),
-		kind: text('kind').notNull().default('review'),
 		status: text('status').notNull(), // pending | assigned | in-progress | completed | failed
 		assignedSessionId: text('assigned_session_id'),
 		assignedMemberId: text('assigned_member_id').references(() => members.memberId, {

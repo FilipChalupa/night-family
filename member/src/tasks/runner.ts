@@ -34,7 +34,7 @@ import {
 import { createDefaultTools } from '../agent/tools.ts'
 import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
-import { Workspace } from './workspace.ts'
+import { RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
 
 export interface AssignedTaskInput {
 	taskId: string
@@ -131,6 +131,12 @@ export class TaskRunner {
 				repo: task.repo,
 				stub: this.deps.stubMode,
 			})
+
+			// `rebase` short-circuits the LLM agent loop entirely: it's a
+			// deterministic git operation. Run it inline and return.
+			if (task.kind === 'rebase') {
+				return await this.runRebaseTask(task, emit)
+			}
 
 			// Tasks that don't need a git worktree — agent works in a scratch dir.
 			const isReview = task.kind === 'review'
@@ -332,6 +338,102 @@ export class TaskRunner {
 			clearTimeout(wallclockTimer)
 			this.abortController = null
 			this.currentTaskId = null
+		}
+	}
+
+	/**
+	 * Deterministic rebase path — no LLM. Reads `head_ref` / `base_ref`
+	 * out of the task metadata, sets up a fresh worktree on the head
+	 * branch, runs `git rebase`, and pushes with lease. On conflict
+	 * fails fast with a `rebase_conflict` reason so humans can resolve
+	 * by hand. (Future enhancement: hand off to the LLM with the conflict
+	 * context as a fallback.)
+	 */
+	private async runRebaseTask(
+		task: AssignedTaskInput,
+		emit: (kind: EventKind, payload: unknown) => Promise<void>,
+	): Promise<TaskOutcome> {
+		if (!task.repo) {
+			return await this.fail(emit, null, 'rebase_missing_repo', {})
+		}
+		const meta = task.metadata ?? {}
+		const headRef = typeof meta['head_ref'] === 'string' ? meta['head_ref'] : null
+		const baseRef = typeof meta['base_ref'] === 'string' ? meta['base_ref'] : null
+		if (!headRef || !baseRef) {
+			return await this.fail(emit, null, 'rebase_missing_metadata', {
+				head_ref: headRef,
+				base_ref: baseRef,
+			})
+		}
+
+		let workspace: Workspace
+		try {
+			workspace = await Workspace.createForRebase({
+				taskId: task.taskId,
+				repo: task.repo,
+				headRef,
+				baseRef,
+				githubToken: task.githubToken,
+				workspaceDir: this.deps.workspaceDir,
+				logger: this.deps.logger.child({ component: 'workspace' }),
+			})
+			await emit('log', { message: 'rebase workspace ready', headRef, baseRef })
+		} catch (err) {
+			if (err instanceof RebaseSetupError) {
+				return await this.fail(emit, null, 'rebase_setup_failed', {
+					message: err.message,
+				})
+			}
+			throw err
+		}
+
+		let rebaseResult
+		try {
+			rebaseResult = await workspace.rebaseOntoBase()
+		} catch (err) {
+			if (err instanceof RebaseConflictError) {
+				await emit('rebase', {
+					outcome: 'conflict',
+					stderr: err.gitStderr.slice(0, 1000),
+				})
+				return await this.fail(emit, workspace, 'rebase_conflict', {
+					stderr: err.gitStderr.slice(0, 1000),
+				})
+			}
+			return await this.fail(emit, workspace, 'rebase_failed', {
+				message: (err as Error).message,
+			})
+		}
+
+		await emit('rebase', {
+			outcome: 'rebased',
+			rewroteCommits: rebaseResult.rewroteCommits,
+			newSha: rebaseResult.newSha,
+			headRef,
+			baseRef,
+		})
+
+		try {
+			await workspace.pushWithLease()
+			await emit('log', {
+				message: 'rebase push complete',
+				headRef,
+				newSha: rebaseResult.newSha,
+			})
+		} catch (err) {
+			return await this.fail(emit, workspace, 'rebase_push_failed', {
+				message: (err as Error).message,
+			})
+		}
+
+		return {
+			type: 'completed',
+			result: {
+				rebased: true,
+				rewroteCommits: rebaseResult.rewroteCommits,
+				newSha: rebaseResult.newSha,
+			},
+			...(task.prUrl ? { prUrl: task.prUrl } : {}),
 		}
 	}
 

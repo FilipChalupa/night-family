@@ -4,7 +4,11 @@
  * Per plan §6 / §7:
  *   - PR `opened`/`synchronize` updates `pr_url` on the originating task.
  *   - PR `closed` with `merged: true` → task → `done`.
- *   - `behind_by > 0` after a base-branch push → send `task.rebase_suggested`.
+ *   - `behind_by > 0` after a base-branch push → enqueue a `rebase` task
+ *     pointing at the parent implement task; dispatcher routes it to a
+ *     Member with the `implement` skill (preferring the original
+ *     implementer for cache warmth). The Member runs a deterministic
+ *     git-only path (no LLM); conflicts fail fast.
  *   - PR review submitted with `state: changes_requested` → task → `queued`
  *     (preserving `assignedMemberId` so the original implementer reclaims it
  *     and reuses its warm workspace + prompt cache; falls back to any other
@@ -17,7 +21,7 @@
 
 import type { Logger } from 'pino'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
-import type { ConnectedMember, MemberRegistry } from '../../members/registry.ts'
+import type { MemberRegistry } from '../../members/registry.ts'
 import type { NotificationSender } from '../../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
 
@@ -41,6 +45,18 @@ interface PullRequestPayload {
 	head: { ref: string; sha: string }
 	base: { ref: string }
 }
+
+/**
+ * Statuses a rebase task is considered "still in flight" — used to dedupe
+ * webhook-driven rebase enqueues (a single base-branch push can fire
+ * multiple `synchronize` events; we only want one rebase task at a time
+ * per PR).
+ */
+const ACTIVE_REBASE_STATUSES: ReadonlySet<TaskRecord['status']> = new Set([
+	'queued',
+	'assigned',
+	'in-progress',
+])
 
 export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> {
 	const action = ctx.body['action']
@@ -111,14 +127,66 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 	// others we'd need an Octokit follow-up call. MVP uses what's already
 	// there, gracefully handling missing fields.
 	if (typeof pr.behind_by === 'number' && pr.behind_by > 0) {
-		const conn = ctx.registry.findConnectionForTask(
-			task.assignedSessionId,
-			task.assignedMemberId,
-		)
-		if (conn) {
-			suggestRebase(conn, task.id, pr.behind_by, ctx.logger)
-		}
+		enqueueRebaseTask(ctx, task, pr)
 	}
+}
+
+/**
+ * Enqueue a `rebase` TaskKind for the parent implement task whose PR has
+ * gone stale. Idempotent: skips if any active rebase task already exists
+ * for this PR (a single base-branch push fires multiple `synchronize`
+ * events). The dispatcher's `previousMemberId` bias plus the implementer
+ * snapshot already on the parent task means the original implementer
+ * gets first dibs on running the rebase, with a warm workspace cache.
+ */
+function enqueueRebaseTask(ctx: PullsEventCtx, parent: TaskRecord, pr: PullRequestPayload): void {
+	if (parent.kind === 'rebase') return // don't rebase the rebase task itself
+	const sameUrl = ctx.taskStore.listByPrUrl(pr.html_url)
+	const activeRebase = sameUrl.find(
+		(t) => t.kind === 'rebase' && ACTIVE_REBASE_STATUSES.has(t.status),
+	)
+	if (activeRebase) {
+		ctx.logger.debug(
+			{ parentId: parent.id, rebaseId: activeRebase.id, behind_by: pr.behind_by },
+			'rebase task already in flight for this PR — skipping',
+		)
+		return
+	}
+	const created = ctx.taskStore.create({
+		kind: 'rebase',
+		title: `Rebase: ${parent.title}`,
+		description: `PR ${pr.html_url} is ${pr.behind_by} commit(s) behind \`${pr.base.ref}\`. Rebase the head branch onto the latest base, run any quick sanity checks the repo offers, and force-push with lease.`,
+		repo: ctx.repo,
+		githubIssueNumber: parent.githubIssueNumber,
+		githubIssueUrl: parent.githubIssueUrl,
+		metadata: {
+			parent_task_id: parent.id,
+			pr_url: pr.html_url,
+			head_ref: pr.head.ref,
+			base_ref: pr.base.ref,
+			head_sha: pr.head.sha,
+			behind_by: pr.behind_by,
+		},
+	})
+	// Pin pr_url on the rebase task too, so other queries (`listByPrUrl`,
+	// `findByPrUrl`) include it. The dispatcher's `prefer the previous
+	// member` bias keys off `previousMemberId`; copy the parent's
+	// implementer over so the rebase preferentially lands there.
+	ctx.taskStore.transition(created.id, ['queued'], 'queued', { prUrl: pr.html_url })
+	if (parent.assignedMemberId) {
+		ctx.taskStore.stampPreviousMember(created.id, parent.assignedMemberId)
+	}
+	ctx.logger.info(
+		{
+			rebaseId: created.id,
+			parentId: parent.id,
+			behind_by: pr.behind_by,
+			head_ref: pr.head.ref,
+			base_ref: pr.base.ref,
+		},
+		'rebase task enqueued',
+	)
+	ctx.dispatcher.tryDispatchAll()
 }
 
 export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<void> {
@@ -174,14 +242,4 @@ function persistPrUrl(store: TaskStore, task: TaskRecord, prUrl: string): void {
 	// `patch` doesn't support prUrl; do a lightweight transition over the
 	// current status to keep updatedAt fresh and store it.
 	store.transition(task.id, [task.status], task.status, { prUrl })
-}
-
-function suggestRebase(
-	conn: ConnectedMember,
-	taskId: string,
-	behindBy: number,
-	logger: Logger,
-): void {
-	conn.send({ type: 'task.rebase_suggested', task_id: taskId, behind_by: behindBy })
-	logger.info({ taskId, behindBy }, 'task.rebase_suggested sent')
 }

@@ -212,7 +212,7 @@ function TaskDetailCard({
 						)
 					}
 				/>
-				<Field label="Estimate" value={estimateLabel(task)} />
+				<Field label="Plan size" value={planLabel(task)} />
 				<Field label="Retries" value={String(task.retryCount)} />
 				<Field
 					label="Created"
@@ -383,13 +383,13 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
 	)
 }
 
-function estimateLabel(task: TaskRecord): string {
-	if (!task.estimateSize) return '—'
+function planLabel(task: TaskRecord): string {
+	if (!task.planSize) return '—'
 	const blockers =
-		task.estimateBlockers && task.estimateBlockers.length > 0
-			? ` · blockers: ${task.estimateBlockers.join(', ')}`
+		task.planBlockers && task.planBlockers.length > 0
+			? ` · blockers: ${task.planBlockers.join(', ')}`
 			: ''
-	return `${task.estimateSize}${blockers}`
+	return `${task.planSize}${blockers}`
 }
 
 const ACTIVE_STATUSES = new Set<TaskStatus>([

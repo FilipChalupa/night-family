@@ -25,8 +25,8 @@ export interface TaskRecord {
 	title: string
 	description: string
 	status: TaskStatus
-	estimateSize: 'S' | 'M' | 'L' | 'XL' | null
-	estimateBlockers: string[] | null
+	planSize: 'S' | 'M' | 'L' | 'XL' | null
+	planBlockers: string[] | null
 	prUrl: string | null
 	assignedSessionId: string | null
 	assignedMemberId: string | null
@@ -58,8 +58,8 @@ export interface CreateTaskInput {
 export interface PatchTaskInput {
 	title?: string
 	description?: string
-	estimateSize?: 'S' | 'M' | 'L' | 'XL' | null
-	estimateBlockers?: string[] | null
+	planSize?: 'S' | 'M' | 'L' | 'XL' | null
+	planBlockers?: string[] | null
 }
 
 interface TaskJoinRow {
@@ -76,8 +76,8 @@ function rowToRecord(row: TaskJoinRow, reviewJobs: ReviewJobsSummary | null = nu
 		title: t.title,
 		description: t.description,
 		status: t.status as TaskStatus,
-		estimateSize: (t.estimateSize as TaskRecord['estimateSize']) ?? null,
-		estimateBlockers: t.estimateBlockers ? (JSON.parse(t.estimateBlockers) as string[]) : null,
+		planSize: (t.planSize as TaskRecord['planSize']) ?? null,
+		planBlockers: t.planBlockers ? (JSON.parse(t.planBlockers) as string[]) : null,
 		prUrl: t.prUrl,
 		assignedSessionId: t.assignedSessionId,
 		assignedMemberId: t.assignedMemberId,
@@ -143,8 +143,12 @@ export class TaskStore {
 	}
 
 	/**
-	 * Indexed lookup of the (at most one) task with this `pr_url`. Faster
-	 * than scanning all tasks for the repo and JSON-decoding each one.
+	 * Indexed lookup of one task with this `pr_url`. Multiple tasks can
+	 * share a `pr_url` (the parent implement task plus any spawned
+	 * `rebase` tasks pointing at the same PR), so this returns the
+	 * most-recently-created match — typically the implement task,
+	 * because rebase tasks are short-lived and reach `done`/`failed`
+	 * quickly. Use {@link listByPrUrl} if you need every task for a PR.
 	 */
 	findByPrUrl(prUrl: string): TaskRecord | null {
 		const rows = this.db
@@ -152,12 +156,31 @@ export class TaskStore {
 			.from(tasks)
 			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
 			.where(eq(tasks.prUrl, prUrl))
+			.orderBy(desc(tasks.createdAt))
 			.limit(1)
 			.all()
 		if (!rows[0]) return null
 		const summary =
 			this.reviewJobsSummaryByTaskIds([rows[0].task.id]).get(rows[0].task.id) ?? null
 		return rowToRecord(rows[0], summary)
+	}
+
+	/**
+	 * Every task currently linked to `prUrl`, newest first. Used by the
+	 * pulls webhook to dedupe rebase tasks (don't enqueue a second rebase
+	 * for a PR that already has one in flight).
+	 */
+	listByPrUrl(prUrl: string): TaskRecord[] {
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(eq(tasks.prUrl, prUrl))
+			.orderBy(desc(tasks.createdAt))
+			.all()
+		if (rows.length === 0) return []
+		const summaries = this.reviewJobsSummaryByTaskIds(rows.map((r) => r.task.id))
+		return rows.map((r) => rowToRecord(r, summaries.get(r.task.id) ?? null))
 	}
 
 	/**
@@ -241,7 +264,7 @@ export class TaskStore {
 				failed: sql<number>`SUM(CASE WHEN ${taskJobs.status} = 'failed' THEN 1 ELSE 0 END)`,
 			})
 			.from(taskJobs)
-			.where(and(inArray(taskJobs.taskId, taskIds), eq(taskJobs.kind, 'review')))
+			.where(inArray(taskJobs.taskId, taskIds))
 			.groupBy(taskJobs.taskId)
 			.all()
 		for (const r of rows) {
@@ -263,11 +286,9 @@ export class TaskStore {
 		}
 		if (input.title !== undefined) update.title = input.title
 		if (input.description !== undefined) update.description = input.description
-		if (input.estimateSize !== undefined) update.estimateSize = input.estimateSize
-		if (input.estimateBlockers !== undefined) {
-			update.estimateBlockers = input.estimateBlockers
-				? JSON.stringify(input.estimateBlockers)
-				: null
+		if (input.planSize !== undefined) update.planSize = input.planSize
+		if (input.planBlockers !== undefined) {
+			update.planBlockers = input.planBlockers ? JSON.stringify(input.planBlockers) : null
 		}
 		this.db.update(tasks).set(update).where(eq(tasks.id, id)).run()
 		const record = this.get(id)!
@@ -551,7 +572,11 @@ export class TaskStore {
 		return record
 	}
 
-	storeEstimateResult(
+	/**
+	 * Stash the plan size + blockers a triage agent posted in its plan
+	 * comment. Carried forward to the implement task spawned from triage.
+	 */
+	storePlanResult(
 		id: string,
 		size: 'S' | 'M' | 'L' | 'XL',
 		blockers: string[],
@@ -559,8 +584,8 @@ export class TaskStore {
 		this.db
 			.update(tasks)
 			.set({
-				estimateSize: size,
-				estimateBlockers: JSON.stringify(blockers),
+				planSize: size,
+				planBlockers: JSON.stringify(blockers),
 				updatedAt: new Date(),
 			})
 			.where(eq(tasks.id, id))

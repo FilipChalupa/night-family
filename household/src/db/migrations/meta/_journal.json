@@ -57,6 +57,13 @@
       "when": 1778025600000,
       "tag": "0007_drop_estimate_legacy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1778112000000,
+      "tag": "0008_plan_size_rename_and_jobs_kind_drop",
+      "breakpoints": true
     }
   ]
 }

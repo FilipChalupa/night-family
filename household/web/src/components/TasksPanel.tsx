@@ -62,8 +62,8 @@ interface Props {
 }
 
 // Filter order roughly mirrors the typical lifecycle: triage runs first,
-// then implement, then review/respond, summarize is standalone.
-const KINDS: TaskKind[] = ['triage', 'implement', 'review', 'respond', 'summarize']
+// then implement, then rebase / review / respond. Summarize is standalone.
+const KINDS: TaskKind[] = ['triage', 'implement', 'rebase', 'review', 'respond', 'summarize']
 const ACTIVE: ReadonlyArray<TaskStatus> = [
 	'queued',
 	'assigned',
@@ -381,24 +381,24 @@ function TasksTable({
 								)}
 							</TableCell>
 							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-								{t.estimateSize ? (
+								{t.planSize ? (
 									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-										<Tooltip title={estimateTooltip(t.estimateSize)}>
+										<Tooltip title={planSizeTooltip(t.planSize)}>
 											<Chip
-												label={t.estimateSize}
+												label={t.planSize}
 												size="small"
-												color={estimateColor(t.estimateSize)}
+												color={planSizeColor(t.planSize)}
 												variant="filled"
 												sx={{ fontWeight: 600, minWidth: 36 }}
 											/>
 										</Tooltip>
-										{t.estimateBlockers && t.estimateBlockers.length > 0 ? (
-											<Tooltip title={t.estimateBlockers.join('\n')}>
+										{t.planBlockers && t.planBlockers.length > 0 ? (
+											<Tooltip title={t.planBlockers.join('\n')}>
 												<Typography
 													variant="caption"
 													color="text.secondary"
 												>
-													blockers: {t.estimateBlockers.length}
+													blockers: {t.planBlockers.length}
 												</Typography>
 											</Tooltip>
 										) : null}
@@ -622,7 +622,7 @@ function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose:
 	)
 }
 
-function estimateColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warning' | 'error' {
+function planSizeColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warning' | 'error' {
 	switch (size) {
 		case 'S':
 			return 'success'
@@ -635,7 +635,7 @@ function estimateColor(size: 'S' | 'M' | 'L' | 'XL'): 'success' | 'info' | 'warn
 	}
 }
 
-function estimateTooltip(size: 'S' | 'M' | 'L' | 'XL'): string {
+function planSizeTooltip(size: 'S' | 'M' | 'L' | 'XL'): string {
 	switch (size) {
 		case 'S':
 			return 'Small — focused change in a single small file.'

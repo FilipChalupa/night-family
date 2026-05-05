@@ -203,16 +203,16 @@ function parsePatchBody(body: unknown):
 	| {
 			title?: string
 			description?: string
-			estimateSize?: 'S' | 'M' | 'L' | 'XL' | null
-			estimateBlockers?: string[] | null
+			planSize?: 'S' | 'M' | 'L' | 'XL' | null
+			planBlockers?: string[] | null
 	  } {
 	if (!body || typeof body !== 'object') return { error: 'expected_object' }
 	const b = body as Record<string, unknown>
 	const out: {
 		title?: string
 		description?: string
-		estimateSize?: 'S' | 'M' | 'L' | 'XL' | null
-		estimateBlockers?: string[] | null
+		planSize?: 'S' | 'M' | 'L' | 'XL' | null
+		planBlockers?: string[] | null
 	} = {}
 	if (b['title'] !== undefined) {
 		if (typeof b['title'] !== 'string') return { error: 'invalid_title' }
@@ -222,21 +222,21 @@ function parsePatchBody(body: unknown):
 		if (typeof b['description'] !== 'string') return { error: 'invalid_description' }
 		out.description = b['description']
 	}
-	if (b['estimate_size'] !== undefined) {
-		const s = b['estimate_size']
+	if (b['plan_size'] !== undefined) {
+		const s = b['plan_size']
 		if (s !== null && s !== 'S' && s !== 'M' && s !== 'L' && s !== 'XL') {
-			return { error: 'invalid_estimate_size' }
+			return { error: 'invalid_plan_size' }
 		}
-		out.estimateSize = s as 'S' | 'M' | 'L' | 'XL' | null
+		out.planSize = s as 'S' | 'M' | 'L' | 'XL' | null
 	}
-	if (b['estimate_blockers'] !== undefined) {
-		const blockers = b['estimate_blockers']
+	if (b['plan_blockers'] !== undefined) {
+		const blockers = b['plan_blockers']
 		if (blockers === null) {
-			out.estimateBlockers = null
+			out.planBlockers = null
 		} else if (Array.isArray(blockers) && blockers.every((x) => typeof x === 'string')) {
-			out.estimateBlockers = blockers
+			out.planBlockers = blockers
 		} else {
-			return { error: 'invalid_estimate_blockers' }
+			return { error: 'invalid_plan_blockers' }
 		}
 	}
 	return out

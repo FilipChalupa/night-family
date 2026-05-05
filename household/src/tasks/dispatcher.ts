@@ -23,7 +23,12 @@
  */
 
 import type { Logger } from 'pino'
-import { TASK_ACK_TIMEOUT_MS, type TaskKind, type TaskStatus } from '@night/shared'
+import {
+	TASK_ACK_TIMEOUT_MS,
+	acceptableTaskKinds,
+	type TaskKind,
+	type TaskStatus,
+} from '@night/shared'
 import type { ConnectedMember, MemberRegistry, MemberSnapshot } from '../members/registry.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from './store.ts'
@@ -106,8 +111,10 @@ export class Dispatcher {
 		// already assigned to this Member (e.g. came back to `queued` after
 		// `changes_requested`) so the original implementer reuses its warm
 		// workspace + LLM prompt cache; fall back to the generic queue.
+		// `acceptableTaskKinds` expands skills → kinds (notably,
+		// `implement` skill also accepts `rebase` kind).
 		let task: TaskRecord | null = null
-		const acceptable = member.skills as TaskKind[]
+		const acceptable = acceptableTaskKinds(member.skills)
 		if (acceptable.length > 0) {
 			task = this.deps.taskStore.claimNextForPreferredMember(
 				acceptable,
@@ -584,7 +591,7 @@ export class Dispatcher {
 			metadata: { spawned_from_triage: triage.id },
 		})
 		if (size) {
-			this.deps.taskStore.storeEstimateResult(implement.id, size, [])
+			this.deps.taskStore.storePlanResult(implement.id, size, [])
 		}
 		this.deps.logger.info(
 			{ triageId: triage.id, implementId: implement.id, size },

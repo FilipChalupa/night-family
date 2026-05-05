@@ -56,6 +56,12 @@ export function compareProtocolVersions(a: string, b: string): ProtocolCompat {
  * (e.g. "no `implement` outside the night window") is enforced
  * Household-side via the per-Member {@link Schedule} attached to the
  * handshake — see `household/src/schedule/eval.ts`.
+ *
+ * Note: `Skill` is the *capability* axis; {@link TaskKind} is the *work*
+ * axis. They overlap but aren't identical — a member with the
+ * `implement` skill is also expected to handle `rebase` task kinds (same
+ * workspace, same PR-write authority). The dispatcher knows the
+ * mapping; the wire surface stays small.
  */
 export type Skill = 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
 
@@ -75,7 +81,34 @@ export type MemberStatus = 'idle' | 'busy'
 
 export type EventKind = 'tool_call' | 'file_edited' | 'commit' | 'usage' | 'log' | 'rebase'
 
-export type TaskKind = 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
+export type TaskKind = 'implement' | 'review' | 'triage' | 'respond' | 'summarize' | 'rebase'
+
+/**
+ * Which `TaskKind` values is a Member with the given `Skill` willing to
+ * take? Used by the dispatcher to expand a Member's advertised skill set
+ * into the kinds it accepts. The mapping is tight — only `implement`
+ * picks up an extra kind (`rebase`), because rebase tasks need exactly
+ * the same operational footprint (warm workspace, PR-write authority).
+ */
+export const TASK_KINDS_BY_SKILL: Record<Skill, readonly TaskKind[]> = {
+	implement: ['implement', 'rebase'],
+	review: ['review'],
+	triage: ['triage'],
+	respond: ['respond'],
+	summarize: ['summarize'],
+}
+
+/**
+ * Expand a Member's effective skill set into the {@link TaskKind} values
+ * it should be considered for. Deduplicated.
+ */
+export function acceptableTaskKinds(skills: readonly Skill[]): TaskKind[] {
+	const out = new Set<TaskKind>()
+	for (const s of skills) {
+		for (const k of TASK_KINDS_BY_SKILL[s]) out.add(k)
+	}
+	return [...out]
+}
 
 export type TaskStatus =
 	| 'queued'
@@ -166,8 +199,6 @@ export interface MsgMemberReady {
 export interface MsgMemberBusy {
 	type: 'member.busy'
 	task_id: string
-	/** Human-readable title of the task the member is working on. */
-	task_title?: string | null
 }
 
 export interface MsgTaskAck {
@@ -201,8 +232,6 @@ export interface MsgHeartbeat {
 	type: 'heartbeat'
 	status: MemberStatus
 	current_task: string | null
-	/** Human-readable title of the task the member is currently working on. */
-	current_task_title?: string | null
 }
 
 export interface MsgPong {
@@ -245,12 +274,6 @@ export interface MsgEventsReplayRequest {
 	from_seq: number
 }
 
-export interface MsgTaskRebaseSuggested {
-	type: 'task.rebase_suggested'
-	task_id: string
-	behind_by: number
-}
-
 export interface MsgTaskCancel {
 	type: 'task.cancel'
 	task_id: string
@@ -266,7 +289,6 @@ export type HouseholdToMember =
 	| MsgHandshakeReject
 	| MsgTaskAssigned
 	| MsgEventsReplayRequest
-	| MsgTaskRebaseSuggested
 	| MsgTaskCancel
 	| MsgPing
 

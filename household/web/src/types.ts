@@ -72,8 +72,8 @@ export interface TaskRecord {
 	title: string
 	description: string
 	status: TaskStatus
-	estimateSize: 'S' | 'M' | 'L' | 'XL' | null
-	estimateBlockers: string[] | null
+	planSize: 'S' | 'M' | 'L' | 'XL' | null
+	planBlockers: string[] | null
 	prUrl: string | null
 	assignedSessionId: string | null
 	assignedMemberId: string | null

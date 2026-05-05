@@ -18,6 +18,29 @@ import { authenticatedRemoteUrl, gh, git, GitError } from './git.ts'
 
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
+/**
+ * `git rebase` reported a conflict the runner can't resolve without an
+ * LLM round-trip. v1 of the rebase TaskKind fails fast and surfaces the
+ * git stderr; humans (or a future LLM rescue path) take it from there.
+ */
+export class RebaseConflictError extends Error {
+	constructor(readonly gitStderr: string) {
+		super('rebase_conflict')
+		this.name = 'RebaseConflictError'
+	}
+}
+
+/**
+ * Couldn't even start the rebase — typically because the head ref was
+ * deleted between the webhook firing and the rebase task being claimed.
+ */
+export class RebaseSetupError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'RebaseSetupError'
+	}
+}
+
 export interface WorkspaceOpts {
 	taskId: string
 	/**
@@ -34,6 +57,15 @@ export interface WorkspaceOpts {
 }
 
 export class Workspace {
+	/**
+	 * The remote-side SHA of {@link branch} at the moment we fetched it
+	 * before any local mutations. Set only by {@link createForRebase};
+	 * `null` for the implement-task path. {@link pushWithLease} uses it
+	 * as the lease target, so a concurrent push to the head branch
+	 * between fetch and push is detected and rejected.
+	 */
+	private leaseShaBeforeRebase: string | null = null
+
 	private constructor(
 		readonly taskId: string,
 		readonly repo: string,
@@ -94,6 +126,136 @@ export class Workspace {
 			githubToken,
 			logger,
 		)
+	}
+
+	/**
+	 * Workspace tailored for a `rebase` task: skips the fresh-from-base
+	 * branch creation that {@link create} does, and instead checks out
+	 * the existing head branch (whatever the PR points at). Fetches both
+	 * head and base; captures the head's pre-rebase SHA so
+	 * {@link pushWithLease} can lease against it.
+	 *
+	 * Throws {@link RebaseSetupError} if the head branch isn't reachable
+	 * — that's a soft fail (PR might have been deleted between webhook
+	 * and dispatch); the caller should mark the task failed.
+	 */
+	static async createForRebase(opts: {
+		taskId: string
+		repo: string
+		headRef: string
+		baseRef: string
+		githubToken: string
+		workspaceDir: string
+		logger: Logger
+	}): Promise<Workspace> {
+		const { taskId, repo, headRef, baseRef, githubToken, workspaceDir, logger } = opts
+		const cachePath = join(workspaceDir, '.cache', repo + '.git')
+		await ensureBareClone(cachePath, repo, githubToken, logger)
+		await touch(cachePath)
+
+		// Fetch both refs into local heads. `+ref:ref` forces overwrite if a
+		// stale local head is in the way (e.g. a previous rebase task ran for
+		// the same head and its result is now what `origin/ref` actually
+		// holds, but our local heads still reflect the pre-rebase state).
+		try {
+			await git(['fetch', 'origin', `+${headRef}:${headRef}`, `+${baseRef}:${baseRef}`], {
+				cwd: cachePath,
+				timeoutMs: 120_000,
+			})
+		} catch (err) {
+			throw new RebaseSetupError(
+				`failed to fetch ${headRef} or ${baseRef}: ${(err as Error).message}`,
+			)
+		}
+
+		const taskPath = join(workspaceDir, taskId, 'work')
+		await rm(taskPath, { recursive: true, force: true })
+		await mkdir(dirname(taskPath), { recursive: true })
+
+		try {
+			await git(['worktree', 'prune'], { cwd: cachePath })
+		} catch {
+			/* best-effort */
+		}
+
+		// `-B` resets the local branch label to point at the freshly fetched
+		// head ref, even if a stale label from a prior task is in the way.
+		await git(['worktree', 'add', '-B', headRef, taskPath, headRef], { cwd: cachePath })
+
+		await git(['config', 'user.name', 'Night Family'], { cwd: taskPath })
+		await git(['config', 'user.email', 'noreply+night@local'], { cwd: taskPath })
+
+		const ws = new Workspace(
+			taskId,
+			repo,
+			taskPath,
+			cachePath,
+			headRef,
+			baseRef,
+			githubToken,
+			logger,
+		)
+		ws.leaseShaBeforeRebase = (await git(['rev-parse', 'HEAD'], { cwd: taskPath })).trim()
+
+		logger.info(
+			{ taskId, repo, headRef, baseRef, leaseSha: ws.leaseShaBeforeRebase.slice(0, 8) },
+			'rebase workspace ready',
+		)
+		return ws
+	}
+
+	/**
+	 * Run `git rebase <baseBranch>` in this workspace. Aborts the rebase
+	 * on conflict and throws {@link RebaseConflictError}; the caller is
+	 * expected to fail the task and surface the message to humans (who
+	 * will resolve the conflict by hand).
+	 */
+	async rebaseOntoBase(): Promise<{ rewroteCommits: boolean; newSha: string }> {
+		const beforeSha = (await git(['rev-parse', 'HEAD'], { cwd: this.path })).trim()
+		try {
+			await git(['rebase', this.baseBranch], { cwd: this.path, timeoutMs: 120_000 })
+		} catch (err) {
+			// Best-effort cleanup so the worktree isn't left in a half-rebased state.
+			try {
+				await git(['rebase', '--abort'], { cwd: this.path })
+			} catch {
+				/* ignore */
+			}
+			const stderr = err instanceof GitError ? err.stderr : ''
+			throw new RebaseConflictError(stderr.slice(0, 2000) || (err as Error).message)
+		}
+		const afterSha = (await git(['rev-parse', 'HEAD'], { cwd: this.path })).trim()
+		return { rewroteCommits: beforeSha !== afterSha, newSha: afterSha }
+	}
+
+	/**
+	 * Push the rebased branch with `--force-with-lease=<branch>:<sha>`,
+	 * where `<sha>` is the head ref's value at fetch time (captured by
+	 * {@link createForRebase}). Bare clones don't track
+	 * `refs/remotes/origin/*`, so we lease explicitly against the
+	 * pre-rebase head SHA. If somebody pushed to the branch between
+	 * fetch and push, the lease fails — exactly what we want.
+	 */
+	async pushWithLease(): Promise<void> {
+		if (this.leaseShaBeforeRebase === null) {
+			throw new Error('pushWithLease: workspace was not set up via createForRebase')
+		}
+		const remote = authenticatedRemoteUrl(this.repo, this.token)
+		const lease = `--force-with-lease=${this.branch}:${this.leaseShaBeforeRebase}`
+		try {
+			await git(['push', lease, remote, `${this.branch}:${this.branch}`], {
+				cwd: this.path,
+				timeoutMs: 120_000,
+			})
+		} catch (err) {
+			if (err instanceof GitError) {
+				this.logger.warn(
+					{ stderr: err.stderr.slice(0, 400) },
+					'push --force-with-lease failed',
+				)
+			}
+			throw err
+		}
 	}
 
 	async commit(message: string, agentName: string): Promise<{ sha: string } | null> {

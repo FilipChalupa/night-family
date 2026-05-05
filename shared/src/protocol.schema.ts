@@ -43,6 +43,7 @@ const TaskKindSchema = v.picklist([
 	'triage',
 	'respond',
 	'summarize',
+	'rebase',
 ] satisfies TaskKind[])
 
 const DaySchema = v.picklist(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] satisfies Day[])
@@ -99,7 +100,6 @@ const MsgMemberReadySchema = v.object({ type: v.literal('member.ready') })
 const MsgMemberBusySchema = v.object({
 	type: v.literal('member.busy'),
 	task_id: v.string(),
-	task_title: v.optional(v.nullable(v.string())),
 })
 
 const MsgTaskAckSchema = v.object({
@@ -133,7 +133,6 @@ const MsgHeartbeatSchema = v.object({
 	type: v.literal('heartbeat'),
 	status: MemberStatusSchema,
 	current_task: v.nullable(v.string()),
-	current_task_title: v.optional(v.nullable(v.string())),
 })
 
 const MsgPongSchema = v.object({ type: v.literal('pong') })
@@ -175,12 +174,6 @@ const MsgEventsReplayRequestSchema = v.object({
 	from_seq: v.number(),
 })
 
-const MsgTaskRebaseSuggestedSchema = v.object({
-	type: v.literal('task.rebase_suggested'),
-	task_id: v.string(),
-	behind_by: v.number(),
-})
-
 const MsgTaskCancelSchema = v.object({
 	type: v.literal('task.cancel'),
 	task_id: v.string(),
@@ -194,7 +187,6 @@ const HouseholdToMemberSchema = v.variant('type', [
 	MsgHandshakeRejectSchema,
 	MsgTaskAssignedSchema,
 	MsgEventsReplayRequestSchema,
-	MsgTaskRebaseSuggestedSchema,
 	MsgTaskCancelSchema,
 	MsgPingSchema,
 ])

@@ -198,8 +198,9 @@
 			<section class="entry">
 				<h2>3.0.0</h2>
 				<p>
-					Schedule evaluation moves to Household; <code>estimate</code> kind/skill removed;
-					skills are now static per session.
+					Schedule evaluation moves to Household; <code>estimate</code> removed;
+					<code>rebase</code> dotažen jako TaskKind; pár dead-letter zpráv pryč. Skills
+					are now static per session.
 				</p>
 				<ul>
 					<li>
@@ -223,6 +224,28 @@
 						>; removed <code>estimating</code> from <code>TaskStatus</code>. Triage's
 						plan output already carries the size estimate, so the standalone estimate
 						step is gone for good.
+					</li>
+					<li>
+						Added <code>rebase</code> to <code>TaskKind</code> (not a new
+						<code>Skill</code>). When a PR's base branch moves and the head goes
+						<code>behind_by &gt; 0</code>, Household enqueues a regular
+						<code>rebase</code> task pointing at the parent implement task; the
+						dispatcher routes it to a Member with the <code>implement</code> skill
+						(prefer the original implementer for cache warmth). The Member's runner
+						handles <code>kind === 'rebase'</code> with a deterministic git-only path
+						(no LLM): fetch base, <code>git rebase</code>, push
+						<code>--force-with-lease</code>; conflicts fail fast for now.
+					</li>
+					<li>
+						Removed <code>task.rebase_suggested</code> (Household → Member). The
+						<code>rebase</code> TaskKind above replaces it; rebase is now first-class
+						work tracked in the tasks table.
+					</li>
+					<li>
+						Removed never-set optional fields from heartbeat-path messages:
+						<code>MsgMemberBusy.task_title</code> and
+						<code>MsgHeartbeat.current_task_title</code>. Members never populated them;
+						consumers always derived the title from the task store anyway.
 					</li>
 				</ul>
 			</section>

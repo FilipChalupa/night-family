@@ -407,7 +407,7 @@ describe('Dispatcher triage → implement spawning', () => {
 		const implement = all.find((t) => t.kind === 'implement')
 		expect(implement).toBeDefined()
 		expect(implement?.status).toBe('queued')
-		expect(implement?.estimateSize).toBe('M')
+		expect(implement?.planSize).toBe('M')
 		expect(implement?.githubIssueNumber).toBe(42)
 		expect(
 			(implement?.metadata as Record<string, unknown> | null)?.['spawned_from_triage'],
@@ -537,5 +537,102 @@ describe('Dispatcher preferred-member bias', () => {
 		// 'a' is busy; 'b' steps in.
 		expect(sentTaskIds(bSent)).toContain(preferred.id)
 		expect(sentTaskIds(aSent)).not.toContain(preferred.id)
+	})
+})
+
+describe('Dispatcher rebase routing', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	it('a Member with `implement` skill claims a `rebase` task', () => {
+		const sent = vi.fn()
+		const member = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: sent,
+			skills: ['implement'],
+		})
+		rig.registry.add(member)
+		const rebase = rig.taskStore.create({
+			kind: 'rebase',
+			title: 'Rebase: foo',
+			description: 'rebase me',
+			repo: 'o/r',
+			metadata: { head_ref: 'pr/night/abc-foo', base_ref: 'main' },
+		})
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentRebase = sent.mock.calls
+			.map((c) => c[0] as { type?: string; task?: { task_id: string; kind: string } })
+			.find((m) => m.type === 'task.assigned' && m.task?.task_id === rebase.id)
+		expect(sentRebase).toBeDefined()
+		expect(sentRebase!.task!.kind).toBe('rebase')
+	})
+
+	it('a Member without `implement` skill never claims a `rebase` task', () => {
+		const sent = vi.fn()
+		const member = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: sent,
+			skills: ['review', 'triage'], // no implement
+		})
+		rig.registry.add(member)
+		rig.taskStore.create({
+			kind: 'rebase',
+			title: 'Rebase: foo',
+			description: 'rebase me',
+			repo: 'o/r',
+			metadata: { head_ref: 'pr/night/abc-foo', base_ref: 'main' },
+		})
+
+		rig.dispatcher.tryDispatchAll()
+
+		const taskAssigns = sent.mock.calls
+			.map((c) => c[0] as { type?: string })
+			.filter((m) => m.type === 'task.assigned')
+		expect(taskAssigns).toHaveLength(0)
+	})
+
+	it('prefers the original implementer (previousMemberId) over a generic implement Member', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			skills: ['implement'],
+		})
+		const b = fakeMember({
+			memberName: 'b',
+			status: 'idle',
+			send: bSent,
+			skills: ['implement'],
+		})
+		rig.registry.add(a)
+		rig.registry.add(b)
+		const rebase = rig.taskStore.create({
+			kind: 'rebase',
+			title: 'Rebase: foo',
+			description: 'rebase me',
+			repo: 'o/r',
+			metadata: { head_ref: 'pr/night/abc-foo', base_ref: 'main' },
+		})
+		rig.taskStore.stampPreviousMember(rebase.id, a.memberId)
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentTo = (fn: ReturnType<typeof vi.fn>) =>
+			fn.mock.calls
+				.map((c) => c[0] as { type?: string; task?: { task_id: string } })
+				.filter((m) => m.type === 'task.assigned' && m.task?.task_id === rebase.id)
+		expect(sentTo(aSent)).toHaveLength(1)
+		expect(sentTo(bSent)).toHaveLength(0)
 	})
 })

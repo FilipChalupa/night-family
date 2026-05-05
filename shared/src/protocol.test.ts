@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareProtocolVersions, parseProtocolVersion } from './protocol.ts'
+import { acceptableTaskKinds, compareProtocolVersions, parseProtocolVersion } from './protocol.ts'
 
 describe('parseProtocolVersion', () => {
 	it('parses a well-formed semver string', () => {
@@ -47,5 +47,34 @@ describe('compareProtocolVersions', () => {
 		expect(compareProtocolVersions('1.2.3', 'garbage')).toBe('major-mismatch')
 		expect(compareProtocolVersions('garbage', '1.2.3')).toBe('major-mismatch')
 		expect(compareProtocolVersions('1', '1.0.0')).toBe('major-mismatch')
+	})
+})
+
+describe('acceptableTaskKinds', () => {
+	it('expands implement skill into [implement, rebase]', () => {
+		expect(acceptableTaskKinds(['implement']).sort()).toEqual(['implement', 'rebase'])
+	})
+
+	it('passes review/triage/respond/summarize through unchanged', () => {
+		expect(acceptableTaskKinds(['review'])).toEqual(['review'])
+		expect(acceptableTaskKinds(['triage'])).toEqual(['triage'])
+		expect(acceptableTaskKinds(['respond'])).toEqual(['respond'])
+		expect(acceptableTaskKinds(['summarize'])).toEqual(['summarize'])
+	})
+
+	it('combines multiple skills, deduped', () => {
+		expect(acceptableTaskKinds(['implement', 'review']).sort()).toEqual([
+			'implement',
+			'rebase',
+			'review',
+		])
+	})
+
+	it('returns [] for an empty skill set', () => {
+		expect(acceptableTaskKinds([])).toEqual([])
+	})
+
+	it('a member without `implement` cannot take rebase tasks', () => {
+		expect(acceptableTaskKinds(['review', 'triage'])).not.toContain('rebase')
 	})
 })
