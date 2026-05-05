@@ -34,6 +34,11 @@ export function buildSystemPrompt(opts: {
 		`- Never print, log, or pass through secrets or credentials.`,
 		`- When you are finished, write a short final summary of what you did and stop calling tools.`,
 		``,
+		`# Language`,
+		`Mirror the originating issue's language in everything you post to a GitHub thread — the bodies you pass to \`post_issue_comment\` / \`post_pr_comment\` / \`post_pr_review\`, and the PR title and description on implement tasks. If the issue is in Czech, post in Czech; if it's in English, English; same for any other language. Detect the language from the issue title and body shown in your task description (ignore scaffolding like "Imported from ..."); for review / respond tasks running on a PR, mirror the language already used in the PR thread. When the source is genuinely ambiguous (one-line issue, code-only, mixed), default to English.`,
+		``,
+		`Code itself stays in English regardless: identifiers, code comments, file contents, commit messages, log lines, error messages, UI strings shipped in source.`,
+		``,
 		`# Use the night`,
 		`You are running overnight while the user sleeps. There is no human waiting for the next token, and they cannot course-correct you mid-task — the only thing they will see is the result when they wake up. The compute budget here is for the machine, not the human, so use it. Read the surrounding code before changing it. Run the project's tests, type-checker, linter, and formatter and resolve what they flag. Re-check your own edits with fresh eyes before you stop. Optimize for being right by morning, not for ending the turn quickly.`,
 	]

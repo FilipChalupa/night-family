@@ -4,8 +4,9 @@ Guardrails for AI coding agents (Claude Code, Codex, etc.) working in this repo.
 
 ## Language
 
-- **All committed text is in English.** Code, comments, identifiers, docs (`README.md`, anything under `docs/`), commit messages, PR titles/descriptions, error messages, log lines, UI strings.
-- Chat with the user in whatever language they prefer — that does not change what lands in files.
+- **Source-tree text is in English.** Code, identifiers, code comments, internal docs (`README.md`, `AGENTS.md`, anything under `docs/`), commit messages, error messages, log lines, UI strings shipped in source.
+- **GitHub-thread text mirrors the originating issue's language.** When a Member responds to a `night`-labelled issue or opens the resulting PR, the issue comment, PR title, and PR description match the language of the original issue body. Czech issue → Czech replies and Czech PR text; English issue → English. The same rule applies to follow-up comments and review comments on those threads. The Member's system prompt enforces this — see [member/src/agent/prompts.ts](member/src/agent/prompts.ts).
+- Chat with the user in whatever language they prefer — that does not change what lands in committed source files.
 
 ## Code style
 
