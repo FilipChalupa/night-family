@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Task lifecycle — Night Family</title>
+		<meta
+			name="description"
+			content="How a Night Family task flows from a labeled GitHub issue through triage, implementation, parallel review, and merge — including statuses, retries, and the dispatcher's biases."
+		/>
+		<meta property="og:title" content="Night Family · Task lifecycle" />
+		<meta
+			property="og:description"
+			content="The full state machine of a Night Family task: triage, implement, review, merge, retry."
+		/>
+		<meta property="og:type" content="article" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0c0d10;
+				--fg: #e6e6e8;
+				--muted: #8a8f99;
+				--border: #25272d;
+				--card: #15171c;
+				--accent: #8ab4ff;
+				--accent-glow: rgba(138, 180, 255, 0.18);
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				background: var(--bg);
+				color: var(--fg);
+				font-family:
+					ui-sans-serif,
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					'Segoe UI',
+					sans-serif;
+				line-height: 1.55;
+			}
+			a {
+				color: var(--accent);
+				text-decoration: none;
+			}
+			a:hover {
+				text-decoration: underline;
+			}
+			.wrap {
+				max-width: 760px;
+				margin: 0 auto;
+				padding: 64px 24px 96px;
+			}
+			header {
+				display: flex;
+				align-items: center;
+				gap: 14px;
+				margin-bottom: 28px;
+			}
+			.logo {
+				width: 44px;
+				height: 44px;
+				border-radius: 12px;
+				background: radial-gradient(circle at 30% 30%, #2c5cdc 0%, #14193a 70%);
+				box-shadow: 0 0 0 4px var(--accent-glow);
+				display: grid;
+				place-items: center;
+				font-size: 22px;
+			}
+			h1 {
+				margin: 0;
+				font-size: 28px;
+				font-weight: 600;
+				letter-spacing: -0.01em;
+			}
+			h1 .sub {
+				display: block;
+				font-size: 13px;
+				font-weight: 400;
+				color: var(--muted);
+				margin-top: 2px;
+				letter-spacing: 0.02em;
+			}
+			h2 {
+				font-size: 14px;
+				color: var(--muted);
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+				margin: 44px 0 12px;
+				font-weight: 600;
+			}
+			h3 {
+				font-size: 17px;
+				font-weight: 600;
+				margin: 24px 0 6px;
+				letter-spacing: -0.005em;
+			}
+			p {
+				margin: 0 0 14px;
+			}
+			ul,
+			ol {
+				margin: 0 0 14px;
+				padding: 0 0 0 22px;
+			}
+			ul li,
+			ol li {
+				margin-bottom: 6px;
+			}
+			ol li::marker {
+				color: var(--muted);
+				font-variant-numeric: tabular-nums;
+			}
+			code {
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 4px;
+				padding: 1px 6px;
+				font-size: 0.92em;
+			}
+			pre {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 16px 18px;
+				overflow-x: auto;
+				font-size: 0.88em;
+				line-height: 1.45;
+				color: #cdd1d8;
+			}
+			pre code {
+				background: transparent;
+				border: none;
+				padding: 0;
+				font-size: 1em;
+			}
+			.lede {
+				font-size: 17px;
+				color: #cdd1d8;
+				margin-bottom: 24px;
+			}
+			.back {
+				display: inline-block;
+				margin-bottom: 24px;
+				color: var(--muted);
+				font-size: 14px;
+			}
+			.statuses {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+				gap: 10px;
+				margin: 8px 0 4px;
+			}
+			.status {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 12px 14px;
+			}
+			.status code {
+				background: transparent;
+				border: none;
+				padding: 0;
+				font-weight: 600;
+				color: var(--accent);
+				font-size: 0.95em;
+			}
+			.status span {
+				display: block;
+				color: var(--muted);
+				font-size: 13px;
+				margin-top: 2px;
+			}
+			.callout {
+				background: var(--card);
+				border: 1px solid var(--border);
+				border-left: 3px solid var(--accent);
+				border-radius: 6px;
+				padding: 12px 16px;
+				margin: 16px 0;
+				font-size: 14.5px;
+				color: #cdd1d8;
+			}
+			.callout strong {
+				color: var(--fg);
+			}
+			footer {
+				margin-top: 56px;
+				padding-top: 18px;
+				border-top: 1px solid var(--border);
+				color: var(--muted);
+				font-size: 13px;
+			}
+		</style>
+	</head>
+	<body>
+		<main class="wrap">
+			<a class="back" href="../">← Night Family</a>
+			<header>
+				<div class="logo" aria-hidden="true">🌙</div>
+				<h1>
+					Task lifecycle
+					<span class="sub"
+						>From labeled issue to merged PR — every state, every transition</span
+					>
+				</h1>
+			</header>
+
+			<p class="lede">
+				A Night Family task is a row in Household's database with a finite-state status.
+				This page walks through every state, what triggers each transition, and the corner
+				cases (retries, disconnects, self-review).
+			</p>
+
+			<h2>Task kinds</h2>
+			<p>What the dispatched agent is asked to do. Each kind maps to a Member skill.</p>
+			<ul>
+				<li>
+					<code>triage</code> — read a fresh issue and either ask a clarifying question or
+					write a plan comment. Day-mode Members offer this skill on its own.
+				</li>
+				<li>
+					<code>implement</code> — branch, edit, commit, push, open a draft PR. Night-mode
+					Members offer this in addition to <code>triage</code>.
+				</li>
+				<li>
+					<code>review</code> — read a PR diff and post a review with verdict
+					<code>approved</code>, <code>changes_requested</code>, or
+					<code>commented</code>. Tracked as a child <em>review job</em>, not a top-level
+					task.
+				</li>
+				<li><code>respond</code> — reply to a PR comment thread (manually queued).</li>
+				<li>
+					<code>summarize</code> — produce a textual summary of recent activity (manually
+					queued).
+				</li>
+				<li>
+					<code>estimate</code> — <em>deprecated</em> as of protocol 2.2.0. Folded into
+					the triage plan output.
+				</li>
+			</ul>
+
+			<h2>Statuses</h2>
+			<p>The full set of values <code>tasks.status</code> can take.</p>
+			<div class="statuses">
+				<div class="status">
+					<code>new</code>
+					<span
+						>Awaiting an estimate dispatch (legacy; new code uses
+						<code>queued</code> directly).</span
+					>
+				</div>
+				<div class="status">
+					<code>estimating</code>
+					<span>An estimate task is in flight on a Member.</span>
+				</div>
+				<div class="status">
+					<code>queued</code>
+					<span
+						>Ready to dispatch. The dispatcher will claim it for a matching idle
+						Member.</span
+					>
+				</div>
+				<div class="status">
+					<code>assigned</code>
+					<span>Sent to a Member; waiting for the 30-second ack.</span>
+				</div>
+				<div class="status">
+					<code>in-progress</code>
+					<span>Member acked and is actively working.</span>
+				</div>
+				<div class="status">
+					<code>in-review</code>
+					<span
+						>Draft PR is open; review jobs dispatched to other Members and humans.</span
+					>
+				</div>
+				<div class="status">
+					<code>awaiting-merge</code>
+					<span
+						>An approving review came in on a clean PR. Waiting on a human to
+						merge.</span
+					>
+				</div>
+				<div class="status">
+					<code>done</code>
+					<span>Terminal — PR merged (or non-PR task completed).</span>
+				</div>
+				<div class="status">
+					<code>failed</code>
+					<span
+						>Terminal — agent error after retries, PR closed without merge, or quota
+						exceeded.</span
+					>
+				</div>
+				<div class="status">
+					<code>disconnected</code>
+					<span>Reserved for Member states (not used on tasks today).</span>
+				</div>
+			</div>
+
+			<h2>The happy path</h2>
+			<p>
+				The day-to-day flow is driven by GitHub webhooks, with the dashboard's manual
+				task-entry form as a fallback. Walking through one issue end-to-end:
+			</p>
+			<ol>
+				<li>
+					<strong>Issue arrives.</strong> Someone opens or labels a GitHub issue with
+					<code>night</code>. Household's webhook handler creates a
+					<code>triage</code> task (<code>queued</code>) for it.
+				</li>
+				<li>
+					<strong>Triage dispatch.</strong> The dispatcher claims the task for an idle
+					Member with the <code>triage</code> skill — repo allowlist permitting. Status:
+					<code>queued → assigned → in-progress</code>.
+				</li>
+				<li>
+					<strong>Triage decides.</strong> The triage agent reads the issue thread and
+					emits one of two outcomes:
+					<ul>
+						<li>
+							<code>question</code>: a clarifying comment is posted on the issue. The
+							triage task ends in <code>done</code>; nothing else happens until the
+							human replies (which spawns a fresh triage on
+							<code>issue_comment.created</code>).
+						</li>
+						<li>
+							<code>plan</code>: a plan comment is posted, and Household auto-spawns a
+							sibling <code>implement</code> task in <code>queued</code> for the same
+							issue. The triage task moves to <code>done</code>.
+						</li>
+					</ul>
+				</li>
+				<li>
+					<strong>Implement dispatch.</strong> An idle Member with the
+					<code>implement</code> skill claims the task. Member clones the repo (own PAT),
+					checks out a branch named
+					<code>pr/night/&lt;task-id-prefix&gt;-&lt;slug&gt;</code>.
+				</li>
+				<li>
+					<strong>Agent loop runs.</strong> The agent edits, runs commands, commits as
+					<code>Night Family &lt;noreply+night@local&gt;</code> with a
+					<code>Co-Authored-By: Night &lt;member-name&gt;</code> trailer.
+				</li>
+				<li>
+					<strong>PR opens.</strong> The Member pushes and runs <code>gh pr create</code>
+					(draft). The PR body ends with a deterministic
+					<code>🤖 Authored by Night Family member</code> footer that doubles as a
+					bot-detection marker for Household's webhook deduper. Household sees
+					<code>pull_request.opened</code>, matches the PR to the task by branch prefix,
+					and transitions <code>in-progress → in-review</code>.
+				</li>
+				<li>
+					<strong>Parallel review.</strong> Household creates up to two review jobs and
+					dispatches them to idle Members with the <code>review</code> skill, preferring
+					reviewers whose GitHub login differs from the PR author. Each reviewer posts a
+					verdict.
+				</li>
+				<li>
+					<strong>Approval.</strong> When a review with <code>approved</code> comes in on
+					a <code>mergeable_state: clean</code> PR, the task moves
+					<code>in-review → awaiting-merge</code>. A push notification fires.
+				</li>
+				<li>
+					<strong>Merge.</strong> A human merges. <code>pull_request.closed</code> with
+					<code>merged: true</code> moves the task to <code>done</code>. A
+					<code>pr.merged</code> notification fires. Members never self-merge — that's a
+					branch-protection job.
+				</li>
+			</ol>
+
+			<h2>Branching paths</h2>
+
+			<h3>Changes requested</h3>
+			<p>
+				When a reviewer submits <code>state: changes_requested</code>, the task goes
+				<code>in-review → queued</code> (the <code>failureReason</code> is cleared). The
+				<code>assignedMemberId</code> is intentionally preserved as a hint, and the
+				dispatcher gives that Member first dibs through
+				<code>claimNextForPreferredMember</code>:
+			</p>
+			<div class="callout">
+				<strong>Bias toward the original implementer.</strong> Reusing the same Member keeps
+				its workspace clone and its LLM prompt cache warm — re-dispatching to a stranger
+				forces a fresh clone and a cache miss. If the original Member is offline, busy on
+				something else, or no longer offers <code>implement</code>, the task falls through
+				to the generic queue and any matching idle Member can claim it.
+			</div>
+			<p>
+				A push notification "Review requested changes" fires on this transition. The
+				re-implement attempt then follows the same path back through
+				<code>assigned → in-progress → in-review</code>; review jobs are dispatched again,
+				this time preferring reviewers different from the persisted
+				<code>pr_author_login</code> (the original author, not the current assignee).
+			</p>
+
+			<h3>Self-review fallback</h3>
+			<p>
+				A solo-PAT setup can't easily satisfy GitHub's "1 approving review" rule because a
+				Member can't approve its own PR. Household handles this two ways:
+			</p>
+			<ul>
+				<li>
+					If <em>no different-login reviewer</em> is connected at all, same-login
+					self-review is dispatched immediately.
+				</li>
+				<li>
+					If a different-login reviewer is connected but currently busy, the review job is
+					queued <em>pending</em>. After 10 minutes a wakeup timer fires and a same-login
+					Member can claim it as a fallback.
+				</li>
+			</ul>
+
+			<h3>Cancellation</h3>
+			<p>
+				Removing the <code>night</code> label or closing the issue cancels the matching task
+				— unless it's already in <code>done</code> or <code>awaiting-merge</code> (those
+				terminal-ish states are owned by the PR webhook). An in-flight Member receives a
+				<code>task.cancel</code> message.
+			</p>
+
+			<h3>PR closed without merge</h3>
+			<p>
+				<code>pull_request.closed</code> with <code>merged: false</code> moves the task to
+				<code>failed</code> with reason <code>pr_closed_without_merge</code>. If a Member is
+				still busy on the task, it's sent <code>task.cancel</code>.
+			</p>
+
+			<h3>Stale base detected</h3>
+			<p>
+				When the PR webhook reports <code>behind_by &gt; 0</code> and a Member is still
+				assigned, Household sends <code>task.rebase_suggested</code> to that Member. The
+				Member chooses whether to rebase and push.
+			</p>
+
+			<h2>Failure handling</h2>
+
+			<h3>Auto-retry on implement</h3>
+			<p>
+				If a Member reports an <code>implement</code> task as failed, the dispatcher
+				auto-retries up to 3 times with exponential backoff: <strong>1 min</strong>,
+				<strong>5 min</strong>, <strong>15 min</strong>. The task returns to
+				<code>queued</code> with <code>nextRetryAt</code> set; the
+				<code>assignedMemberId</code> is preserved (same warm-cache benefit as
+				<code>changes_requested</code>). After three failures the task is marked
+				<code>failed</code> and a <code>task.failed</code> notification fires.
+			</p>
+
+			<h3>Quota exceeded</h3>
+			<p>
+				If the Member's LLM provider returns a quota error, the task fails with reason
+				<code>quota_exceeded</code> and a <code>quota_exceeded</code> notification fires
+				instead of the generic <code>task.failed</code>.
+			</p>
+
+			<h3>Ack timeout</h3>
+			<p>
+				After dispatching, Household waits up to <strong>30 seconds</strong> for the
+				Member's <code>task.ack</code>. No ack → the task returns to its previous queue
+				status (<code>queued</code> or <code>new</code>) and is rotated to another Member on
+				the next dispatch.
+			</p>
+
+			<h3>Member disconnect</h3>
+			<p>
+				When a Member's WebSocket drops, every task or review job it owned (statuses
+				<code>estimating</code>, <code>assigned</code>, <code>in-progress</code>) is
+				returned to its queue: tasks back to <code>queued</code>/<code>new</code>, review
+				jobs back to <code>pending</code>. A <code>member.disconnected</code> notification
+				fires. If the Member reconnects under a new sessionId quickly enough and
+				<em>resumes</em> the same task IDs in its handshake, those are re-linked to the new
+				session with status preserved.
+			</p>
+
+			<h2>Where the code lives</h2>
+			<ul>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/shared/src/protocol.ts"
+						><code>shared/src/protocol.ts</code></a
+					>
+					— <code>TaskKind</code>, <code>TaskStatus</code>, the wire types.
+				</li>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/household/src/tasks/dispatcher.ts"
+						><code>household/src/tasks/dispatcher.ts</code></a
+					>
+					— skill matching, retry logic, review-job creation, preferred-member bias.
+				</li>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/household/src/tasks/store.ts"
+						><code>household/src/tasks/store.ts</code></a
+					>
+					— atomic status transitions, the claim methods.
+				</li>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/household/src/github/handlers/pulls.ts"
+						><code>household/src/github/handlers/pulls.ts</code></a
+					>
+					— PR and review webhook handlers (changes_requested, approved, merged, closed).
+				</li>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/household/src/github/handlers/issues.ts"
+						><code>household/src/github/handlers/issues.ts</code></a
+					>
+					— issue label / open / comment handlers (triage spawning).
+				</li>
+				<li>
+					<a
+						href="https://github.com/FilipChalupa/night-family/blob/main/household/src/push/taskTransitions.ts"
+						><code>household/src/push/taskTransitions.ts</code></a
+					>
+					— which transitions trigger a Web Push notification.
+				</li>
+			</ul>
+
+			<footer>
+				See also: <a href="../protocol/">Protocol changelog</a> for the wire-format history.
+				<a
+					href="https://github.com/FilipChalupa/night-family/blob/main/docs/lifecycle/index.html"
+					>Edit on GitHub</a
+				>.
+			</footer>
+		</main>
+	</body>
+</html>
