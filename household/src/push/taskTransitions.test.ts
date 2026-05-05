@@ -99,7 +99,7 @@ describe('TaskPushTransitionTracker', () => {
 
 	it('returns null for transitions we deliberately ignore', () => {
 		const r = rig()
-		r.step({ id: 't1', status: 'new' })
+		r.step({ id: 't1', status: 'queued' })
 		expect(r.step({ id: 't1', status: 'queued' })).toBeNull()
 		expect(r.step({ id: 't1', status: 'assigned' })).toBeNull()
 		expect(r.step({ id: 't1', status: 'in-progress' })).toBeNull()

@@ -13,6 +13,7 @@
 
 import * as v from 'valibot'
 import type {
+	Day,
 	HouseholdToMember,
 	MemberStatus,
 	MemberToHousehold,
@@ -26,9 +27,6 @@ const SkillSchema = v.picklist([
 	'implement',
 	'review',
 	'triage',
-	// `estimate` deprecated in 2.2.0 — kept here so old Members still parse;
-	// no new tasks of this kind are dispatched.
-	'estimate',
 	'respond',
 	'summarize',
 ] satisfies Skill[])
@@ -40,13 +38,29 @@ const WorkerProfileSchema = v.picklist(['hard', 'medium', 'lazy'] satisfies Work
 const MemberStatusSchema = v.picklist(['idle', 'busy'] satisfies MemberStatus[])
 
 const TaskKindSchema = v.picklist([
-	'estimate',
 	'implement',
 	'review',
 	'triage',
 	'respond',
 	'summarize',
 ] satisfies TaskKind[])
+
+const DaySchema = v.picklist(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] satisfies Day[])
+
+const HHMMSchema = v.pipe(v.string(), v.regex(/^(?:([01]\d|2[0-3]):[0-5]\d|24:00)$/))
+
+const NightWindowSchema = v.object({
+	name: v.string(),
+	days: v.optional(v.array(DaySchema)),
+	dates: v.optional(v.array(v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/)))),
+	start: HHMMSchema,
+	end: HHMMSchema,
+})
+
+const ScheduleSchema = v.object({
+	timezone: v.string(),
+	nightWindows: v.array(NightWindowSchema),
+})
 
 const ResumeRefSchema = v.object({
 	task_id: v.string(),
@@ -72,6 +86,7 @@ const MsgHandshakeSchema = v.object({
 	member_name: v.string(),
 	display_name: v.string(),
 	skills: v.array(SkillSchema),
+	schedule: ScheduleSchema,
 	provider: ProviderSchema,
 	model: v.string(),
 	worker_profile: WorkerProfileSchema,
@@ -123,12 +138,6 @@ const MsgHeartbeatSchema = v.object({
 
 const MsgPongSchema = v.object({ type: v.literal('pong') })
 
-const MsgMemberSkillsUpdatedSchema = v.object({
-	type: v.literal('member.skills_updated'),
-	skills: v.array(SkillSchema),
-	reason: v.string(),
-})
-
 const MemberToHouseholdSchema = v.variant('type', [
 	MsgHandshakeSchema,
 	MsgMemberReadySchema,
@@ -139,7 +148,6 @@ const MemberToHouseholdSchema = v.variant('type', [
 	MsgEventSchema,
 	MsgHeartbeatSchema,
 	MsgPongSchema,
-	MsgMemberSkillsUpdatedSchema,
 ])
 
 // ---------------- Household → Member ----------------
@@ -181,12 +189,6 @@ const MsgTaskCancelSchema = v.object({
 
 const MsgPingSchema = v.object({ type: v.literal('ping') })
 
-const MsgScheduleOverrideSchema = v.object({
-	type: v.literal('schedule.override'),
-	skills: v.nullable(v.array(SkillSchema)),
-	expires_at: v.nullable(v.string()),
-})
-
 const HouseholdToMemberSchema = v.variant('type', [
 	MsgHandshakeAckSchema,
 	MsgHandshakeRejectSchema,
@@ -195,7 +197,6 @@ const HouseholdToMemberSchema = v.variant('type', [
 	MsgTaskRebaseSuggestedSchema,
 	MsgTaskCancelSchema,
 	MsgPingSchema,
-	MsgScheduleOverrideSchema,
 ])
 
 // ---------------- Public API ----------------

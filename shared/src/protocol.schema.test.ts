@@ -5,11 +5,15 @@ describe('parseMemberToHousehold', () => {
 	it('accepts a well-formed handshake', () => {
 		const raw = JSON.stringify({
 			type: 'handshake',
-			protocol_version: '2.0.0',
+			protocol_version: '3.0.0',
 			member_id: 'm1',
 			member_name: 'memberone',
 			display_name: 'Member One',
 			skills: ['implement', 'review'],
+			schedule: {
+				timezone: 'UTC',
+				nightWindows: [{ name: 'night', days: ['mon'], start: '22:00', end: '08:00' }],
+			},
 			provider: 'anthropic',
 			model: 'claude-opus-4-7',
 			worker_profile: 'medium',
@@ -17,6 +21,22 @@ describe('parseMemberToHousehold', () => {
 		const out = parseMemberToHousehold(raw)
 		expect(out.ok).toBe(true)
 		if (out.ok) expect(out.msg.type).toBe('handshake')
+	})
+
+	it('rejects a handshake without schedule', () => {
+		const raw = JSON.stringify({
+			type: 'handshake',
+			protocol_version: '3.0.0',
+			member_id: 'm1',
+			member_name: 'memberone',
+			display_name: 'Member One',
+			skills: ['implement'],
+			provider: 'anthropic',
+			model: 'claude-opus-4-7',
+			worker_profile: 'medium',
+		})
+		const out = parseMemberToHousehold(raw)
+		expect(out.ok).toBe(false)
 	})
 
 	it('rejects invalid JSON', () => {

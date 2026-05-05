@@ -1,8 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { ALL_SKILLS, type Provider, type Skill, type WorkerProfile } from '@night/shared'
-import { resolveSchedule, type Schedule } from './schedule.ts'
+import {
+	ALL_SKILLS,
+	type Provider,
+	type Schedule,
+	type Skill,
+	type WorkerProfile,
+} from '@night/shared'
+import { resolveSchedule } from './schedule.ts'
 
 export interface MemberConfig {
 	householdUrl: string

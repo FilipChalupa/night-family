@@ -196,6 +196,38 @@
 			</p>
 
 			<section class="entry">
+				<h2>3.0.0</h2>
+				<p>
+					Schedule evaluation moves to Household; <code>estimate</code> kind/skill removed;
+					skills are now static per session.
+				</p>
+				<ul>
+					<li>
+						<code>handshake.schedule</code> (required) — Members ship their full
+						<code>Schedule</code> (<code>timezone</code> + <code>nightWindows[]</code>) on
+						connect. Household evaluates the schedule per-session and gates dispatch
+						accordingly. Members no longer run a local <code>ScheduleController</code>.
+					</li>
+					<li>
+						Removed <code>member.skills_updated</code> (Member → Household). Skills are
+						now configured statically on the Member (env <code>SKILLS</code>) and
+						announced once at handshake; they don't change during a session.
+					</li>
+					<li>
+						Removed <code>schedule.override</code> (Household → Member). Admin-driven
+						overrides are now Household-internal state evaluated alongside the schedule;
+						the Member doesn't need to know.
+					</li>
+					<li>
+						Removed <code>estimate</code> from <code>Skill</code> and <code>TaskKind</code
+						>; removed <code>estimating</code> from <code>TaskStatus</code>. Triage's
+						plan output already carries the size estimate, so the standalone estimate
+						step is gone for good.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
 				<h2>2.2.0</h2>
 				<p>Triage workflow + deterministic comment attribution.</p>
 				<ul>

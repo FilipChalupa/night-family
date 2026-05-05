@@ -80,12 +80,26 @@ function fakeMember(opts: {
 		memberId: `mid-${sessionId}`,
 		memberName: opts.memberName,
 		displayName: opts.memberName,
-		skills: opts.skills ?? ['implement', 'review', 'estimate'],
+		skills: opts.skills ?? ['implement', 'review'],
+		// Always-on schedule keeps `implement` in the effective skill set so
+		// dispatcher tests don't have to worry about wall-clock time.
+		schedule: {
+			timezone: 'UTC',
+			nightWindows: [
+				{
+					name: 'always',
+					days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+					start: '00:00',
+					end: '24:00',
+				},
+			],
+		},
+		override: null,
 		repos: opts.repos ?? null,
 		provider: 'anthropic',
 		model: 'm',
 		workerProfile: 'medium',
-		protocolVersion: '2.0.0',
+		protocolVersion: '3.0.0',
 		tokenId: 'tok',
 		connectedAt: new Date(),
 		firstConnectedAt: new Date(),
@@ -103,7 +117,6 @@ function createReadyImplementTask(rig: Rig, opts: { repo: string; assignedMember
 		title: 't',
 		description: 'd',
 		repo: opts.repo,
-		skipEstimate: true,
 	})
 	// Add the implementer to the registry so the FK target row in `members`
 	// exists when claimNextFor writes assigned_member_id, and so the JOIN-based
@@ -222,7 +235,6 @@ describe('Dispatcher review picker', () => {
 			title: 't',
 			description: 'd',
 			repo: 'o/r',
-			skipEstimate: true,
 		})
 		void task
 		const m = rig.registry.list()[0]!
@@ -243,7 +255,6 @@ describe('Dispatcher review picker', () => {
 			title: 't',
 			description: 'd',
 			repo: 'o/r',
-			skipEstimate: true,
 		})
 		rig.taskStore.setPrAuthorLogin(task.id, 'a')
 		rig.taskStore.clearAssignment(task.id)
@@ -372,7 +383,6 @@ describe('Dispatcher triage → implement spawning', () => {
 			repo: opts.repo,
 			githubIssueNumber: opts.issueNumber,
 			githubIssueUrl: `https://github.com/${opts.repo}/issues/${opts.issueNumber}`,
-			skipEstimate: true,
 		})
 		const claimed = rig.taskStore.claimNextFor(['triage'], {
 			sessionId: member.sessionId,
@@ -423,7 +433,6 @@ describe('Dispatcher triage → implement spawning', () => {
 			description: '',
 			repo: 'o/r',
 			githubIssueNumber: 44,
-			skipEstimate: true,
 		})
 
 		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'L' }, null)
@@ -450,7 +459,6 @@ describe('Dispatcher preferred-member bias', () => {
 			title: 't',
 			description: 'd',
 			repo,
-			skipEstimate: true,
 		})
 		// `previous_member_id` is the dispatcher's "first dibs" hint, set when
 		// a task returns to `queued` from changes_requested or auto-retry.
@@ -472,7 +480,6 @@ describe('Dispatcher preferred-member bias', () => {
 			title: 'generic',
 			description: '',
 			repo: 'o/r',
-			skipEstimate: true,
 		})
 		const preferred = queuedTaskPreferredBy(a.memberId, 'o/r')
 

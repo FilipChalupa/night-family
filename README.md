@@ -120,8 +120,6 @@ Each labelled issue (label name: `night`) goes through two stages:
 
 2. **Implement (overnight, when the schedule allows).** A plan comment from triage automatically queues an `implement` task for the same issue. It sits in the queue until a Member with the `implement` skill is available — by default that's during the night window. The implement Member opens a draft PR, runs tests, and marks it ready.
 
-The estimation step (`estimate` skill / kind) is **deprecated as of protocol 2.2.0**. Triage does the analytical work that estimation used to do, plus the questions / plan, in one pass.
-
 ### Bot vs. human comments
 
 Every comment, review, and PR body posted by a Member ends with a deterministic Night Family marker (`<!-- night-family:member=… task=… -->`). The webhook handler greps for it and skips re-triggering triage on Member-authored comments. Two practical implications:
@@ -138,7 +136,7 @@ Every comment, review, and PR body posted by a Member ends with a deterministic 
 
 ## Member schedule (when does it implement?)
 
-The configured skill set comes from `SKILLS` env (default = all of `implement` / `review` / `triage` / `respond` / `summarize`). Whatever's there is what the Member can do _in principle_. The schedule then gates `implement` in time: when any `nightWindow` is active, all configured skills are offered; outside every window, `implement` is dropped and the rest pass through (so `triage`, `review`, `respond`, and `summarize` always run). Out of the box: full implementation at night (22:00–08:00 local) and during weekday lunch (12:00–13:00). The Member announces transitions to Household via `member.skills_updated`, so the dispatcher only sends matching tasks.
+The configured skill set comes from `SKILLS` env (default = all of `implement` / `review` / `triage` / `respond` / `summarize`). Whatever's there is what the Member can do _in principle_; the Member announces this static set once at handshake. The schedule then gates `implement` in time: when any `nightWindow` is active, all configured skills are offered; outside every window, `implement` is dropped and the rest pass through (so `triage`, `review`, `respond`, and `summarize` always run). Out of the box: full implementation at night (22:00–08:00 local) and during weekday lunch (12:00–13:00). The Member ships its parsed schedule to Household at handshake; Household evaluates it per session and gates dispatch accordingly. The dashboard surfaces "currently in night, ends in 4h 02m" / "next window starts in 14h 13m" on the Member detail page.
 
 Customize by writing a `schedule.yaml`. Generate the starter and edit:
 
@@ -188,6 +186,6 @@ Per-version changelog lives at [docs/protocol/](docs/protocol/index.html) (rende
 Following the milestone plan in [plan.md §10](plan.md#10-fáze-milestones).
 
 - **M1** — skeleton & connection: in progress / mostly done
-- **M2** — manual tasks + estimate: not started
+- **M2** — manual tasks: not started
 
 Track per-milestone checkboxes in plan.md.

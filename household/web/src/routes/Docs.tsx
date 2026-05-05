@@ -8,7 +8,7 @@
  * `router.tsx`): `/docs` for the index, `/docs/$slug` for a page.
  */
 
-import { Alert, Box, Paper, Stack, Typography } from '@mui/material'
+import { Box, Paper, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
@@ -297,12 +297,6 @@ function IssueToPr() {
 					: pre-existing per-Member quota; an indirect brake on cost.
 				</li>
 			</ul>
-
-			<Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-				The estimation step (<code>estimate</code> skill / kind) is{' '}
-				<strong>deprecated as of protocol 2.2.0</strong>. Triage does the analytical work
-				that estimation used to do, plus the questions / plan, in one pass.
-			</Alert>
 		</>
 	)
 }

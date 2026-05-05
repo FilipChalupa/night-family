@@ -324,10 +324,12 @@
 				</li>
 				<li>
 					<strong>Task kinds:</strong>
-					<code>implement</code>, <code>review</code>, <code>respond</code>,
-					<code>summarize</code>, <code>estimate</code>. Webhook-driven imports are always
-					<code>implement</code>; the others are launched manually from the dashboard or
-					as side-effects of PR review.
+					<code>triage</code>, <code>implement</code>, <code>review</code>,
+					<code>respond</code>, <code>summarize</code>. Webhook-driven imports become
+					<code>triage</code> first (the agent decides whether to ask a clarifying
+					question or to write a plan); a plan outcome enqueues an <code>implement</code>
+					task. <code>respond</code> and <code>summarize</code> are launched manually
+					from the dashboard or as side-effects of PR review.
 				</li>
 				<li>
 					<strong>One Member, one provider.</strong> Each Member container runs a single

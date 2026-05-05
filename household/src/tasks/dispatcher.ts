@@ -7,11 +7,16 @@
  *   - Task transitions to `in-review`      → dispatchReviewJobsFor(task)
  *
  * Skill match:
- *   - Status `new` (needs estimate)   → members with `estimate` skill
- *   - Status `queued`                 → members whose skills ⊇ task.kind
- *   - Pending review job              → members with `review` skill
+ *   - Status `queued`     → members whose effective skills ⊇ task.kind
+ *   - Pending review job  → members with effective `review` skill
  *
- * Ack timeout: 30 s; unack-ed task/job returned to its previous queue.
+ * "Effective skills" come from the registry, which combines the
+ * Member's static capability set with the per-session schedule and any
+ * active override (see `schedule/eval.ts`). The dispatcher reads the
+ * effective set at every match attempt, so schedule transitions and
+ * override changes propagate without the dispatcher caring how.
+ *
+ * Ack timeout: 30 s; unack-ed task/job returned to `queued`.
  *
  * Auto-retry (implement tasks): up to 3 attempts with exp. backoff
  * (1 min / 5 min / 15 min). After 3 failures → `failed`.
@@ -97,32 +102,20 @@ export class Dispatcher {
 			memberId: member.memberId,
 		}
 
-		// `estimate` is deprecated as of protocol 2.2.0. We still claim
-		// `new`-status tasks for back-compat (so old data left in `new`
-		// gets dispatched), but only when the connected member explicitly
-		// advertises `estimate`. New code paths create tasks directly in
-		// `queued` via `skipEstimate: true`.
+		// Queued tasks matching the Member's effective skills. Prefer tasks
+		// already assigned to this Member (e.g. came back to `queued` after
+		// `changes_requested`) so the original implementer reuses its warm
+		// workspace + LLM prompt cache; fall back to the generic queue.
 		let task: TaskRecord | null = null
-		if (member.skills.includes('estimate')) {
-			task = this.deps.taskStore.claimNextForEstimate(assignment, member.repos)
-		}
-
-		// Regular queued tasks matching member skills (triage / implement /
-		// review / respond / summarize). Prefer tasks already assigned to this
-		// member (e.g. came back to `queued` after `changes_requested`) so the
-		// original implementer reuses its warm workspace + LLM prompt cache;
-		// fall back to the generic queue.
-		if (!task) {
-			const acceptable = member.skills as TaskKind[]
-			if (acceptable.length > 0) {
-				task = this.deps.taskStore.claimNextForPreferredMember(
-					acceptable,
-					assignment,
-					member.repos,
-				)
-				if (!task) {
-					task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
-				}
+		const acceptable = member.skills as TaskKind[]
+		if (acceptable.length > 0) {
+			task = this.deps.taskStore.claimNextForPreferredMember(
+				acceptable,
+				assignment,
+				member.repos,
+			)
+			if (!task) {
+				task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
 			}
 		}
 
@@ -131,7 +124,7 @@ export class Dispatcher {
 			return
 		}
 
-		// 3. Pending review jobs — pick the oldest one this member is allowed to take.
+		// Pending review jobs — pick the oldest one this member is allowed to take.
 		if (member.skills.includes('review')) {
 			const pending = this.deps.jobStore.listPending()
 			for (const candidate of pending) {
@@ -320,15 +313,14 @@ export class Dispatcher {
 	onMemberDisconnected(sessionId: string): void {
 		// Return owned tasks to queue.
 		const ownedTasks = this.deps.taskStore
-			.list({ status: ['estimating', 'assigned', 'in-progress'] })
+			.list({ status: ['assigned', 'in-progress'] })
 			.filter((t) => t.assignedSessionId === sessionId)
 		for (const task of ownedTasks) {
 			this.clearTaskPending(task.id)
-			const target: TaskStatus = task.status === 'estimating' ? 'new' : 'queued'
-			this.deps.taskStore.transition(task.id, [task.status], target)
+			this.deps.taskStore.transition(task.id, [task.status], 'queued')
 			this.deps.taskStore.clearAssignment(task.id)
 			this.deps.logger.info(
-				{ taskId: task.id, target },
+				{ taskId: task.id, target: 'queued' },
 				'requeued task after member disconnect',
 			)
 		}
@@ -366,7 +358,7 @@ export class Dispatcher {
 		retainedTaskIds: ReadonlySet<string>,
 	): void {
 		const ownedTasks = this.deps.taskStore
-			.list({ status: ['estimating', 'assigned', 'in-progress'] })
+			.list({ status: ['assigned', 'in-progress'] })
 			.filter((t) => t.assignedSessionId === oldSessionId)
 		let requeued = 0
 		let retained = 0
@@ -381,11 +373,10 @@ export class Dispatcher {
 				retained++
 			} else {
 				this.clearTaskPending(task.id)
-				const target: TaskStatus = task.status === 'estimating' ? 'new' : 'queued'
-				this.deps.taskStore.transition(task.id, [task.status], target)
+				this.deps.taskStore.transition(task.id, [task.status], 'queued')
 				this.deps.taskStore.clearAssignment(task.id)
 				this.deps.logger.info(
-					{ taskId: task.id, target },
+					{ taskId: task.id, target: 'queued' },
 					'requeued task after member supersede (not in resumes)',
 				)
 				requeued++
@@ -417,7 +408,7 @@ export class Dispatcher {
 	// ─── Private task helpers ─────────────────────────────────────────────────
 
 	private sendTask(conn: ConnectedMember, task: TaskRecord): void {
-		const wireKind: TaskKind = task.status === 'estimating' ? 'estimate' : task.kind
+		const wireKind: TaskKind = task.kind
 
 		// The wire `metadata` carries free-form data plus indexed columns the
 		// Member needs (issue ref). Indexed columns live on `tasks` rows but
@@ -462,7 +453,7 @@ export class Dispatcher {
 
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return
-		if (task.status !== 'estimating' && task.status !== 'assigned') return
+		if (task.status !== 'assigned') return
 
 		const returnTo: TaskStatus = pending.previousStatus
 		this.deps.taskStore.transition(taskId, [task.status], returnTo)
@@ -476,21 +467,7 @@ export class Dispatcher {
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return
 
-		if (task.status === 'estimating') {
-			const parsed = parseEstimateResult(result)
-			if (parsed) {
-				this.deps.taskStore.storeEstimateResult(taskId, parsed.size, parsed.blockers)
-			}
-			this.deps.taskStore.transition(taskId, ['estimating'], 'queued')
-			this.deps.taskStore.clearAssignment(taskId)
-			this.deps.logger.info({ taskId, estimate: parsed }, 'estimate completed')
-		} else if (task.status === 'in-progress' || task.status === 'assigned') {
-			if (task.kind === 'estimate') {
-				const parsed = parseEstimateResult(result)
-				if (parsed) {
-					this.deps.taskStore.storeEstimateResult(taskId, parsed.size, parsed.blockers)
-				}
-			}
+		if (task.status === 'in-progress' || task.status === 'assigned') {
 			if (task.kind === 'triage') {
 				const triage = parseTriageResult(result)
 				if (triage?.outcome === 'plan') {
@@ -605,7 +582,6 @@ export class Dispatcher {
 			githubIssueNumber: issueNumber,
 			githubIssueUrl: triage.githubIssueUrl,
 			metadata: { spawned_from_triage: triage.id },
-			skipEstimate: true,
 		})
 		if (size) {
 			this.deps.taskStore.storeEstimateResult(implement.id, size, [])
@@ -740,21 +716,6 @@ export class Dispatcher {
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
-
-function parseEstimateResult(
-	result: unknown,
-): { size: 'S' | 'M' | 'L' | 'XL'; blockers: string[] } | null {
-	if (!result || typeof result !== 'object') return null
-	const r = result as Record<string, unknown>
-	const size = r['size']
-	const blockers = r['blockers']
-	if (size !== 'S' && size !== 'M' && size !== 'L' && size !== 'XL') return null
-	if (!Array.isArray(blockers)) return null
-	return {
-		size,
-		blockers: blockers.filter((b): b is string => typeof b === 'string'),
-	}
-}
 
 /**
  * Parse the JSON the triage agent appends at the end of its turn:

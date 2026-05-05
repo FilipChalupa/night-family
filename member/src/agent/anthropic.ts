@@ -63,10 +63,7 @@ export class AnthropicProvider implements Provider {
 
 		let summary: string | null = null
 
-		// Estimate is a cheap sizing pass — skip extended thinking to keep token
-		// spend proportional to the task. Implement/review/respond/summarize
-		// benefit from adaptive reasoning.
-		const useThinking = task.kind !== 'estimate'
+		const useThinking = true
 
 		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
 			throwIfAborted(abortSignal)

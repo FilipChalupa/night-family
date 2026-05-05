@@ -12,8 +12,6 @@ import type { TaskStatus } from '../types.ts'
  * elsewhere.
  */
 const FILTERABLE_STATUSES: ReadonlyArray<TaskStatus> = [
-	'new',
-	'estimating',
 	'queued',
 	'assigned',
 	'in-progress',

@@ -4,15 +4,31 @@
 // stay defined locally — they're API-shape, not protocol-shape, and the
 // web should not pull household runtime in.
 
-import type { Skill, TaskKind, TaskStatus } from '@night/shared'
-export type { Skill, TaskKind, TaskStatus }
+import type { Schedule, Skill, TaskKind, TaskStatus } from '@night/shared'
+export type { Schedule, Skill, TaskKind, TaskStatus }
+
+export interface MemberScheduleStatus {
+	inNightWindow: boolean
+	activeWindow: string | null
+	nextTransitionAt: string
+}
 
 export interface MemberSnapshot {
 	sessionId: string
 	memberId: string
 	memberName: string
 	displayName: string
+	/**
+	 * Effective skills the Member is willing to take *right now* — the
+	 * static capability set narrowed by the schedule and (if active) the
+	 * override.
+	 */
 	skills: Skill[]
+	/** Static capability set the Member runs with (from its `SKILLS` env). */
+	fullSkills: Skill[]
+	schedule: Schedule | null
+	scheduleStatus: MemberScheduleStatus | null
+	override: { skills: Skill[]; expiresAt: string } | null
 	repos: string[] | null
 	provider: string
 	model: string

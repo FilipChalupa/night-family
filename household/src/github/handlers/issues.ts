@@ -30,13 +30,7 @@ import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
 const NIGHT_LABEL = 'night'
 const TRIAGE_DAILY_CAP = 5
 const TRIAGE_LIFETIME_CAP = 20
-const ACTIVE_STATUSES = new Set<TaskRecord['status']>([
-	'new',
-	'queued',
-	'estimating',
-	'assigned',
-	'in-progress',
-])
+const ACTIVE_STATUSES = new Set<TaskRecord['status']>(['queued', 'assigned', 'in-progress'])
 
 interface IssuesEventCtx {
 	repo: string
@@ -184,9 +178,6 @@ async function maybeQueueTriage(
 		repo: ctx.repo,
 		githubIssueNumber: issue.number,
 		githubIssueUrl: issue.html_url,
-		// Triage doesn't need a separate estimate precursor — the agent's
-		// plan output includes its own size estimate.
-		skipEstimate: true,
 	})
 	ctx.logger.info(
 		{ taskId: task.id, repo: ctx.repo, issue: issue.number, source },

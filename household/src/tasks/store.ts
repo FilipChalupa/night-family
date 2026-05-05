@@ -53,11 +53,6 @@ export interface CreateTaskInput {
 	githubIssueNumber?: number | null
 	githubIssueUrl?: string | null
 	metadata?: Record<string, unknown>
-	/**
-	 * If true, task is created in `queued`. If false (default), goes to `new`
-	 * so an estimate dispatch happens first.
-	 */
-	skipEstimate?: boolean
 }
 
 export interface PatchTaskInput {
@@ -113,7 +108,6 @@ export class TaskStore {
 
 	create(input: CreateTaskInput): TaskRecord {
 		const id = randomUUID()
-		const initialStatus: TaskStatus = input.skipEstimate ? 'queued' : 'new'
 		const now = new Date()
 		this.db
 			.insert(tasks)
@@ -123,7 +117,7 @@ export class TaskStore {
 				kind: input.kind,
 				title: input.title,
 				description: input.description,
-				status: initialStatus,
+				status: 'queued',
 				githubIssueNumber: input.githubIssueNumber ?? null,
 				githubIssueUrl: input.githubIssueUrl ?? null,
 				createdAt: now,
@@ -443,48 +437,6 @@ export class TaskStore {
 			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
 			.run()
 
-		if (result.changes === 0) return null
-
-		const record = this.get(candidate.id)!
-		this.emit({ type: 'task.updated', task: record })
-		return record
-	}
-
-	/**
-	 * Atomically claim a `new` task for an estimate dispatch.
-	 */
-	claimNextForEstimate(
-		assignment: { sessionId: string; memberId: string },
-		repoAllowlist: string[] | null = null,
-	): TaskRecord | null {
-		const conds: ReturnType<typeof eq>[] = [eq(tasks.status, 'new')]
-		if (repoAllowlist) {
-			const repoCond =
-				repoAllowlist.length === 0
-					? isNull(tasks.repo)
-					: or(isNull(tasks.repo), inArray(tasks.repo, repoAllowlist))
-			if (repoCond) conds.push(repoCond)
-		}
-		const candidates = this.db
-			.select({ id: tasks.id })
-			.from(tasks)
-			.where(and(...conds))
-			.orderBy(tasks.createdAt)
-			.limit(1)
-			.all()
-		const candidate = candidates[0]
-		if (!candidate) return null
-
-		const result = this.db
-			.update(tasks)
-			.set({
-				status: 'estimating',
-				assignedSessionId: assignment.sessionId,
-				assignedMemberId: assignment.memberId,
-				updatedAt: new Date(),
-			})
-			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'new')))
-			.run()
 		if (result.changes === 0) return null
 
 		const record = this.get(candidate.id)!

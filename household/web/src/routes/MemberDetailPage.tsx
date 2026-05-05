@@ -3,13 +3,13 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useMutation } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { useTokensQuery, type TokenRecord } from '../components/TokensPanel.tsx'
 import { memberDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
-import type { MemberSnapshot } from '../types.ts'
+import type { MemberSnapshot, MemberScheduleStatus, Schedule } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
 export function MemberDetailPage() {
@@ -77,6 +77,16 @@ export function MemberDetailPage() {
 							token={isAdmin ? (tokenById.get(member.tokenId) ?? null) : undefined}
 						/>
 					</Section>
+
+					{member.status !== 'offline' && member.schedule && member.scheduleStatus ? (
+						<Section title="Schedule">
+							<ScheduleStatusCard
+								schedule={member.schedule}
+								status={member.scheduleStatus}
+								override={member.override}
+							/>
+						</Section>
+					) : null}
 
 					{isAdmin && member.status !== 'offline' ? (
 						<Section title="Schedule override">
@@ -275,6 +285,103 @@ const DURATIONS_MIN: Array<{ label: string; minutes: number }> = [
 	{ label: '2 h', minutes: 120 },
 	{ label: '8 h', minutes: 480 },
 ]
+
+function ScheduleStatusCard({
+	schedule,
+	status,
+	override,
+}: {
+	schedule: Schedule
+	status: MemberScheduleStatus
+	override: MemberSnapshot['override']
+}) {
+	// Re-render every 30s so the "in 4h 02m" countdown stays fresh between
+	// server-pushed snapshot updates (which fire on heartbeat / status / edge
+	// events but not purely on wall-clock advance).
+	const [now, setNow] = useState(() => Date.now())
+	useEffect(() => {
+		const t = setInterval(() => setNow(Date.now()), 30_000)
+		return () => clearInterval(t)
+	}, [])
+
+	const next = Date.parse(status.nextTransitionAt)
+	const overrideExpiresAt = override ? Date.parse(override.expiresAt) : null
+	const overrideEffective = overrideExpiresAt !== null && overrideExpiresAt > now
+
+	const phrase = (() => {
+		if (overrideEffective) {
+			return `Admin override active — clears in ${formatDelta(overrideExpiresAt - now)} (at ${formatLocal(new Date(overrideExpiresAt), schedule.timezone)})`
+		}
+		if (status.inNightWindow) {
+			const name = status.activeWindow ?? 'night'
+			return `Currently in "${name}" window — ends in ${formatDelta(next - now)} (at ${formatLocal(new Date(next), schedule.timezone)})`
+		}
+		return `Day mode — next window starts in ${formatDelta(next - now)} (at ${formatLocal(new Date(next), schedule.timezone)})`
+	})()
+
+	return (
+		<Paper variant="outlined" sx={{ p: 2 }}>
+			<Stack spacing={1.5}>
+				<Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+					<Chip
+						label={
+							overrideEffective ? 'override' : status.inNightWindow ? 'night' : 'day'
+						}
+						size="small"
+						color={
+							overrideEffective
+								? 'info'
+								: status.inNightWindow
+									? 'warning'
+									: 'default'
+						}
+						variant="outlined"
+					/>
+					<Typography variant="body2">{phrase}</Typography>
+				</Stack>
+				<Field label="Timezone" value={schedule.timezone} />
+				<Field
+					label="Windows"
+					value={
+						schedule.nightWindows.length === 0
+							? '— (no windows; implement is dropped at all times)'
+							: schedule.nightWindows
+									.map((w) => `${w.name} (${w.start}–${w.end})`)
+									.join(', ')
+					}
+				/>
+			</Stack>
+		</Paper>
+	)
+}
+
+/**
+ * Render a positive ms duration as `1d 03h 14m`, `4h 02m`, or `42s`.
+ * Negative inputs are clamped to "now".
+ */
+function formatDelta(ms: number): string {
+	if (ms <= 0) return 'now'
+	const totalSec = Math.floor(ms / 1000)
+	const days = Math.floor(totalSec / 86_400)
+	const hours = Math.floor((totalSec % 86_400) / 3600)
+	const mins = Math.floor((totalSec % 3600) / 60)
+	const secs = totalSec % 60
+	if (days > 0)
+		return `${days}d ${hours.toString().padStart(2, '0')}h ${mins.toString().padStart(2, '0')}m`
+	if (hours > 0) return `${hours}h ${mins.toString().padStart(2, '0')}m`
+	if (mins > 0) return `${mins}m ${secs.toString().padStart(2, '0')}s`
+	return `${secs}s`
+}
+
+function formatLocal(d: Date, timezone: string): string {
+	return new Intl.DateTimeFormat(undefined, {
+		timeZone: timezone,
+		weekday: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false,
+	}).format(d)
+}
 
 function ScheduleOverridePanel({ memberId, skills }: { memberId: string; skills: string[] }) {
 	const [preset, setPreset] = useState<(typeof PRESETS)[number]>(PRESETS[0]!)

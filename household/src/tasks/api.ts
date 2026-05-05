@@ -7,7 +7,7 @@ import type { Dispatcher } from './dispatcher.ts'
 import type { TaskEventLog } from './eventLog.ts'
 import type { TaskStore } from './store.ts'
 
-const VALID_KINDS = new Set<TaskKind>(['estimate', 'implement', 'review', 'respond', 'summarize'])
+const VALID_KINDS = new Set<TaskKind>(['triage', 'implement', 'review', 'respond', 'summarize'])
 
 export interface TasksApiDeps {
 	taskStore: TaskStore
@@ -133,19 +133,17 @@ export function mountTasksApi(app: Hono, deps: TasksApiDeps): void {
 			return c.json({ error: 'not_failed', status: task.status }, 409)
 		}
 
-		// Skip the estimate step if we already have a size; otherwise re-run from
-		// scratch. Reset retry counter and clear the previous failure reason so
-		// the task is indistinguishable from a fresh dispatch.
-		const target: TaskStatus = task.estimateSize ? 'queued' : 'new'
-		const updated = deps.taskStore.transition(id, ['failed'], target, {
+		// Reset retry counter and clear the previous failure reason so the
+		// task is indistinguishable from a fresh dispatch.
+		const updated = deps.taskStore.transition(id, ['failed'], 'queued', {
 			failureReason: null,
 			retryCount: 0,
 		})
 		if (!updated) return c.json({ error: 'transition_failed' }, 409)
 		deps.taskStore.clearAssignment(id)
-		deps.logger.info({ taskId: id, target }, 'task retried by admin')
+		deps.logger.info({ taskId: id, target: 'queued' }, 'task retried by admin')
 		deps.dispatcher.tryDispatchAll()
-		return c.json({ ok: true, status: target })
+		return c.json({ ok: true, status: 'queued' })
 	})
 
 	app.delete('/api/tasks/:id', (c) => {
@@ -165,7 +163,6 @@ function parseCreateBody(body: unknown):
 			title: string
 			description: string
 			repo: string | null
-			skipEstimate: boolean
 			metadata?: Record<string, unknown>
 	  } {
 	if (!body || typeof body !== 'object') return { error: 'expected_object' }
@@ -186,16 +183,11 @@ function parseCreateBody(body: unknown):
 	}
 	const repoNorm = typeof repo === 'string' && repo.length > 0 ? repo : null
 
-	// Implement tasks go through estimate by default; everything else skips it.
-	const skipEstimate =
-		typeof b['skip_estimate'] === 'boolean' ? b['skip_estimate'] : kind !== 'implement'
-
 	const result: ReturnType<typeof parseCreateBody> = {
 		kind: kind as TaskKind,
 		title,
 		description,
 		repo: repoNorm,
-		skipEstimate,
 	}
 	if (b['metadata'] && typeof b['metadata'] === 'object' && !Array.isArray(b['metadata'])) {
 		;(result as { metadata?: Record<string, unknown> }).metadata = b['metadata'] as Record<

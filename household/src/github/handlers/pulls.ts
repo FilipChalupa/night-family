@@ -81,15 +81,7 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 			if (pr.merged) {
 				ctx.taskStore.transition(
 					task.id,
-					[
-						'in-progress',
-						'in-review',
-						'awaiting-merge',
-						'assigned',
-						'estimating',
-						'queued',
-						'new',
-					],
+					['in-progress', 'in-review', 'awaiting-merge', 'assigned', 'queued'],
 					'done',
 				)
 				ctx.logger.info({ taskId: task.id }, 'PR merged → task done')
@@ -99,15 +91,7 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 			} else {
 				ctx.taskStore.transition(
 					task.id,
-					[
-						'in-progress',
-						'in-review',
-						'awaiting-merge',
-						'assigned',
-						'estimating',
-						'queued',
-						'new',
-					],
+					['in-progress', 'in-review', 'awaiting-merge', 'assigned', 'queued'],
 					'failed',
 					{ failureReason: 'pr_closed_without_merge' },
 				)

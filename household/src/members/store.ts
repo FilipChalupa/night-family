@@ -196,12 +196,21 @@ export class MemberStateStore {
 }
 
 function rowToOfflineSnapshot(row: typeof members.$inferSelect): OfflineMemberSnapshot {
+	const skills = parseJsonArray(row.skills) as Skill[]
 	return {
 		sessionId: `offline:${row.memberId}`,
 		memberId: row.memberId,
 		memberName: row.memberName,
 		displayName: row.displayName,
-		skills: parseJsonArray(row.skills) as Skill[],
+		// Offline members don't have a live schedule, so we can't compute
+		// effective skills — fall back to the last persisted capability set
+		// for both fields. The UI keys off `status === 'offline'` and won't
+		// claim "currently advertising" for these rows anyway.
+		skills,
+		fullSkills: skills,
+		schedule: null,
+		scheduleStatus: null,
+		override: null,
 		repos: row.repos ? (parseJsonArray(row.repos) as string[]) : null,
 		provider: (row.provider || 'unknown') as Provider,
 		model: row.model,

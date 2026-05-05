@@ -146,8 +146,7 @@ export function buildKickoffPrompt(task: AgentTask): string {
 		].join('\n')
 	}
 
-	// Default branch covers `implement` and the deprecated `estimate` (in case
-	// an old Household sends one — we just treat it as a no-op work item).
+	// Default branch covers `implement`.
 	return [
 		`# Task: ${title}`,
 		``,

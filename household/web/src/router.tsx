@@ -25,8 +25,6 @@ const ALLOWED_PAGE_SIZES = [10, 25, 50, 100] as const
 type PageSize = (typeof ALLOWED_PAGE_SIZES)[number]
 
 const ALL_TASK_STATUSES: ReadonlyArray<TaskStatus> = [
-	'new',
-	'estimating',
 	'queued',
 	'assigned',
 	'in-progress',

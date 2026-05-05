@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '2.2.0'
+export const PROTOCOL_VERSION = '3.0.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -50,15 +50,14 @@ export function compareProtocolVersions(a: string, b: string): ProtocolCompat {
 }
 
 /**
- * Skills a Member is willing to handle. Note that `estimate` is
- * **deprecated as of 2.2.0** — Household no longer creates standalone
- * estimate tasks; estimation is folded into the new `triage` flow which
- * also handles clarifying questions and writing a plan comment. Old
- * Members that still advertise `estimate` keep working (they just won't
- * receive any tasks for it). The kind/skill will be removed in the next
- * major bump.
+ * Skills a Member is willing to handle. The set is configured statically
+ * on the Member (env `SKILLS`, default = all) and announced once at
+ * handshake; it does not change during a session. Time-of-day gating
+ * (e.g. "no `implement` outside the night window") is enforced
+ * Household-side via the per-Member {@link Schedule} attached to the
+ * handshake — see `household/src/schedule/eval.ts`.
  */
-export type Skill = 'implement' | 'review' | 'triage' | 'estimate' | 'respond' | 'summarize'
+export type Skill = 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
 
 export const ALL_SKILLS: readonly Skill[] = [
 	'implement',
@@ -76,16 +75,9 @@ export type MemberStatus = 'idle' | 'busy'
 
 export type EventKind = 'tool_call' | 'file_edited' | 'commit' | 'usage' | 'log' | 'rebase'
 
-/**
- * `estimate` is **deprecated as of 2.2.0** — kept in the union so old
- * peers' messages still parse, but Household no longer dispatches it.
- * See the doc on `Skill` for migration notes.
- */
-export type TaskKind = 'estimate' | 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
+export type TaskKind = 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
 
 export type TaskStatus =
-	| 'new'
-	| 'estimating'
 	| 'queued'
 	| 'assigned'
 	| 'in-progress'
@@ -109,6 +101,35 @@ export interface AssignedTask {
 	metadata?: Record<string, unknown>
 }
 
+// ---------------- Schedule ----------------
+
+export type Day = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+/**
+ * One "implement is offered" interval in a Member's schedule. Each window
+ * is anchored either by weekday (`days`) or by absolute calendar dates
+ * (`dates`); not both. `start` / `end` are local-time `HH:MM` strings;
+ * `end <= start` wraps past midnight; `end == "24:00"` means end-of-day.
+ */
+export interface NightWindow {
+	name: string
+	days?: readonly Day[]
+	dates?: readonly string[]
+	start: string
+	end: string
+}
+
+/**
+ * A Member's full schedule, sent on handshake. Household evaluates this
+ * locally (per-session) to decide when a Member is willing to take
+ * `implement` tasks; outside any window, `implement` is dropped from the
+ * dispatchable kinds and the rest pass through.
+ */
+export interface Schedule {
+	timezone: string
+	nightWindows: readonly NightWindow[]
+}
+
 // ---------------- Member → Household ----------------
 
 export interface MsgHandshake {
@@ -120,6 +141,12 @@ export interface MsgHandshake {
 	/** Pretty display name (`name ?? login` from /user). UI-only. */
 	display_name: string
 	skills: Skill[]
+	/**
+	 * Per-Member schedule that gates the `implement` skill in time. Loaded
+	 * Member-side from `schedule.yaml` (or the built-in default) and
+	 * evaluated Household-side. New in protocol 3.0.0.
+	 */
+	schedule: Schedule
 	provider: Provider
 	model: string
 	worker_profile: WorkerProfile
@@ -182,24 +209,6 @@ export interface MsgPong {
 	type: 'pong'
 }
 
-/**
- * Sent by the Member whenever its effective skill set changes — typically
- * because a scheduled day/night transition fired locally, or because an
- * override from Household started/expired. Household replaces the cached
- * `skills` for this session and the dispatcher picks the change up on the
- * next match attempt.
- */
-export interface MsgMemberSkillsUpdated {
-	type: 'member.skills_updated'
-	skills: Skill[]
-	/**
-	 * Free-form string identifying *why* the skill set changed (e.g.
-	 * `schedule:night`, `schedule:baseline`, `override`, `override_expired`).
-	 * UI/logging only; no business logic depends on the value.
-	 */
-	reason: string
-}
-
 export type MemberToHousehold =
 	| MsgHandshake
 	| MsgMemberReady
@@ -210,7 +219,6 @@ export type MemberToHousehold =
 	| MsgEvent
 	| MsgHeartbeat
 	| MsgPong
-	| MsgMemberSkillsUpdated
 
 // ---------------- Household → Member ----------------
 
@@ -253,23 +261,6 @@ export interface MsgPing {
 	type: 'ping'
 }
 
-/**
- * Force the Member's skill set to a temporary value, overriding whatever
- * the local schedule says. Sent in response to an admin pressing the
- * "Force …-mode" button in the UI.
- *
- *   - `skills` non-null: take effect immediately and stay until `expires_at`
- *     (ISO timestamp). The Member is responsible for clearing the override
- *     once that timestamp passes and reverting to its schedule.
- *   - `skills` null: clear any active override immediately. `expires_at` is
- *     ignored in that case.
- */
-export interface MsgScheduleOverride {
-	type: 'schedule.override'
-	skills: Skill[] | null
-	expires_at: string | null
-}
-
 export type HouseholdToMember =
 	| MsgHandshakeAck
 	| MsgHandshakeReject
@@ -278,7 +269,6 @@ export type HouseholdToMember =
 	| MsgTaskRebaseSuggested
 	| MsgTaskCancel
 	| MsgPing
-	| MsgScheduleOverride
 
 // ---------------- Helpers ----------------
 

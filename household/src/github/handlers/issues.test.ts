@@ -110,7 +110,7 @@ describe('handleIssuesEvent', () => {
 		const t = findTask(rig, 1)
 		expect(t).toBeDefined()
 		expect(t!.kind).toBe('triage')
-		expect(t!.status).toBe('queued') // skipEstimate → straight to queued
+		expect(t!.status).toBe('queued')
 		expect(t!.repo).toBe(REPO)
 		expect(rig.tryDispatchAll).toHaveBeenCalled()
 	})
@@ -239,7 +239,6 @@ describe('handleIssueCommentEvent', () => {
 			repo: REPO,
 			githubIssueNumber: 8,
 			githubIssueUrl: 'http://x/8',
-			skipEstimate: true,
 		})
 		rig.store.transition(t.id, ['queued'], 'assigned', {})
 		rig.store.transition(t.id, ['assigned'], 'in-progress', {})
@@ -291,7 +290,6 @@ describe('handleIssueCommentEvent', () => {
 				repo: REPO,
 				githubIssueNumber: 11,
 				githubIssueUrl: 'http://x/11',
-				skipEstimate: true,
 			})
 			rig.store.transition(t.id, ['queued'], 'assigned', {})
 			rig.store.transition(t.id, ['assigned'], 'in-progress', {})

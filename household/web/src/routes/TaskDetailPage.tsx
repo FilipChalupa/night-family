@@ -393,8 +393,6 @@ function estimateLabel(task: TaskRecord): string {
 }
 
 const ACTIVE_STATUSES = new Set<TaskStatus>([
-	'new',
-	'estimating',
 	'queued',
 	'assigned',
 	'in-progress',
@@ -404,10 +402,8 @@ const ACTIVE_STATUSES = new Set<TaskStatus>([
 
 function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'success' | 'error' {
 	switch (status) {
-		case 'new':
 		case 'queued':
 			return 'info'
-		case 'estimating':
 		case 'assigned':
 		case 'in-progress':
 		case 'in-review':

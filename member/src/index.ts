@@ -1,24 +1,11 @@
 import { loadConfig } from './config.ts'
 import { HouseholdConnection } from './connection.ts'
 import { logger } from './logger.ts'
-import { ScheduleController } from './scheduleController.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
 import { gcStaleCaches } from './tasks/workspace.ts'
 import type { MsgEvent } from '@night/shared'
 
 const config = await loadConfig()
-
-const scheduleLogger = logger.child({ component: 'schedule' })
-const scheduleController = new ScheduleController({
-	schedule: config.schedule,
-	fullSkills: config.skills,
-	// Replaced by `connection.ts` once it owns the WS send. Until then,
-	// internal transitions are kept in `effectiveSkills()` for the next
-	// handshake.
-	onChange: () => {},
-	logger: scheduleLogger,
-})
-scheduleController.start()
 
 logger.info(
 	{
@@ -28,7 +15,7 @@ logger.info(
 		household: config.householdUrl,
 		provider: config.provider,
 		model: config.model,
-		skills: scheduleController.effectiveSkills(),
+		skills: config.skills,
 		schedule: {
 			source: config.scheduleSource ?? 'built-in',
 			timezone: config.schedule.timezone,
@@ -78,7 +65,6 @@ const taskRunner = new TaskRunner({
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {
 	taskRunner,
-	schedule: scheduleController,
 })
 
 const shutdown = (signal: string) => {

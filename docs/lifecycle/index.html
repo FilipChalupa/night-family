@@ -241,26 +241,11 @@
 					<code>summarize</code> — produce a textual summary of recent activity (manually
 					queued).
 				</li>
-				<li>
-					<code>estimate</code> — <em>deprecated</em> as of protocol 2.2.0. Folded into
-					the triage plan output.
-				</li>
 			</ul>
 
 			<h2>Statuses</h2>
 			<p>The full set of values <code>tasks.status</code> can take.</p>
 			<div class="statuses">
-				<div class="status">
-					<code>new</code>
-					<span
-						>Awaiting an estimate dispatch (legacy; new code uses
-						<code>queued</code> directly).</span
-					>
-				</div>
-				<div class="status">
-					<code>estimating</code>
-					<span>An estimate task is in flight on a Member.</span>
-				</div>
 				<div class="status">
 					<code>queued</code>
 					<span
@@ -468,12 +453,11 @@
 			<h3>Member disconnect</h3>
 			<p>
 				When a Member's WebSocket drops, every task or review job it owned (statuses
-				<code>estimating</code>, <code>assigned</code>, <code>in-progress</code>) is
-				returned to its queue: tasks back to <code>queued</code>/<code>new</code>, review
-				jobs back to <code>pending</code>. A <code>member.disconnected</code> notification
-				fires. If the Member reconnects under a new sessionId quickly enough and
-				<em>resumes</em> the same task IDs in its handshake, those are re-linked to the new
-				session with status preserved.
+				<code>assigned</code>, <code>in-progress</code>) is returned to its queue: tasks
+				back to <code>queued</code>, review jobs back to <code>pending</code>. A
+				<code>member.disconnected</code> notification fires. If the Member reconnects
+				under a new sessionId quickly enough and <em>resumes</em> the same task IDs in its
+				handshake, those are re-linked to the new session with status preserved.
 			</p>
 
 			<h2>Where the code lives</h2>

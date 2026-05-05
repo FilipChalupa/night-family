@@ -62,13 +62,9 @@ interface Props {
 }
 
 // Filter order roughly mirrors the typical lifecycle: triage runs first,
-// then implement, then review/respond, summarize is standalone. Estimate
-// stays at the end as deprecated — kept so old persisted tasks still
-// show up under their kind filter.
-const KINDS: TaskKind[] = ['triage', 'implement', 'review', 'respond', 'summarize', 'estimate']
+// then implement, then review/respond, summarize is standalone.
+const KINDS: TaskKind[] = ['triage', 'implement', 'review', 'respond', 'summarize']
 const ACTIVE: ReadonlyArray<TaskStatus> = [
-	'new',
-	'estimating',
 	'queued',
 	'assigned',
 	'in-progress',
@@ -654,10 +650,8 @@ function estimateTooltip(size: 'S' | 'M' | 'L' | 'XL'): string {
 
 function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'success' | 'error' {
 	switch (status) {
-		case 'new':
 		case 'queued':
 			return 'info'
-		case 'estimating':
 		case 'assigned':
 		case 'in-progress':
 		case 'in-review':

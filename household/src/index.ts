@@ -3,7 +3,7 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ALL_SKILLS, PROTOCOL_VERSION } from '@night/shared'
+import { ALL_SKILLS, PROTOCOL_VERSION, type Skill } from '@night/shared'
 import { AdminGuard } from './auth/guard.ts'
 import { mountOAuth, mountWhoAmI } from './auth/oauth.ts'
 import { SessionStore } from './auth/sessions.ts'
@@ -97,6 +97,15 @@ const dispatcher = new Dispatcher({
 	selfReviewFallbackMs: config.selfReviewFallbackMs,
 })
 
+// Schedule edges (and override expirations) need to wake the dispatcher so a
+// Member that was idle through the day picks up `implement` work as soon as
+// the night window opens — without it, the Member would sit idle until the
+// next external event happened to fire.
+registry.setOnScheduleTick((sessionId) => {
+	const member = registry.list().find((m) => m.sessionId === sessionId)
+	if (member && member.status === 'idle') dispatcher.tryDispatchOne(member)
+})
+
 // Daily purge of raw event rows older than 90 days (per plan §3).
 const purgeEvents = () => {
 	const removed = eventLog.purgeOlderThan(90)
@@ -169,11 +178,14 @@ app.get('/api/members/:memberId', (c) => {
 })
 
 /**
- * Push a schedule override to all connected sessions of the given member.
+ * Set or clear an admin override for the given member. The override is
+ * Household-internal state evaluated alongside the schedule when the
+ * dispatcher decides what kinds the Member can take; the Member itself
+ * is never told. Idle sessions get a dispatch kick so they pick up any
+ * task that became eligible.
+ *
  * `skills: null` clears any active override. `duration_minutes` (1–1440)
- * defines `expires_at = now + dur`. The Member is responsible for
- * actually clearing the override once the timestamp passes — Household
- * just delivers and forgets.
+ * defines `expires_at = now + dur` for new overrides.
  */
 app.post('/api/members/:memberId/override', async (c) => {
 	const guardResult = guard.requireAdmin(c)
@@ -191,30 +203,30 @@ app.post('/api/members/:memberId/override', async (c) => {
 	if (sessions.length === 0) return c.json({ error: 'member_offline' }, 409)
 
 	if (b.skills === null) {
-		for (const s of sessions) {
-			s.send({ type: 'schedule.override', skills: null, expires_at: null })
-		}
-		return c.json({ ok: true, cleared: true })
+		const updated = registry.setOverride(memberId, null)
+		dispatcher.tryDispatchAll()
+		return c.json({ ok: true, cleared: true, sessions: updated })
 	}
 
 	if (!Array.isArray(b.skills) || b.skills.length === 0) {
 		return c.json({ error: 'invalid_skills' }, 400)
 	}
-	const skills = b.skills as string[]
-	for (const s of skills) {
+	const rawSkills = b.skills as unknown[]
+	const skills: Skill[] = []
+	for (const s of rawSkills) {
 		if (typeof s !== 'string' || !(ALL_SKILLS as readonly string[]).includes(s)) {
-			return c.json({ error: `invalid_skill:${s}` }, 400)
+			return c.json({ error: `invalid_skill:${String(s)}` }, 400)
 		}
+		skills.push(s as Skill)
 	}
 	const dur = b.duration_minutes
 	if (typeof dur !== 'number' || !Number.isFinite(dur) || dur < 1 || dur > 1440) {
 		return c.json({ error: 'invalid_duration_minutes' }, 400)
 	}
-	const expiresAt = new Date(Date.now() + dur * 60_000).toISOString()
-	for (const s of sessions) {
-		s.send({ type: 'schedule.override', skills, expires_at: expiresAt })
-	}
-	return c.json({ ok: true, expires_at: expiresAt, sessions: sessions.length })
+	const expiresAt = new Date(Date.now() + dur * 60_000)
+	const updated = registry.setOverride(memberId, { skills, expiresAt })
+	dispatcher.tryDispatchAll()
+	return c.json({ ok: true, expires_at: expiresAt.toISOString(), sessions: updated })
 })
 
 mountWhoAmI(app, {
