@@ -1,3 +1,7 @@
+---
+# Empty frontmatter opts this file into Jekyll processing so {% include %} works.
+---
+
 <!doctype html>
 <html lang="en">
 	<head>
@@ -14,6 +18,7 @@
 			content="The full state machine of a Night Family task: triage, implement, review, merge, retry."
 		/>
 		<meta property="og:type" content="article" />
+		{% include icons.html %}
 		<style>
 			:root {
 				color-scheme: dark;
@@ -65,11 +70,8 @@
 				width: 44px;
 				height: 44px;
 				border-radius: 12px;
-				background: radial-gradient(circle at 30% 30%, #2c5cdc 0%, #14193a 70%);
 				box-shadow: 0 0 0 4px var(--accent-glow);
-				display: grid;
-				place-items: center;
-				font-size: 22px;
+				display: block;
 			}
 			h1 {
 				margin: 0;
@@ -202,7 +204,7 @@
 		<main class="wrap">
 			<a class="back" href="../">← Night Family</a>
 			<header>
-				<div class="logo" aria-hidden="true">🌙</div>
+				<img class="logo" src="{{ '/icon.svg' | relative_url }}" alt="" />
 				<h1>
 					Task lifecycle
 					<span class="sub"

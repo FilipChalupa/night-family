@@ -1,0 +1,5 @@
+# GitHub Pages serves this site at https://filipchalupa.github.io/night-family/.
+# `baseurl` is what `{{ '...' | relative_url }}` prepends so shared `_includes`
+# can use root-relative paths and still work from any depth (`/`, `/protocol/`,
+# `/lifecycle/`). If the repo is renamed, update this line.
+baseurl: /night-family
