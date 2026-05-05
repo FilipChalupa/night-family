@@ -15,6 +15,18 @@ export interface HouseholdConfig {
 	} | null
 	secretsKey: string | null
 	logLevel: string
+	/**
+	 * How many parallel review jobs the dispatcher creates per `implement`
+	 * task entering `in-review`. Set to 1 for solo-PAT setups where you
+	 * only have one daytime reviewer Member; 2+ for fleets.
+	 */
+	maxReviewJobsPerTask: number
+	/**
+	 * How long (ms) a pending review job waits for a different-login
+	 * reviewer to free up before falling back to a same-login (self)
+	 * reviewer. 0 disables the fallback (queue stays pending forever).
+	 */
+	selfReviewFallbackMs: number
 }
 
 function required(name: string): string {
@@ -32,6 +44,16 @@ function optional(name: string, fallback: string): string {
 function optionalNullable(name: string): string | null {
 	const value = process.env[name]
 	return value && value.length > 0 ? value : null
+}
+
+function optionalPositiveInt(name: string, fallback: number): number {
+	const raw = process.env[name]
+	if (!raw || raw.length === 0) return fallback
+	const n = Number.parseInt(raw, 10)
+	if (!Number.isFinite(n) || n < 0) {
+		throw new Error(`Invalid env var ${name}: expected a non-negative integer, got "${raw}"`)
+	}
+	return n
 }
 
 function parseBoolean(name: string): boolean {
@@ -71,5 +93,7 @@ export function loadConfig(): HouseholdConfig {
 		githubOauth,
 		secretsKey: process.env['SECRETS_KEY'] ?? null,
 		logLevel: optional('LOG_LEVEL', 'info'),
+		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2),
+		selfReviewFallbackMs: optionalPositiveInt('SELF_REVIEW_FALLBACK_MS', 10 * 60_000),
 	}
 }

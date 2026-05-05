@@ -25,8 +25,8 @@ import type { TaskRecord, TaskStore } from './store.ts'
 import type { TaskJobRecord, TaskJobStore, ReviewVerdict } from './jobStore.ts'
 
 const RETRY_BACKOFFS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const
-const MAX_REVIEW_JOBS = 2 // per task, per dispatch wave
-const SELF_REVIEW_FALLBACK_MS = 10 * 60_000 // wait this long for a different-login reviewer before falling back to self-review
+const DEFAULT_MAX_REVIEW_JOBS_PER_TASK = 2
+const DEFAULT_SELF_REVIEW_FALLBACK_MS = 10 * 60_000
 
 export interface DispatcherDeps {
 	taskStore: TaskStore
@@ -36,6 +36,17 @@ export interface DispatcherDeps {
 	logger: Logger
 	/** Optional: prefer members with this provider when dispatching review jobs. */
 	reviewProviderPreference?: string | null
+	/**
+	 * Cap on parallel review jobs created per `implement` task per dispatch
+	 * wave. Defaults to {@link DEFAULT_MAX_REVIEW_JOBS_PER_TASK}.
+	 */
+	maxReviewJobsPerTask?: number
+	/**
+	 * How long (ms) a pending review job waits for a different-login reviewer
+	 * before falling back to same-login self-review. Defaults to
+	 * {@link DEFAULT_SELF_REVIEW_FALLBACK_MS}. Pass 0 to disable the fallback.
+	 */
+	selfReviewFallbackMs?: number
 }
 
 interface PendingTask {
@@ -51,8 +62,13 @@ export class Dispatcher {
 	private readonly pendingTaskAck = new Map<string, PendingTask>()
 	private readonly pendingJobAck = new Map<string, PendingJob>()
 	private readonly selfReviewWakeups = new Map<string, NodeJS.Timeout>()
+	private readonly maxReviewJobsPerTask: number
+	private readonly selfReviewFallbackMs: number
 
-	constructor(private readonly deps: DispatcherDeps) {}
+	constructor(private readonly deps: DispatcherDeps) {
+		this.maxReviewJobsPerTask = deps.maxReviewJobsPerTask ?? DEFAULT_MAX_REVIEW_JOBS_PER_TASK
+		this.selfReviewFallbackMs = deps.selfReviewFallbackMs ?? DEFAULT_SELF_REVIEW_FALLBACK_MS
+	}
 
 	// ─── Public dispatch entry points ────────────────────────────────────────
 
@@ -62,12 +78,7 @@ export class Dispatcher {
 		// queue) get to iterate first, so they reclaim "their" task before any
 		// generic idle member races in for it.
 		const idle = this.deps.registry.list().filter((m) => m.status === 'idle')
-		const preferredMemberIds = new Set(
-			this.deps.taskStore
-				.list({ status: ['queued'] })
-				.map((t) => t.assignedMemberId)
-				.filter((id): id is string => id !== null),
-		)
+		const preferredMemberIds = this.deps.taskStore.preferredMemberIdsForQueued()
 		const ordered = [
 			...idle.filter((m) => preferredMemberIds.has(m.memberId)),
 			...idle.filter((m) => !preferredMemberIds.has(m.memberId)),
@@ -152,16 +163,17 @@ export class Dispatcher {
 	 *
 	 * A self-review (reviewer login == PR author login) is only allowed when
 	 *   (a) no different-login reviewer is currently connected, OR
-	 *   (b) the job has been waiting longer than SELF_REVIEW_FALLBACK_MS and
+	 *   (b) the job has been waiting longer than `selfReviewFallbackMs` and
 	 *       all different-login reviewers are still busy.
 	 */
 	private scheduleSelfReviewWakeup(jobId: string): void {
+		if (this.selfReviewFallbackMs <= 0) return
 		const existing = this.selfReviewWakeups.get(jobId)
 		if (existing) clearTimeout(existing)
 		const timer = setTimeout(() => {
 			this.selfReviewWakeups.delete(jobId)
 			this.tryDispatchAll()
-		}, SELF_REVIEW_FALLBACK_MS).unref()
+		}, this.selfReviewFallbackMs).unref()
 		this.selfReviewWakeups.set(jobId, timer)
 	}
 
@@ -177,15 +189,17 @@ export class Dispatcher {
 		if (others.some((m) => m.status === 'idle')) return false // a different-login member is free, let them take it
 
 		// All different-login reviewers are busy — fall back after the timeout.
+		// `selfReviewFallbackMs <= 0` disables the fallback entirely.
+		if (this.selfReviewFallbackMs <= 0) return false
 		const ageMs = Date.now() - new Date(job.createdAt).getTime()
-		return ageMs >= SELF_REVIEW_FALLBACK_MS
+		return ageMs >= this.selfReviewFallbackMs
 	}
 
 	/**
 	 * Called when an implement task transitions to `in-review`. Creates review
-	 * jobs for all currently idle reviewers (up to MAX_REVIEW_JOBS), preferring
-	 * members who did NOT implement the task. Remaining jobs stay `pending` and
-	 * are picked up when the next member becomes idle.
+	 * jobs for all currently idle reviewers (up to `maxReviewJobsPerTask`),
+	 * preferring members who did NOT implement the task. Remaining jobs stay
+	 * `pending` and are picked up when the next member becomes idle.
 	 */
 	dispatchReviewJobsFor(task: TaskRecord): void {
 		if (!task.prUrl) {
@@ -193,7 +207,7 @@ export class Dispatcher {
 			return
 		}
 
-		const prAuthorLogin = readPrAuthorLogin(task) ?? task.assignedMemberName ?? null
+		const prAuthorLogin = task.prAuthorLogin ?? task.assignedMemberName ?? null
 		const reviewers = this.deps.registry
 			.list()
 			.filter((m) => m.skills.includes('review') && this.memberCanWorkOnRepo(m, task.repo))
@@ -226,9 +240,9 @@ export class Dispatcher {
 		//   - Otherwise queue pending and let the 10-min fallback decide later.
 		let toDispatch: MemberSnapshot[]
 		if (idleDifferentLogin.length > 0) {
-			toDispatch = sorted(idleDifferentLogin).slice(0, MAX_REVIEW_JOBS)
+			toDispatch = sorted(idleDifferentLogin).slice(0, this.maxReviewJobsPerTask)
 		} else if (!anyDifferentLoginConnected && idleSameLogin.length > 0) {
-			toDispatch = sorted(idleSameLogin).slice(0, MAX_REVIEW_JOBS)
+			toDispatch = sorted(idleSameLogin).slice(0, this.maxReviewJobsPerTask)
 		} else {
 			toDispatch = []
 		}
@@ -405,6 +419,18 @@ export class Dispatcher {
 	private sendTask(conn: ConnectedMember, task: TaskRecord): void {
 		const wireKind: TaskKind = task.status === 'estimating' ? 'estimate' : task.kind
 
+		// The wire `metadata` carries free-form data plus indexed columns the
+		// Member needs (issue ref). Indexed columns live on `tasks` rows but
+		// are flattened into the wire blob so the Member's existing reader
+		// (which only knows `metadata`) keeps working.
+		const wireMetadata: Record<string, unknown> = { ...(task.metadata ?? {}) }
+		if (task.githubIssueNumber !== null) {
+			wireMetadata['github_issue_number'] = task.githubIssueNumber
+		}
+		if (task.githubIssueUrl !== null) {
+			wireMetadata['github_issue_url'] = task.githubIssueUrl
+		}
+
 		conn.send({
 			type: 'task.assigned',
 			task: {
@@ -413,7 +439,7 @@ export class Dispatcher {
 				title: task.title,
 				description: task.description,
 				...(task.repo ? { repo: task.repo } : {}),
-				...(task.metadata ? { metadata: task.metadata } : {}),
+				...(Object.keys(wireMetadata).length > 0 ? { metadata: wireMetadata } : {}),
 			},
 		})
 
@@ -475,13 +501,12 @@ export class Dispatcher {
 						'triage finished without a plan; waiting for next human reply',
 					)
 				}
-				const issueNumber = readIssueNumber(task.metadata)
 				this.deps.notifSender
 					?.fire('triage.result', {
 						taskId,
 						title: task.title,
 						repo: task.repo,
-						issueNumber,
+						issueNumber: task.githubIssueNumber,
 						outcome: triage?.outcome ?? 'unknown',
 						size: triage?.outcome === 'plan' ? triage.size : null,
 					})
@@ -500,13 +525,11 @@ export class Dispatcher {
 			// login as the PR author so subsequent review picks can identify
 			// self-review even after a `changes_requested` cycle reassigns the
 			// task to a different member.
-			if (target === 'in-review' && updated && readPrAuthorLogin(updated) === null) {
+			if (target === 'in-review' && updated && updated.prAuthorLogin === null) {
 				const author = updated.assignedMemberName
 				if (author) {
-					const merged = this.deps.taskStore.mergeMetadata(taskId, {
-						pr_author_login: author,
-					})
-					if (merged) updated = merged
+					const stamped = this.deps.taskStore.setPrAuthorLogin(taskId, author)
+					if (stamped) updated = stamped
 				}
 			}
 
@@ -549,7 +572,7 @@ export class Dispatcher {
 			)
 			return
 		}
-		const issueNumber = readIssueNumber(triage.metadata)
+		const issueNumber = triage.githubIssueNumber
 		if (issueNumber === null) {
 			this.deps.logger.warn(
 				{ taskId: triage.id },
@@ -557,9 +580,7 @@ export class Dispatcher {
 			)
 			return
 		}
-		const sameIssue = this.deps.taskStore
-			.list({ repo: triage.repo })
-			.filter((t) => readIssueNumber(t.metadata) === issueNumber)
+		const sameIssue = this.deps.taskStore.findByIssueNumber(triage.repo, issueNumber)
 		const existingImplement = sameIssue.find(
 			(t) =>
 				t.kind === 'implement' &&
@@ -581,13 +602,9 @@ export class Dispatcher {
 			title: triage.title,
 			description: triage.description,
 			repo: triage.repo,
-			metadata: {
-				github_issue_number: issueNumber,
-				github_issue_url:
-					(triage.metadata as Record<string, unknown> | null)?.['github_issue_url'] ??
-					null,
-				spawned_from_triage: triage.id,
-			},
+			githubIssueNumber: issueNumber,
+			githubIssueUrl: triage.githubIssueUrl,
+			metadata: { spawned_from_triage: triage.id },
 			skipEstimate: true,
 		})
 		if (size) {
@@ -612,6 +629,9 @@ export class Dispatcher {
 				failureReason: reason,
 				nextRetryAt: new Date(Date.now() + backoffMs),
 			})
+			// Stamp the now-departing assignee as the preferred next pickup, then
+			// clear active assignment. Keeps active-vs-preferred semantics clean.
+			this.deps.taskStore.stampPreviousMember(taskId, task.assignedMemberId)
 			this.deps.taskStore.clearAssignment(taskId)
 			this.deps.logger.warn(
 				{ taskId, reason, attempt: task.retryCount + 1, backoffMs },
@@ -720,24 +740,6 @@ export class Dispatcher {
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
-
-function readPrAuthorLogin(task: TaskRecord): string | null {
-	const meta = task.metadata
-	if (!meta) return null
-	const v = (meta as Record<string, unknown>)['pr_author_login']
-	return typeof v === 'string' && v.length > 0 ? v : null
-}
-
-function readIssueNumber(metadata: unknown): number | null {
-	if (!metadata || typeof metadata !== 'object') return null
-	const v = (metadata as Record<string, unknown>)['github_issue_number']
-	if (typeof v === 'number' && Number.isFinite(v)) return v
-	if (typeof v === 'string') {
-		const n = Number.parseInt(v, 10)
-		if (Number.isFinite(n)) return n
-	}
-	return null
-}
 
 function parseEstimateResult(
 	result: unknown,

@@ -68,7 +68,10 @@ function ctxFor(rig: Rig, repo: string, body: Record<string, unknown>) {
 		body,
 		taskStore: rig.store,
 		dispatcher: { tryDispatchAll: rig.tryDispatchAll } as unknown as Dispatcher,
-		registry: { get: rig.registryGet } as unknown as MemberRegistry,
+		registry: {
+			get: rig.registryGet,
+			findConnectionForTask: () => undefined,
+		} as unknown as MemberRegistry,
 		logger: silentLogger,
 	}
 }
@@ -84,17 +87,11 @@ const issue = (overrides: Partial<{ number: number; title: string; labels: strin
 })
 
 function findTask(rig: Rig, issueNumber: number): TaskRecord | undefined {
-	return rig.store.list().find((t) => {
-		const meta = t.metadata as Record<string, unknown> | null
-		return meta?.['github_issue_number'] === issueNumber
-	})
+	return rig.store.findByIssueNumber(REPO, issueNumber)[0]
 }
 
 function findAllTasks(rig: Rig, issueNumber: number): TaskRecord[] {
-	return rig.store.list().filter((t) => {
-		const meta = t.metadata as Record<string, unknown> | null
-		return meta?.['github_issue_number'] === issueNumber
-	})
+	return rig.store.findByIssueNumber(REPO, issueNumber)
 }
 
 describe('handleIssuesEvent', () => {
@@ -240,7 +237,8 @@ describe('handleIssueCommentEvent', () => {
 			title: 'x',
 			description: 'y',
 			repo: REPO,
-			metadata: { github_issue_number: 8, github_issue_url: 'http://x/8' },
+			githubIssueNumber: 8,
+			githubIssueUrl: 'http://x/8',
 			skipEstimate: true,
 		})
 		rig.store.transition(t.id, ['queued'], 'assigned', {})
@@ -291,7 +289,8 @@ describe('handleIssueCommentEvent', () => {
 				title: 'x',
 				description: 'y',
 				repo: REPO,
-				metadata: { github_issue_number: 11, github_issue_url: 'http://x/11' },
+				githubIssueNumber: 11,
+				githubIssueUrl: 'http://x/11',
 				skipEstimate: true,
 			})
 			rig.store.transition(t.id, ['queued'], 'assigned', {})

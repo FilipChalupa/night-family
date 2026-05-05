@@ -289,7 +289,7 @@ function TasksTable({
 						<TableRow key={t.id} hover>
 							<TableCell>
 								{(() => {
-									const issue = githubIssueRef(t.metadata)
+									const issue = githubIssueRef(t)
 									return (
 										<Stack
 											direction="row"
@@ -666,7 +666,6 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 		case 'done':
 			return 'success'
 		case 'failed':
-		case 'disconnected':
 			return 'error'
 		default:
 			return 'default'
@@ -724,16 +723,9 @@ export function ReviewWaitBadge({ jobs }: { jobs: ReviewJobsSummary | null }) {
 	)
 }
 
-function githubIssueRef(
-	metadata: Record<string, unknown> | null,
-): { number: number | null; url: string | null } | null {
-	if (!metadata) return null
-	const numberRaw = metadata['github_issue_number']
-	const urlRaw = metadata['github_issue_url']
-	const number = typeof numberRaw === 'number' ? numberRaw : null
-	const url = typeof urlRaw === 'string' ? urlRaw : null
-	if (number === null && url === null) return null
-	return { number, url }
+function githubIssueRef(task: TaskRecord): { number: number | null; url: string | null } | null {
+	if (task.githubIssueNumber === null && task.githubIssueUrl === null) return null
+	return { number: task.githubIssueNumber, url: task.githubIssueUrl }
 }
 
 function useTaskTokens(): Record<string, number> {

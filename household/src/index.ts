@@ -93,6 +93,8 @@ const dispatcher = new Dispatcher({
 	registry,
 	notifSender,
 	logger: logger.child({ component: 'dispatcher' }),
+	maxReviewJobsPerTask: config.maxReviewJobsPerTask,
+	selfReviewFallbackMs: config.selfReviewFallbackMs,
 })
 
 // Daily purge of raw event rows older than 90 days (per plan §3).
@@ -251,12 +253,10 @@ const pushSender = new PushSender({
 })
 mountPushApi(app, { store: pushStore, keys: vapidKeys, guard })
 
-const pushTransitions = new TaskPushTransitionTracker()
+const pushTransitions = new TaskPushTransitionTracker({
+	setLastNotifiedStatus: (taskId, status) => taskStore.setLastNotifiedStatus(taskId, status),
+})
 taskStore.on((event) => {
-	if (event.type === 'task.deleted') {
-		pushTransitions.forget(event.taskId)
-		return
-	}
 	if (event.type !== 'task.updated') return
 	const payload = pushTransitions.observe(event.task)
 	if (!payload) return

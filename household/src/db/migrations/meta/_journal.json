@@ -43,6 +43,13 @@
       "when": 1777898533002,
       "tag": "0005_volatile_captain_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777983892561,
+      "tag": "0006_cultured_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

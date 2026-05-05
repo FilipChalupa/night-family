@@ -34,7 +34,6 @@ const ALL_TASK_STATUSES: ReadonlyArray<TaskStatus> = [
 	'awaiting-merge',
 	'done',
 	'failed',
-	'disconnected',
 ]
 
 interface TasksSearch {

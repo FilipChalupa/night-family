@@ -62,6 +62,11 @@ export interface TaskRecord {
 	assignedSessionId: string | null
 	assignedMemberId: string | null
 	assignedMemberName: string | null
+	previousMemberId: string | null
+	prAuthorLogin: string | null
+	githubIssueNumber: number | null
+	githubIssueUrl: string | null
+	lastNotifiedStatus: TaskStatus | null
 	failureReason: string | null
 	retryCount: number
 	createdAt: string

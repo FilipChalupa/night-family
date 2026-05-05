@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { TaskStatus } from '@night/shared'
 import type { TaskRecord } from '../tasks/store.ts'
 import { TaskPushTransitionTracker } from './taskTransitions.ts'
 
@@ -18,6 +19,11 @@ function task(
 		assignedSessionId: overrides.assignedSessionId ?? null,
 		assignedMemberId: overrides.assignedMemberId ?? null,
 		assignedMemberName: overrides.assignedMemberName ?? null,
+		previousMemberId: overrides.previousMemberId ?? null,
+		prAuthorLogin: overrides.prAuthorLogin ?? null,
+		githubIssueNumber: overrides.githubIssueNumber ?? null,
+		githubIssueUrl: overrides.githubIssueUrl ?? null,
+		lastNotifiedStatus: overrides.lastNotifiedStatus ?? null,
 		failureReason: overrides.failureReason ?? null,
 		retryCount: overrides.retryCount ?? 0,
 		createdAt: overrides.createdAt ?? '2026-05-04T12:00:00.000Z',
@@ -27,69 +33,84 @@ function task(
 	}
 }
 
+/**
+ * Build a tracker plus a step() helper that simulates the
+ * read-from-row-then-write-back round-trip the real store does. Each step
+ * call hands the tracker a task whose `lastNotifiedStatus` reflects the most
+ * recent persisted value from prior steps.
+ */
+function rig() {
+	const last = new Map<string, TaskStatus>()
+	const tracker = new TaskPushTransitionTracker({
+		setLastNotifiedStatus: (id, status) => last.set(id, status),
+	})
+	return {
+		step(overrides: Partial<TaskRecord> & { id: string; status: TaskRecord['status'] }) {
+			const t = task({ ...overrides, lastNotifiedStatus: last.get(overrides.id) ?? null })
+			return tracker.observe(t)
+		},
+	}
+}
+
 describe('TaskPushTransitionTracker', () => {
 	it('treats the first observation as a baseline (no notification)', () => {
-		const tracker = new TaskPushTransitionTracker()
-		expect(tracker.observe(task({ id: 't1', status: 'failed' }))).toBeNull()
+		const r = rig()
+		expect(r.step({ id: 't1', status: 'failed' })).toBeNull()
 	})
 
 	it('emits a payload on the first real status transition', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'in-progress' }))
-		const payload = tracker.observe(task({ id: 't1', status: 'failed', failureReason: 'oops' }))
+		const r = rig()
+		r.step({ id: 't1', status: 'in-progress' })
+		const payload = r.step({ id: 't1', status: 'failed', failureReason: 'oops' })
 		expect(payload?.title).toBe('Task failed')
 		expect(payload?.body).toContain('oops')
 		expect(payload?.taskId).toBe('t1')
 	})
 
 	it('does not duplicate when the same status arrives again (republish case)', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'in-progress' }))
-		expect(
-			tracker.observe(task({ id: 't1', status: 'failed', failureReason: 'first' })),
-		).not.toBeNull()
+		const r = rig()
+		r.step({ id: 't1', status: 'in-progress' })
+		expect(r.step({ id: 't1', status: 'failed', failureReason: 'first' })).not.toBeNull()
 		// Subsequent task.updated emissions for the same task with the same
 		// status (e.g. republish on a review job state change) must be silent.
-		expect(
-			tracker.observe(task({ id: 't1', status: 'failed', failureReason: 'first' })),
-		).toBeNull()
+		expect(r.step({ id: 't1', status: 'failed', failureReason: 'first' })).toBeNull()
 	})
 
 	it('detects in-review → queued as "review requested changes"', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'in-review' }))
-		const payload = tracker.observe(task({ id: 't1', status: 'queued' }))
+		const r = rig()
+		r.step({ id: 't1', status: 'in-review' })
+		const payload = r.step({ id: 't1', status: 'queued' })
 		expect(payload?.title).toBe('Review requested changes')
 	})
 
 	it('emits awaiting-merge as "Ready for merge"', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'in-review' }))
-		const payload = tracker.observe(task({ id: 't1', status: 'awaiting-merge' }))
+		const r = rig()
+		r.step({ id: 't1', status: 'in-review' })
+		const payload = r.step({ id: 't1', status: 'awaiting-merge' })
 		expect(payload?.title).toBe('Ready for merge')
 	})
 
 	it('emits done when a task completes', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'awaiting-merge' }))
-		const payload = tracker.observe(task({ id: 't1', status: 'done' }))
+		const r = rig()
+		r.step({ id: 't1', status: 'awaiting-merge' })
+		const payload = r.step({ id: 't1', status: 'done' })
 		expect(payload?.title).toBe('Task done')
 	})
 
 	it('returns null for transitions we deliberately ignore', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'new' }))
-		expect(tracker.observe(task({ id: 't1', status: 'queued' }))).toBeNull()
-		expect(tracker.observe(task({ id: 't1', status: 'assigned' }))).toBeNull()
-		expect(tracker.observe(task({ id: 't1', status: 'in-progress' }))).toBeNull()
-		expect(tracker.observe(task({ id: 't1', status: 'in-review' }))).toBeNull()
+		const r = rig()
+		r.step({ id: 't1', status: 'new' })
+		expect(r.step({ id: 't1', status: 'queued' })).toBeNull()
+		expect(r.step({ id: 't1', status: 'assigned' })).toBeNull()
+		expect(r.step({ id: 't1', status: 'in-progress' })).toBeNull()
+		expect(r.step({ id: 't1', status: 'in-review' })).toBeNull()
 	})
 
-	it('forget() drops the cached prior status so the next observation is a baseline again', () => {
-		const tracker = new TaskPushTransitionTracker()
-		tracker.observe(task({ id: 't1', status: 'in-progress' }))
-		tracker.forget('t1')
-		// Next observe is treated as first-seen, so even a `failed` status is silent.
-		expect(tracker.observe(task({ id: 't1', status: 'failed' }))).toBeNull()
+	it('a row that comes in with lastNotifiedStatus already set (post-restart) does not double-fire', () => {
+		const r = rig()
+		// Simulate a Household restart: the task already has lastNotifiedStatus=
+		// 'failed' from before the restart. Receiving another `task.updated` with
+		// the same status (e.g. on a republish) must stay silent.
+		expect(r.step({ id: 't1', status: 'failed', lastNotifiedStatus: 'failed' })).toBeNull()
 	})
 })

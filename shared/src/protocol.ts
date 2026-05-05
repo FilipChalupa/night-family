@@ -93,7 +93,6 @@ export type TaskStatus =
 	| 'awaiting-merge'
 	| 'done'
 	| 'failed'
-	| 'disconnected'
 
 export interface ResumeRef {
 	task_id: string

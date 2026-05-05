@@ -165,6 +165,28 @@ export class MemberRegistry {
 		return [...this.bySession.values()].filter((m) => m.memberId === memberId)
 	}
 
+	/**
+	 * Resolve a live connection for a task whose `assignedSessionId` may have
+	 * gone stale across a reconnect. Tries the session first; if that's gone,
+	 * falls back to the most recent live session for `memberId`.
+	 */
+	findConnectionForTask(
+		sessionId: string | null,
+		memberId: string | null,
+	): ConnectedMember | undefined {
+		if (sessionId) {
+			const direct = this.bySession.get(sessionId)
+			if (direct) return direct
+		}
+		if (memberId) {
+			const live = this.findByMemberId(memberId)
+			if (live.length > 0) {
+				return live.reduce((best, m) => (m.lastHeartbeat > best.lastHeartbeat ? m : best))
+			}
+		}
+		return undefined
+	}
+
 	list(): MemberSnapshot[] {
 		return [...this.bySession.values()].map(snapshot)
 	}

@@ -137,7 +137,7 @@ async function maybeQueueTriage(
 	issue: { number: number; title: string; body: string | null; html_url: string },
 	source: string,
 ): Promise<void> {
-	const existing = findTasksForIssue(ctx.taskStore, ctx.repo, issue.number)
+	const existing = ctx.taskStore.findByIssueNumber(ctx.repo, issue.number)
 
 	// Retry path: if the only thing on file is a previously-cancelled
 	// triage (label was removed and re-added), revive it.
@@ -182,10 +182,8 @@ async function maybeQueueTriage(
 		title: issue.title.slice(0, 200),
 		description: buildDescription(issue),
 		repo: ctx.repo,
-		metadata: {
-			github_issue_number: issue.number,
-			github_issue_url: issue.html_url,
-		},
+		githubIssueNumber: issue.number,
+		githubIssueUrl: issue.html_url,
 		// Triage doesn't need a separate estimate precursor — the agent's
 		// plan output includes its own size estimate.
 		skipEstimate: true,
@@ -203,10 +201,7 @@ function cancelForIssue(
 	reason: string,
 	skipStatuses: Set<TaskRecord['status']>,
 ): void {
-	const tasks = ctx.taskStore.list({ repo: ctx.repo }).filter((t) => {
-		const meta = t.metadata as Record<string, unknown> | null
-		return meta?.['github_issue_number'] === issueNumber
-	})
+	const tasks = ctx.taskStore.findByIssueNumber(ctx.repo, issueNumber)
 	for (const task of tasks) {
 		if (skipStatuses.has(task.status) || task.status === 'failed') {
 			ctx.logger.debug(
@@ -216,29 +211,23 @@ function cancelForIssue(
 			continue
 		}
 
-		if (task.assignedSessionId) {
-			const conn = ctx.registry.get(task.assignedSessionId)
-			if (conn) {
-				conn.send({ type: 'task.cancel', task_id: task.id, reason })
-				ctx.logger.info(
-					{ taskId: task.id, member: conn.memberName, reason },
-					'cancel sent to member from issues webhook',
-				)
-				continue
-			}
+		const conn = ctx.registry.findConnectionForTask(
+			task.assignedSessionId,
+			task.assignedMemberId,
+		)
+		if (conn) {
+			conn.send({ type: 'task.cancel', task_id: task.id, reason })
+			ctx.logger.info(
+				{ taskId: task.id, member: conn.memberName, reason },
+				'cancel sent to member from issues webhook',
+			)
+			continue
 		}
 
 		ctx.taskStore.transition(task.id, [task.status], 'failed', { failureReason: reason })
 		ctx.taskStore.clearAssignment(task.id)
 		ctx.logger.info({ taskId: task.id, reason }, 'cancelled locally from issues webhook')
 	}
-}
-
-function findTasksForIssue(store: TaskStore, repo: string, issueNumber: number): TaskRecord[] {
-	return store.list({ repo }).filter((t) => {
-		const meta = t.metadata as Record<string, unknown> | null
-		return meta?.['github_issue_number'] === issueNumber
-	})
 }
 
 function retryFailedTask(ctx: IssuesEventCtx, task: TaskRecord): void {

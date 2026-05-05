@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm'
 import { EventEmitter } from 'node:events'
 import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Db } from '../db/index.ts'
@@ -31,6 +31,11 @@ export interface TaskRecord {
 	assignedSessionId: string | null
 	assignedMemberId: string | null
 	assignedMemberName: string | null
+	previousMemberId: string | null
+	prAuthorLogin: string | null
+	githubIssueNumber: number | null
+	githubIssueUrl: string | null
+	lastNotifiedStatus: TaskStatus | null
 	failureReason: string | null
 	retryCount: number
 	createdAt: string
@@ -45,6 +50,8 @@ export interface CreateTaskInput {
 	title: string
 	description: string
 	repo?: string | null
+	githubIssueNumber?: number | null
+	githubIssueUrl?: string | null
 	metadata?: Record<string, unknown>
 	/**
 	 * If true, task is created in `queued`. If false (default), goes to `new`
@@ -80,6 +87,11 @@ function rowToRecord(row: TaskJoinRow, reviewJobs: ReviewJobsSummary | null = nu
 		assignedSessionId: t.assignedSessionId,
 		assignedMemberId: t.assignedMemberId,
 		assignedMemberName: row.memberName,
+		previousMemberId: t.previousMemberId,
+		prAuthorLogin: t.prAuthorLogin,
+		githubIssueNumber: t.githubIssueNumber,
+		githubIssueUrl: t.githubIssueUrl,
+		lastNotifiedStatus: (t.lastNotifiedStatus as TaskStatus | null) ?? null,
 		failureReason: t.failureReason,
 		retryCount: t.retryCount,
 		createdAt: t.createdAt.toISOString(),
@@ -112,6 +124,8 @@ export class TaskStore {
 				title: input.title,
 				description: input.description,
 				status: initialStatus,
+				githubIssueNumber: input.githubIssueNumber ?? null,
+				githubIssueUrl: input.githubIssueUrl ?? null,
 				createdAt: now,
 				updatedAt: now,
 				metadata: input.metadata ? JSON.stringify(input.metadata) : null,
@@ -131,6 +145,61 @@ export class TaskStore {
 			.all()
 		if (!rows[0]) return null
 		const summary = this.reviewJobsSummaryByTaskIds([id]).get(id) ?? null
+		return rowToRecord(rows[0], summary)
+	}
+
+	/**
+	 * Indexed lookup of the (at most one) task with this `pr_url`. Faster
+	 * than scanning all tasks for the repo and JSON-decoding each one.
+	 */
+	findByPrUrl(prUrl: string): TaskRecord | null {
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(eq(tasks.prUrl, prUrl))
+			.limit(1)
+			.all()
+		if (!rows[0]) return null
+		const summary =
+			this.reviewJobsSummaryByTaskIds([rows[0].task.id]).get(rows[0].task.id) ?? null
+		return rowToRecord(rows[0], summary)
+	}
+
+	/**
+	 * Indexed lookup of tasks for a `(repo, github_issue_number)` pair. Used
+	 * by issue webhooks that need to find every task spawned from one issue
+	 * (triage → implement chains share the same issue number).
+	 */
+	findByIssueNumber(repo: string, issueNumber: number): TaskRecord[] {
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(and(eq(tasks.repo, repo), eq(tasks.githubIssueNumber, issueNumber)))
+			.all()
+		if (rows.length === 0) return []
+		const summaries = this.reviewJobsSummaryByTaskIds(rows.map((r) => r.task.id))
+		return rows.map((r) => rowToRecord(r, summaries.get(r.task.id) ?? null))
+	}
+
+	/**
+	 * Find the (at most one) task in `repo` whose ID starts with `prefix`.
+	 * Used to match a PR back to its originating task via the
+	 * `pr/night/<prefix>-...` branch convention.
+	 */
+	findByIdPrefix(repo: string, prefix: string): TaskRecord | null {
+		const lower = prefix.toLowerCase()
+		const rows = this.db
+			.select({ task: tasks, memberName: members.memberName })
+			.from(tasks)
+			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
+			.where(and(eq(tasks.repo, repo), like(tasks.id, `${lower}%`)))
+			.limit(1)
+			.all()
+		if (!rows[0]) return null
+		const summary =
+			this.reviewJobsSummaryByTaskIds([rows[0].task.id]).get(rows[0].task.id) ?? null
 		return rowToRecord(rows[0], summary)
 	}
 
@@ -279,13 +348,15 @@ export class TaskStore {
 		const candidate = candidates[0]
 		if (!candidate) return null
 
-		// Atomic transition.
+		// Atomic transition. Clear `previousMemberId` — the dispatcher hint
+		// is only meaningful while the task sits in `queued`.
 		const result = this.db
 			.update(tasks)
 			.set({
 				status: 'assigned',
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
+				previousMemberId: null,
 				updatedAt: new Date(),
 			})
 			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
@@ -302,11 +373,32 @@ export class TaskStore {
 	}
 
 	/**
+	 * Cheap lookup: distinct `previousMemberId` values across all currently
+	 * `queued` tasks. Used by the dispatcher to bias `tryDispatchAll`'s
+	 * member iteration order without hydrating full TaskRecord rows.
+	 */
+	preferredMemberIdsForQueued(): Set<string> {
+		const rows = this.db
+			.selectDistinct({ memberId: tasks.previousMemberId })
+			.from(tasks)
+			.where(and(eq(tasks.status, 'queued'), sql`${tasks.previousMemberId} IS NOT NULL`))
+			.all()
+		const out = new Set<string>()
+		for (const r of rows) {
+			if (r.memberId) out.add(r.memberId)
+		}
+		return out
+	}
+
+	/**
 	 * Like {@link claimNextFor}, but only matches tasks whose
-	 * `assignedMemberId` already equals this member — i.e. tasks the member
-	 * worked on previously and that came back to `queued` (e.g. after a
+	 * `previousMemberId` equals this member — i.e. tasks the member worked on
+	 * previously and that came back to `queued` (e.g. after a
 	 * `changes_requested` review or a retry). Used to give the original
 	 * implementer first dibs so its workspace + LLM prompt cache stay warm.
+	 *
+	 * Clears `previousMemberId` on claim — the hint is one-shot and only
+	 * meaningful while the task is in `queued`.
 	 */
 	claimNextForPreferredMember(
 		acceptableKinds: TaskKind[],
@@ -319,7 +411,7 @@ export class TaskStore {
 		const baseConds = [
 			eq(tasks.status, 'queued'),
 			inArray(tasks.kind, acceptableKinds),
-			eq(tasks.assignedMemberId, assignment.memberId),
+			eq(tasks.previousMemberId, assignment.memberId),
 			or(isNull(tasks.nextRetryAt), lte(tasks.nextRetryAt, now)),
 		]
 		if (repoAllowlist) {
@@ -345,6 +437,7 @@ export class TaskStore {
 				status: 'assigned',
 				assignedSessionId: assignment.sessionId,
 				assignedMemberId: assignment.memberId,
+				previousMemberId: null,
 				updatedAt: new Date(),
 			})
 			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
@@ -435,6 +528,50 @@ export class TaskStore {
 		const record = this.get(id)!
 		this.emit({ type: 'task.updated', task: record })
 		return record
+	}
+
+	/**
+	 * Snapshot the active `assignedMemberId` into `previousMemberId` (the
+	 * dispatcher hint for "give this Member first dibs next time"). Called
+	 * when a task is about to leave the active-work statuses (e.g.
+	 * `in-review → queued` on changes_requested, or `in-progress → queued`
+	 * on auto-retry). Idempotent: only writes if the value changed.
+	 */
+	stampPreviousMember(id: string, memberId: string | null): TaskRecord | null {
+		const existing = this.get(id)
+		if (!existing) return null
+		if (existing.previousMemberId === memberId) return existing
+		this.db
+			.update(tasks)
+			.set({ previousMemberId: memberId, updatedAt: new Date() })
+			.where(eq(tasks.id, id))
+			.run()
+		const record = this.get(id)!
+		this.emit({ type: 'task.updated', task: record })
+		return record
+	}
+
+	setPrAuthorLogin(id: string, login: string): TaskRecord | null {
+		const existing = this.get(id)
+		if (!existing) return null
+		if (existing.prAuthorLogin === login) return existing
+		this.db
+			.update(tasks)
+			.set({ prAuthorLogin: login, updatedAt: new Date() })
+			.where(eq(tasks.id, id))
+			.run()
+		const record = this.get(id)!
+		this.emit({ type: 'task.updated', task: record })
+		return record
+	}
+
+	/**
+	 * Record that we've fired a push notification for this task at this
+	 * status. Updated by the push tracker; persisted so a Household restart
+	 * doesn't double-fire on the next observation.
+	 */
+	setLastNotifiedStatus(id: string, status: TaskStatus): void {
+		this.db.update(tasks).set({ lastNotifiedStatus: status }).where(eq(tasks.id, id)).run()
 	}
 
 	/**

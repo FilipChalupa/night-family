@@ -230,22 +230,22 @@ describe('Dispatcher review picker', () => {
 		expect(aSent).not.toHaveBeenCalled()
 	})
 
-	it('uses persisted pr_author_login from metadata when present', () => {
+	it('uses persisted pr_author_login column when present', () => {
 		const aSent = vi.fn()
 		const bSent = vi.fn()
 		rig.registry.add(fakeMember({ memberName: 'a', status: 'idle', send: aSent }))
 		rig.registry.add(fakeMember({ memberName: 'b', status: 'idle', send: bSent }))
 		// Implement task is currently assigned to 'b' (e.g. after changes_requested
-		// and a re-implement), but the original PR author was 'a' — captured in
-		// metadata. Review must NOT go to 'a' (real PR author).
+		// and a re-implement), but the original PR author was 'a' — captured on
+		// the row's `pr_author_login` column. Review must NOT go to 'a'.
 		const task = rig.taskStore.create({
 			kind: 'implement',
 			title: 't',
 			description: 'd',
 			repo: 'o/r',
 			skipEstimate: true,
-			metadata: { pr_author_login: 'a' },
 		})
+		rig.taskStore.setPrAuthorLogin(task.id, 'a')
 		rig.taskStore.clearAssignment(task.id)
 		const b = rig.registry.list().find((m) => m.memberName === 'b')!
 		const claimed = rig.taskStore.claimNextFor(['implement'], {
@@ -370,11 +370,9 @@ describe('Dispatcher triage → implement spawning', () => {
 			title: 'Make widget faster',
 			description: 'Improve perf',
 			repo: opts.repo,
+			githubIssueNumber: opts.issueNumber,
+			githubIssueUrl: `https://github.com/${opts.repo}/issues/${opts.issueNumber}`,
 			skipEstimate: true,
-			metadata: {
-				github_issue_number: opts.issueNumber,
-				github_issue_url: `https://github.com/${opts.repo}/issues/${opts.issueNumber}`,
-			},
 		})
 		const claimed = rig.taskStore.claimNextFor(['triage'], {
 			sessionId: member.sessionId,
@@ -400,9 +398,7 @@ describe('Dispatcher triage → implement spawning', () => {
 		expect(implement).toBeDefined()
 		expect(implement?.status).toBe('queued')
 		expect(implement?.estimateSize).toBe('M')
-		expect(
-			(implement?.metadata as Record<string, unknown> | null)?.['github_issue_number'],
-		).toBe(42)
+		expect(implement?.githubIssueNumber).toBe(42)
 		expect(
 			(implement?.metadata as Record<string, unknown> | null)?.['spawned_from_triage'],
 		).toBe(triageId)
@@ -426,8 +422,8 @@ describe('Dispatcher triage → implement spawning', () => {
 			title: 'pre-existing',
 			description: '',
 			repo: 'o/r',
+			githubIssueNumber: 44,
 			skipEstimate: true,
-			metadata: { github_issue_number: 44 },
 		})
 
 		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'L' }, null)
@@ -448,7 +444,7 @@ describe('Dispatcher preferred-member bias', () => {
 	})
 	afterEach(() => rig.cleanup())
 
-	function queuedTaskAssignedTo(memberId: string, repo: string) {
+	function queuedTaskPreferredBy(memberId: string, repo: string) {
 		const task = rig.taskStore.create({
 			kind: 'implement',
 			title: 't',
@@ -456,10 +452,9 @@ describe('Dispatcher preferred-member bias', () => {
 			repo,
 			skipEstimate: true,
 		})
-		// Queued + assignedMemberId set is the "came back from review" shape.
-		rig.taskStore.transition(task.id, ['queued'], 'queued', {
-			assignedMemberId: memberId,
-		})
+		// `previous_member_id` is the dispatcher's "first dibs" hint, set when
+		// a task returns to `queued` from changes_requested or auto-retry.
+		rig.taskStore.stampPreviousMember(task.id, memberId)
 		return rig.taskStore.get(task.id)!
 	}
 
@@ -479,7 +474,7 @@ describe('Dispatcher preferred-member bias', () => {
 			repo: 'o/r',
 			skipEstimate: true,
 		})
-		const preferred = queuedTaskAssignedTo(a.memberId, 'o/r')
+		const preferred = queuedTaskPreferredBy(a.memberId, 'o/r')
 
 		rig.dispatcher.tryDispatchAll()
 
@@ -504,7 +499,7 @@ describe('Dispatcher preferred-member bias', () => {
 		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
 		rig.registry.add(b)
 
-		const orphaned = queuedTaskAssignedTo(a.memberId, 'o/r')
+		const orphaned = queuedTaskPreferredBy(a.memberId, 'o/r')
 
 		rig.dispatcher.tryDispatchAll()
 
@@ -523,7 +518,7 @@ describe('Dispatcher preferred-member bias', () => {
 		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
 		rig.registry.add(a)
 		rig.registry.add(b)
-		const preferred = queuedTaskAssignedTo(a.memberId, 'o/r')
+		const preferred = queuedTaskPreferredBy(a.memberId, 'o/r')
 
 		rig.dispatcher.tryDispatchAll()
 

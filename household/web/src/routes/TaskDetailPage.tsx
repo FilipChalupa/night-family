@@ -416,7 +416,6 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 		case 'done':
 			return 'success'
 		case 'failed':
-		case 'disconnected':
 			return 'error'
 		default:
 			return 'default'

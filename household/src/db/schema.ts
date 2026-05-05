@@ -58,9 +58,41 @@ export const tasks = sqliteTable(
 		estimateBlockers: text('estimate_blockers'), // JSON array
 		prUrl: text('pr_url'),
 		assignedSessionId: text('assigned_session_id'),
+		/**
+		 * The Member currently working on this task. Set when the task is
+		 * claimed (`queued → assigned`); cleared on `clearAssignment` after
+		 * completion / failure. May be null for queued tasks that have never
+		 * been claimed.
+		 */
 		assignedMemberId: text('assigned_member_id').references(() => members.memberId, {
 			onDelete: 'set null',
 		}),
+		/**
+		 * Hint for the dispatcher: when a task returns to `queued` after a
+		 * `changes_requested` review or an auto-retry, this stores who
+		 * implemented it last so the dispatcher can give that Member first
+		 * dibs (warm workspace + warm prompt cache). Independent of
+		 * `assignedMemberId` so the active-vs-preferred semantics don't get
+		 * tangled.
+		 */
+		previousMemberId: text('previous_member_id').references(() => members.memberId, {
+			onDelete: 'set null',
+		}),
+		/**
+		 * GitHub login of the original PR author at the time the PR was
+		 * opened. Used by the review dispatcher to identify self-review even
+		 * after a `changes_requested` cycle reassigns the task to a different
+		 * Member. Persists once set.
+		 */
+		prAuthorLogin: text('pr_author_login'),
+		/** Last `status` value we fired a push notification for. Prevents
+		 * double-fires after a Household restart and lets the tracker stay
+		 * idempotent. Updated by the push tracker as it observes transitions. */
+		lastNotifiedStatus: text('last_notified_status'),
+		/** Indexed lookup for `issue_comment` / `issues` webhooks. */
+		githubIssueNumber: integer('github_issue_number'),
+		/** Convenience copy of the issue URL, alongside `githubIssueNumber`. */
+		githubIssueUrl: text('github_issue_url'),
 		failureReason: text('failure_reason'),
 		retryCount: integer('retry_count').notNull().default(0),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -70,11 +102,13 @@ export const tasks = sqliteTable(
 			.notNull()
 			.default(sql`(unixepoch() * 1000)`),
 		nextRetryAt: integer('next_retry_at', { mode: 'timestamp_ms' }),
-		metadata: text('metadata'), // free-form JSON
+		metadata: text('metadata'), // free-form JSON for any other per-task data
 	},
 	(table) => ({
 		statusIdx: index('tasks_status_idx').on(table.status),
 		repoIdx: index('tasks_repo_idx').on(table.repo),
+		prUrlIdx: index('tasks_pr_url_idx').on(table.prUrl),
+		issueIdx: index('tasks_issue_idx').on(table.repo, table.githubIssueNumber),
 	}),
 )
 

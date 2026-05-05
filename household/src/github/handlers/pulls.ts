@@ -29,7 +29,6 @@ interface PullsEventCtx {
 	registry: MemberRegistry
 	notifSender?: NotificationSender | undefined
 	logger: Logger
-	sendCancel: (sessionId: string, taskId: string, reason: string) => void
 }
 
 interface PullRequestPayload {
@@ -114,8 +113,12 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 				)
 			}
 			// PR done — make sure the assigned Member is freed if still busy.
-			if (task.assignedSessionId) {
-				ctx.sendCancel(task.assignedSessionId, task.id, 'pr_closed')
+			{
+				const conn = ctx.registry.findConnectionForTask(
+					task.assignedSessionId,
+					task.assignedMemberId,
+				)
+				if (conn) conn.send({ type: 'task.cancel', task_id: task.id, reason: 'pr_closed' })
 			}
 			break
 	}
@@ -123,8 +126,11 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 	// Stale base detection. Some webhook payloads include `behind_by`; for
 	// others we'd need an Octokit follow-up call. MVP uses what's already
 	// there, gracefully handling missing fields.
-	if (typeof pr.behind_by === 'number' && pr.behind_by > 0 && task.assignedSessionId) {
-		const conn = ctx.registry.get(task.assignedSessionId)
+	if (typeof pr.behind_by === 'number' && pr.behind_by > 0) {
+		const conn = ctx.registry.findConnectionForTask(
+			task.assignedSessionId,
+			task.assignedMemberId,
+		)
 		if (conn) {
 			suggestRebase(conn, task.id, pr.behind_by, ctx.logger)
 		}
@@ -144,8 +150,10 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 
 	if (review.state === 'changes_requested') {
 		// Send back to the queue (not `in-progress`) so the dispatcher picks it
-		// up. `assignedMemberId` is intentionally preserved — the dispatcher
-		// gives that member first dibs via `claimNextForPreferredMember`.
+		// up. Snapshot the implementer into `previousMemberId` first — that's
+		// the dispatcher's "first dibs" hint — then clear the active
+		// assignment so `assignedMemberId` only ever means "currently owned".
+		const stamped = ctx.taskStore.stampPreviousMember(task.id, task.assignedMemberId)
 		const updated = ctx.taskStore.transition(
 			task.id,
 			['in-review', 'awaiting-merge'],
@@ -153,8 +161,9 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 			{ failureReason: null },
 		)
 		if (updated) {
+			ctx.taskStore.clearAssignment(task.id)
 			ctx.logger.info(
-				{ taskId: task.id, preferredMemberId: updated.assignedMemberId },
+				{ taskId: task.id, preferredMemberId: stamped?.previousMemberId ?? null },
 				'review requested changes → queued',
 			)
 			ctx.dispatcher.tryDispatchAll()
@@ -169,12 +178,11 @@ function findTaskForPr(store: TaskStore, repo: string, pr: PullRequestPayload): 
 	// Primary: branch convention `pr/night/<task-id-prefix>-…`
 	const m = pr.head.ref.match(/^pr\/night\/([0-9a-f]+)/i)
 	if (m && m[1]) {
-		const prefix = m[1].toLowerCase()
-		const candidate = store.list({ repo }).find((t) => t.id.startsWith(prefix))
+		const candidate = store.findByIdPrefix(repo, m[1])
 		if (candidate) return candidate
 	}
 	// Fallback: prUrl already recorded on the task.
-	return store.list({ repo }).find((t) => t.prUrl === pr.html_url) ?? null
+	return store.findByPrUrl(pr.html_url)
 }
 
 function persistPrUrl(store: TaskStore, task: TaskRecord, prUrl: string): void {

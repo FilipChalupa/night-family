@@ -2,41 +2,47 @@
  * Transition detector for `task.updated` events. The store fires `task.updated`
  * not just on real status changes but also on `republish` (review-job summary
  * refresh) — without diffing against the previous status we'd push duplicate
- * notifications on every job tick. This keeps a small in-memory map of last
- * seen statuses per task and only emits a push payload on a *real* transition.
+ * notifications on every job tick.
  *
- * In-memory state is fine: Web Push is best-effort by nature, and a process
- * restart simply means the very next status change after restart goes
- * unannounced. Better than persisting a parallel "last notified" table.
+ * Persistence: the previous status is stored on the task row itself
+ * (`last_notified_status`). That makes the tracker idempotent across Household
+ * restarts — the very next status change after restart still emits exactly
+ * once — and avoids double-fires if multiple Household instances ever process
+ * the same event stream.
  */
 
 import type { TaskStatus } from '@night/shared'
 import type { TaskRecord } from '../tasks/store.ts'
 import type { PushPayload } from './sender.ts'
 
+export interface TaskPushPersistence {
+	setLastNotifiedStatus(taskId: string, status: TaskStatus): void
+}
+
 export class TaskPushTransitionTracker {
-	private readonly previous = new Map<string, TaskStatus>()
+	constructor(private readonly persistence: TaskPushPersistence) {}
 
 	/**
 	 * Record `task` and return a push payload if the new status crosses a
-	 * watch threshold; otherwise null. Always updates the cached prior status
-	 * so that, say, two consecutive `failed` events don't both notify.
+	 * watch threshold; otherwise null. Always advances `lastNotifiedStatus`
+	 * so the next observation sees the current row as the prior state, even
+	 * for transitions we don't notify on.
 	 */
 	observe(task: TaskRecord): PushPayload | null {
-		const before = this.previous.get(task.id) ?? null
-		this.previous.set(task.id, task.status)
-
-		// First time we see a task, treat as a baseline — we don't notify on
-		// snapshot-rehydrated state at process start.
-		if (before === null) return null
+		const before = task.lastNotifiedStatus
 		if (before === task.status) return null
 
-		return describe(task, before)
-	}
+		// First time we see a task post-creation, treat as a baseline — we
+		// don't notify on snapshot-rehydrated state at process start. Same
+		// applies after a fresh insert where `lastNotifiedStatus` is null.
+		if (before === null) {
+			this.persistence.setLastNotifiedStatus(task.id, task.status)
+			return null
+		}
 
-	/** Drop a task from the tracker (e.g. after `task.deleted`). */
-	forget(taskId: string): void {
-		this.previous.delete(taskId)
+		const payload = describe(task, before)
+		this.persistence.setLastNotifiedStatus(task.id, task.status)
+		return payload
 	}
 }
 

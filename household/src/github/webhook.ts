@@ -20,7 +20,7 @@ import type { TaskStore } from '../tasks/store.ts'
 import type { RepoBindingStore } from './bindings.ts'
 import { handleIssueCommentEvent, handleIssuesEvent } from './handlers/issues.ts'
 import { handlePullRequestEvent, handlePullRequestReviewEvent } from './handlers/pulls.ts'
-import type { ConnectedMember, MemberRegistry } from '../members/registry.ts'
+import type { MemberRegistry } from '../members/registry.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
 
 export interface WebhookDeps {
@@ -119,7 +119,6 @@ async function routeEvent(
 				...deps,
 				repo,
 				body,
-				sendCancel: makeSendCancel(deps),
 				notifSender: deps.notifSender,
 			})
 			break
@@ -128,7 +127,6 @@ async function routeEvent(
 				...deps,
 				repo,
 				body,
-				sendCancel: makeSendCancel(deps),
 				notifSender: deps.notifSender,
 			})
 			break
@@ -148,16 +146,6 @@ function verifyHmac(rawBody: string, signature: string, secret: string): boolean
 		return timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
 	} catch {
 		return false
-	}
-}
-
-function makeSendCancel(
-	deps: WebhookDeps,
-): (sessionId: string, taskId: string, reason: string) => void {
-	return (sessionId: string, taskId: string, reason: string) => {
-		const conn: ConnectedMember | undefined = deps.registry.get(sessionId)
-		if (!conn) return
-		conn.send({ type: 'task.cancel', task_id: taskId, reason })
 	}
 }
 
