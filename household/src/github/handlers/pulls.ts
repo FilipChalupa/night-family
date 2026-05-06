@@ -24,6 +24,7 @@ import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
 import type { NotificationSender } from '../../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
+import { isTrustedAuthorAssociation } from './trust.ts'
 
 interface PullsEventCtx {
 	repo: string
@@ -198,9 +199,32 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 	const action = ctx.body['action']
 	const pr = ctx.body['pull_request'] as PullRequestPayload | undefined
 	const review = ctx.body['review'] as
-		| { state: 'commented' | 'approved' | 'changes_requested'; body?: string }
+		| {
+				state: 'commented' | 'approved' | 'changes_requested'
+				body?: string
+				author_association?: string
+				user?: { login?: string }
+		  }
 		| undefined
 	if (action !== 'submitted' || !pr || !review) return
+
+	// Public-repo guard: only repo-affiliated reviewers can drive
+	// automation. A drive-by review on a public repo would otherwise let
+	// any GitHub user re-queue the task (`changes_requested`) or push it
+	// into `awaiting-merge` (`approved`) without maintainer approval.
+	if (!isTrustedAuthorAssociation(review.author_association)) {
+		ctx.logger.info(
+			{
+				repo: ctx.repo,
+				prNumber: pr.number,
+				reviewer: review.user?.login ?? null,
+				association: review.author_association ?? null,
+				state: review.state,
+			},
+			'pull_request_review ignored — reviewer not in trust set',
+		)
+		return
+	}
 
 	const task = findTaskForPr(ctx.taskStore, ctx.repo, pr)
 	if (!task) return

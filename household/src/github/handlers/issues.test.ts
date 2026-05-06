@@ -220,12 +220,17 @@ describe('handleIssueCommentEvent', () => {
 		issueNumber: number
 		commentBody?: string
 		commentAuthor?: string
+		authorAssociation?: string | undefined
 	}) => ({
 		action: 'created',
 		issue: issue({ number: overrides.issueNumber, labels: ['night'] }),
 		comment: {
 			body: overrides.commentBody ?? 'Hey, can you also add a status indicator?',
 			user: { login: overrides.commentAuthor ?? 'human-user' },
+			// Pass through whatever the caller specified — including `undefined` /
+			// `''` — so trust-set tests can assert the missing-association case.
+			author_association:
+				'authorAssociation' in overrides ? overrides.authorAssociation : 'OWNER',
 		},
 	})
 
@@ -279,6 +284,36 @@ describe('handleIssueCommentEvent', () => {
 		)
 		expect(findTask(rig, 10)).toBeUndefined()
 	})
+
+	it.each(['OWNER', 'MEMBER', 'COLLABORATOR'])(
+		'queues triage when the comment author_association is %s',
+		async (assoc) => {
+			await handleIssueCommentEvent(
+				ctxFor(
+					rig,
+					REPO,
+					commentEvent({ issueNumber: 100 + assoc.length, authorAssociation: assoc }),
+				),
+			)
+			expect(findTask(rig, 100 + assoc.length)).toBeDefined()
+		},
+	)
+
+	it.each(['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'NONE', 'MANNEQUIN', undefined, ''])(
+		'ignores a comment when author_association is %j (drive-by on a public repo)',
+		async (assoc) => {
+			const issueNumber = 200 + (assoc?.length ?? 0)
+			const before = rig.store.list().length
+			await handleIssueCommentEvent(
+				ctxFor(
+					rig,
+					REPO,
+					commentEvent({ issueNumber, authorAssociation: assoc as string | undefined }),
+				),
+			)
+			expect(rig.store.list().length).toBe(before)
+		},
+	)
 
 	it('respects the per-issue lifetime cap', async () => {
 		// Pre-seed 20 triage records (no active ones — all done).

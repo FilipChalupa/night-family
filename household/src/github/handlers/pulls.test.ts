@@ -12,7 +12,7 @@ import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import { TaskStore } from '../../tasks/store.ts'
 import { TaskJobStore } from '../../tasks/jobStore.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
-import { handlePullRequestEvent } from './pulls.ts'
+import { handlePullRequestEvent, handlePullRequestReviewEvent } from './pulls.ts'
 
 const migrationsFolder = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -248,5 +248,98 @@ describe('handlePullRequestEvent — rebase enqueueing', () => {
 		await handlePullRequestEvent(ctxFor(rig, REPO, body))
 		const rebases = rig.taskStore.list({ repo: REPO }).filter((t) => t.kind === 'rebase')
 		expect(rebases).toHaveLength(2)
+	})
+})
+
+function reviewBody(opts: {
+	prUrl: string
+	headRef: string
+	state: 'changes_requested' | 'approved' | 'commented'
+	authorAssociation?: string
+	mergeableState?: string
+}) {
+	return {
+		action: 'submitted',
+		pull_request: {
+			number: 7,
+			html_url: opts.prUrl,
+			state: 'open',
+			merged: false,
+			mergeable_state: opts.mergeableState ?? 'clean',
+			head: { ref: opts.headRef, sha: 'cafebabe' },
+			base: { ref: 'main' },
+		},
+		review: {
+			state: opts.state,
+			body: 'lgtm',
+			user: { login: 'reviewer' },
+			author_association: opts.authorAssociation ?? 'OWNER',
+		},
+	}
+}
+
+describe('handlePullRequestReviewEvent — author_association gating', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	function seedAndBody(
+		authorAssociation: string | undefined,
+		state: 'changes_requested' | 'approved',
+	) {
+		const parent = seedParentImplement(rig, {
+			branchPrefix: '',
+			prUrl: `https://github.com/${REPO}/pull/7`,
+		})
+		const headRef = `pr/night/${parent.id.slice(0, 8)}-speed`
+		return {
+			parent,
+			body: reviewBody({
+				prUrl: parent.prUrl!,
+				headRef,
+				state,
+				...(authorAssociation !== undefined
+					? { authorAssociation }
+					: { authorAssociation: '' }),
+			}),
+		}
+	}
+
+	it.each(['OWNER', 'MEMBER', 'COLLABORATOR'])(
+		'requeues the task on changes_requested from a trusted reviewer (%s)',
+		async (assoc) => {
+			const { parent, body } = seedAndBody(assoc, 'changes_requested')
+			await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
+			const after = rig.taskStore.get(parent.id)!
+			expect(after.status).toBe('queued')
+			expect(rig.tryDispatchAll).toHaveBeenCalled()
+		},
+	)
+
+	it('moves the task to awaiting-merge on approved+clean from a trusted reviewer', async () => {
+		const { parent, body } = seedAndBody('MEMBER', 'approved')
+		await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
+		expect(rig.taskStore.get(parent.id)!.status).toBe('awaiting-merge')
+	})
+
+	it.each(['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'NONE', 'MANNEQUIN', undefined, ''])(
+		'ignores a changes_requested review from author_association %j',
+		async (assoc) => {
+			const { parent, body } = seedAndBody(assoc as string | undefined, 'changes_requested')
+			await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
+			const after = rig.taskStore.get(parent.id)!
+			expect(after.status).toBe('in-review')
+			expect(rig.tryDispatchAll).not.toHaveBeenCalled()
+		},
+	)
+
+	it('ignores an approved review from an untrusted reviewer (no awaiting-merge bump)', async () => {
+		const { parent, body } = seedAndBody('NONE', 'approved')
+		await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
+		expect(rig.taskStore.get(parent.id)!.status).toBe('in-review')
 	})
 })

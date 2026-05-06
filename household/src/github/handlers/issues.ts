@@ -26,6 +26,7 @@ import type { Logger } from 'pino'
 import type { MemberRegistry } from '../../members/registry.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
+import { isTrustedAuthorAssociation } from './trust.ts'
 
 const NIGHT_LABEL = 'night'
 const TRIAGE_DAILY_CAP = 5
@@ -112,13 +113,35 @@ export async function handleIssueCommentEvent(ctx: IssuesEventCtx): Promise<void
 	const hasNightLabel = (issue.labels ?? []).some((l) => l?.name === NIGHT_LABEL)
 	if (!hasNightLabel) return
 
-	const comment = ctx.body['comment'] as { body?: string } | undefined
+	const comment = ctx.body['comment'] as
+		| {
+				body?: string
+				author_association?: string
+				user?: { login?: string }
+		  }
+		| undefined
 	const commentBody = typeof comment?.body === 'string' ? comment.body : ''
 	if (findAttributionMarker(commentBody) !== null) {
 		// Our own bot-authored comment — never trigger a triage cycle on it.
 		ctx.logger.debug(
 			{ repo: ctx.repo, issue: issue.number },
 			'issue_comment ignored (Night Family marker present)',
+		)
+		return
+	}
+
+	// Public-repo guard: only repo-affiliated authors can drive automation.
+	// A drive-by commenter on a public repo can't burn LLM budget or feed
+	// hostile prompt content into the agent loop.
+	if (!isTrustedAuthorAssociation(comment?.author_association)) {
+		ctx.logger.info(
+			{
+				repo: ctx.repo,
+				issue: issue.number,
+				author: comment?.user?.login ?? null,
+				association: comment?.author_association ?? null,
+			},
+			'issue_comment ignored — author not in trust set',
 		)
 		return
 	}
