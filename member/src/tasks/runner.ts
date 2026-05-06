@@ -34,6 +34,7 @@ import {
 import { createDefaultTools } from '../agent/tools.ts'
 import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
+import { gh, GitError } from './git.ts'
 import { RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
 
 export interface AssignedTaskInput {
@@ -136,6 +137,38 @@ export class TaskRunner {
 			// deterministic git operation. Run it inline and return.
 			if (task.kind === 'rebase') {
 				return await this.runRebaseTask(task, emit)
+			}
+
+			// Smoke-test the GitHub token against the originating issue by
+			// posting an "eyes" reaction. Failure here almost always means
+			// the PAT can't write to the repo, so abort before we spend any
+			// agent budget instead of failing at PR-open time.
+			if (task.kind === 'implement' && task.repo && task.githubToken) {
+				const issue = githubIssueRef(task.metadata)
+				if (issue?.number !== undefined && issue?.number !== null) {
+					try {
+						await this.postEyesReaction({
+							repo: task.repo,
+							issueNumber: issue.number,
+							token: task.githubToken,
+						})
+						await emit('log', {
+							message: 'eyes reaction posted',
+							repo: task.repo,
+							issue: issue.number,
+						})
+					} catch (err) {
+						const stderr =
+							err instanceof GitError ? err.stderr.slice(0, 500) : undefined
+						return await this.fail(emit, null, 'reaction_failed', {
+							message:
+								'failed to add eyes reaction on the originating issue — the GitHub token likely lacks write access to this repo',
+							repo: task.repo,
+							issue: issue.number,
+							...(stderr ? { stderr } : {}),
+						})
+					}
+				}
 			}
 
 			// Tasks that don't need a git worktree — agent works in a scratch dir.
@@ -458,6 +491,30 @@ export class TaskRunner {
 				throw new QuotaExceededError('day', daily, dayLimit)
 			}
 		}
+	}
+
+	/**
+	 * POST `/repos/:repo/issues/:n/reactions` with `content=eyes`. Used as a
+	 * cheap permissions probe before kicking off the agent — if the token
+	 * can't write a reaction, it almost certainly can't push branches or
+	 * open PRs either, and we'd rather fail fast.
+	 */
+	private async postEyesReaction(args: {
+		repo: string
+		issueNumber: number
+		token: string
+	}): Promise<void> {
+		await gh(
+			[
+				'api',
+				'-X',
+				'POST',
+				`/repos/${args.repo}/issues/${args.issueNumber}/reactions`,
+				'-f',
+				'content=eyes',
+			],
+			{ cwd: this.deps.workspaceDir, token: args.token, timeoutMs: 15_000 },
+		)
 	}
 
 	private async fail(
