@@ -1,8 +1,18 @@
-import { Alert, Box, Button, ButtonGroup, Chip, Paper, Stack, Typography } from '@mui/material'
+import {
+	Alert,
+	Box,
+	Button,
+	ButtonGroup,
+	Chip,
+	Link,
+	Paper,
+	Stack,
+	Typography,
+} from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { useMutation } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link as RouterLink } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
@@ -53,7 +63,7 @@ export function MemberDetailPage() {
 	return (
 		<>
 			<Box sx={{ mb: 2 }}>
-				<Link
+				<RouterLink
 					to="/"
 					style={{
 						color: 'inherit',
@@ -66,7 +76,7 @@ export function MemberDetailPage() {
 				>
 					<ArrowBackIcon fontSize="small" />
 					Back to dashboard
-				</Link>
+				</RouterLink>
 			</Box>
 
 			{!member ? (
@@ -158,9 +168,16 @@ function MemberDetailCard({
 						{member.displayName || member.memberName}
 					</Typography>
 					{member.displayName && member.displayName !== member.memberName ? (
-						<Typography component="span" color="text.secondary">
+						<Link
+							href={`https://github.com/${encodeURIComponent(member.memberName)}`}
+							target="_blank"
+							rel="noopener noreferrer"
+							underline="hover"
+							color="text.secondary"
+							sx={{ typography: 'body1' }}
+						>
 							@{member.memberName}
-						</Typography>
+						</Link>
 					) : null}
 					<Chip
 						label={member.status}
@@ -181,7 +198,7 @@ function MemberDetailCard({
 					}
 				/>
 				<Field label="Skills" value={member.skills.join(', ') || '—'} />
-				<Field label="Repos allowlist" value={reposLabel(member.repos)} />
+				<ReposField repos={member.repos} />
 				<Field label="Worker profile" value={member.workerProfile} />
 				<Field
 					label="Protocol version"
@@ -254,7 +271,7 @@ function CurrentTaskField({ taskId }: { taskId: string | null }) {
 					—
 				</Typography>
 			) : (
-				<Link
+				<RouterLink
 					to="/tasks/$taskId"
 					params={{ taskId }}
 					style={{
@@ -264,7 +281,7 @@ function CurrentTaskField({ taskId }: { taskId: string | null }) {
 					}}
 				>
 					{taskId}
-				</Link>
+				</RouterLink>
 			)}
 		</Stack>
 	)
@@ -289,10 +306,46 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 	)
 }
 
-function reposLabel(repos: string[] | null): string {
-	if (repos === null) return 'unconstrained'
-	if (repos.length === 0) return '— (none)'
-	return repos.join(', ')
+function ReposField({ repos }: { repos: string[] | null }) {
+	return (
+		<Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.25, sm: 2 }}>
+			<Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+				Repos allowlist
+			</Typography>
+			{repos === null ? (
+				<Typography variant="body2">unconstrained</Typography>
+			) : repos.length === 0 ? (
+				<Typography variant="body2">— (none)</Typography>
+			) : (
+				<Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+					{repos.map((slug, i) => (
+						<Stack
+							key={slug}
+							direction="row"
+							spacing={0.5}
+							sx={{ alignItems: 'baseline' }}
+						>
+							<Link
+								href={`https://github.com/${slug.split('/').map(encodeURIComponent).join('/')}`}
+								target="_blank"
+								rel="noopener noreferrer"
+								underline="hover"
+								variant="body2"
+								sx={{ wordBreak: 'break-all' }}
+							>
+								{slug}
+							</Link>
+							{i < repos.length - 1 ? (
+								<Typography variant="body2" color="text.secondary">
+									,
+								</Typography>
+							) : null}
+						</Stack>
+					))}
+				</Stack>
+			)}
+		</Stack>
+	)
 }
 
 function formatTokens(value: number): string {
