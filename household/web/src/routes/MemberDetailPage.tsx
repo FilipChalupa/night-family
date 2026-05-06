@@ -194,7 +194,7 @@ function MemberDetailCard({
 				{token !== undefined ? (
 					<TokenField token={token} fallbackId={member.tokenId} />
 				) : null}
-				<Field label="Current task" value={member.currentTask ?? '—'} mono />
+				<CurrentTaskField taskId={member.currentTask} />
 				<Field
 					label="Connected"
 					value={`${relativeTime(member.connectedAt)} (${member.connectedAt})`}
@@ -238,6 +238,33 @@ function TokenField({ token, fallbackId }: { token: TokenRecord | null; fallback
 						{token.id}
 					</Typography>
 				</Stack>
+			)}
+		</Stack>
+	)
+}
+
+function CurrentTaskField({ taskId }: { taskId: string | null }) {
+	return (
+		<Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 0.25, sm: 2 }}>
+			<Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+				Current task
+			</Typography>
+			{taskId === null ? (
+				<Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+					—
+				</Typography>
+			) : (
+				<Link
+					to="/tasks/$taskId"
+					params={{ taskId }}
+					style={{
+						fontFamily: 'monospace',
+						fontSize: '0.875rem',
+						wordBreak: 'break-all',
+					}}
+				>
+					{taskId}
+				</Link>
 			)}
 		</Stack>
 	)
