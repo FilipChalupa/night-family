@@ -4,15 +4,17 @@
  * household-side; each member supplies its own via env (`GITHUB_PAT`).
  */
 
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { Db } from '../db/index.ts'
-import { repoBindings } from '../db/schema.ts'
+import { repoBindings, webhookDeliveries } from '../db/schema.ts'
 import type { SecretCipher } from '../crypto/secrets.ts'
 
 export interface RepoBinding {
 	repo: string
 	createdAt: string
 	updatedAt: string
+	/** ISO of the most recent webhook delivery received for this repo, or null if none yet. */
+	lastEventAt: string | null
 }
 
 export class RepoBindingStore {
@@ -57,15 +59,14 @@ export class RepoBindingStore {
 	}
 
 	list(): RepoBinding[] {
-		return this.db
-			.select()
-			.from(repoBindings)
-			.all()
-			.map((r) => ({
-				repo: r.repo,
-				createdAt: r.createdAt.toISOString(),
-				updatedAt: r.updatedAt.toISOString(),
-			}))
+		const rows = this.db.select().from(repoBindings).all()
+		const lastEventByRepo = this.lastEventByRepo()
+		return rows.map((r) => ({
+			repo: r.repo,
+			createdAt: r.createdAt.toISOString(),
+			updatedAt: r.updatedAt.toISOString(),
+			lastEventAt: lastEventByRepo.get(r.repo) ?? null,
+		}))
 	}
 
 	publicView(repo: string): RepoBinding | null {
@@ -75,7 +76,30 @@ export class RepoBindingStore {
 			repo: r.repo,
 			createdAt: r.createdAt.toISOString(),
 			updatedAt: r.updatedAt.toISOString(),
+			lastEventAt: this.lastEventByRepo().get(r.repo) ?? null,
 		}
+	}
+
+	/**
+	 * MAX(received_at) per repo across `webhook_deliveries`. Bounded by
+	 * webhook delivery retention, so older repos may show a stale-or-null
+	 * value once their last delivery ages out.
+	 */
+	private lastEventByRepo(): Map<string, string> {
+		const rows = this.db
+			.select({
+				repo: webhookDeliveries.repo,
+				lastMs: sql<number>`MAX(${webhookDeliveries.receivedAt})`,
+			})
+			.from(webhookDeliveries)
+			.groupBy(webhookDeliveries.repo)
+			.all()
+		const out = new Map<string, string>()
+		for (const r of rows) {
+			if (r.lastMs == null) continue
+			out.set(r.repo, new Date(Number(r.lastMs)).toISOString())
+		}
+		return out
 	}
 
 	getWebhookSecret(repo: string): string | null {

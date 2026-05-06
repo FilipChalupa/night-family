@@ -25,12 +25,14 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { EmptyState } from '../routes/Root.tsx'
+import { relativeTime } from '../time.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
 interface RepoBinding {
 	repo: string
 	createdAt: string
 	updatedAt: string
+	lastEventAt: string | null
 }
 
 interface SuggestedRepo {
@@ -146,6 +148,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 								<TableCell>Repo</TableCell>
 								<TableCell>Webhook URL</TableCell>
 								<TableCell>Created</TableCell>
+								<TableCell>Last event</TableCell>
 								<TableCell />
 							</TableRow>
 						</TableHead>
@@ -171,6 +174,19 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 												{new Date(r.createdAt).toLocaleDateString()}
 											</Typography>
 										</Tooltip>
+									</TableCell>
+									<TableCell>
+										{r.lastEventAt ? (
+											<Tooltip title={r.lastEventAt}>
+												<Typography variant="body2" color="text.secondary">
+													{relativeTime(r.lastEventAt)}
+												</Typography>
+											</Tooltip>
+										) : (
+											<Typography variant="body2" color="text.secondary">
+												—
+											</Typography>
+										)}
 									</TableCell>
 									<TableCell align="right">
 										{canManage ? (

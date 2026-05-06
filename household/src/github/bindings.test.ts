@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SecretCipher } from '../crypto/secrets.ts'
 import * as schema from '../db/schema.ts'
+import type { Db } from '../db/index.ts'
 import { RepoBindingStore } from './bindings.ts'
 
 const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'migrations')
@@ -18,6 +19,7 @@ const TEST_KEY = Buffer.alloc(32, 0x37).toString('base64')
 interface Rig {
 	store: RepoBindingStore
 	cipher: SecretCipher
+	db: Db
 	cleanup: () => void
 }
 
@@ -34,6 +36,7 @@ function createRig(): Rig {
 	return {
 		store,
 		cipher,
+		db,
 		cleanup: () => {
 			sqlite.close()
 			rmSync(dir, { recursive: true, force: true })
@@ -107,5 +110,29 @@ describe('RepoBindingStore', () => {
 	it('publicView returns null for an unknown repo', () => {
 		expect(rig.store.publicView('nope/missing')).toBeNull()
 		expect(rig.store.getWebhookSecret('nope/missing')).toBeNull()
+	})
+
+	it('lastEventAt reflects the most recent webhook delivery per repo', () => {
+		rig.store.upsert({ repo: 'octo/sample', webhookSecret: 'x' })
+		rig.store.upsert({ repo: 'octo/quiet', webhookSecret: 'y' })
+
+		const earlier = new Date('2025-01-01T10:00:00.000Z')
+		const later = new Date('2025-01-02T11:30:00.000Z')
+		rig.db
+			.insert(schema.webhookDeliveries)
+			.values([
+				{ id: 'd1', repo: 'octo/sample', event: 'issues', receivedAt: earlier },
+				{ id: 'd2', repo: 'octo/sample', event: 'pull_request', receivedAt: later },
+			])
+			.run()
+
+		const list = rig.store.list()
+		const sample = list.find((r) => r.repo === 'octo/sample')
+		const quiet = list.find((r) => r.repo === 'octo/quiet')
+		expect(sample?.lastEventAt).toBe(later.toISOString())
+		expect(quiet?.lastEventAt).toBeNull()
+
+		expect(rig.store.publicView('octo/sample')?.lastEventAt).toBe(later.toISOString())
+		expect(rig.store.publicView('octo/quiet')?.lastEventAt).toBeNull()
 	})
 })
