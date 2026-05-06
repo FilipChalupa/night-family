@@ -147,13 +147,20 @@ export function buildKickoffPrompt(task: AgentTask): string {
 	}
 
 	// Default branch covers `implement`.
-	return [
+	const lines = [
 		`# Task: ${title}`,
 		``,
 		description.trim(),
 		``,
 		`Apply this change by editing files in the working tree. Use \`read_file\` / \`bash\` to find what to change, \`write_file\` to apply each edit (full new contents per file), and \`bash\` to run any sanity checks the repo offers (tests, build, linter). When the files on disk look right, briefly summarize what you did and stop calling tools — the runner will commit, push, and open a draft PR for you.`,
-	].join('\n')
+	]
+	if (issueNumber !== null) {
+		lines.push(
+			``,
+			`The runner has already posted an "eyes" reaction on the originating issue, so you don't need to add one yourself.`,
+		)
+	}
+	return lines.join('\n')
 }
 
 function readIssueNumber(metadata: Record<string, unknown> | null): number | null {
