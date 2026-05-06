@@ -288,21 +288,23 @@ function ProtocolCell({
 	householdVersion: string | null
 }) {
 	const skew = protocolSkew(memberVersion, householdVersion)
-	if (skew === 'equal' || skew === 'unknown') {
+	if (skew === 'unknown') {
 		return (
 			<Typography variant="body2" color="text.secondary">
 				{memberVersion}
 			</Typography>
 		)
 	}
-	const color =
-		skew === 'major-mismatch' ? 'error' : skew === 'minor-skew' ? 'warning' : 'default'
+	const color: 'success' | 'warning' | 'error' =
+		skew === 'major-mismatch' ? 'error' : skew === 'equal' ? 'success' : 'warning'
 	const tooltip =
 		skew === 'major-mismatch'
 			? `Major mismatch — household runs ${householdVersion}. This connection should have been rejected.`
 			: skew === 'minor-skew'
 				? `Minor skew — household runs ${householdVersion}. Connection accepted; expect a warning in logs on both sides.`
-				: `Patch difference — household runs ${householdVersion}. Harmless.`
+				: skew === 'patch-skew'
+					? `Patch difference — household runs ${householdVersion}. Harmless.`
+					: `Matches household ${householdVersion}.`
 	return (
 		<Tooltip title={tooltip}>
 			<Chip label={memberVersion} size="small" color={color} variant="outlined" />
