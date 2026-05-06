@@ -37,6 +37,17 @@ export function MemberDetailPage() {
 	})
 	const member = fromStream ?? fetched ?? null
 
+	const { data: tokenTotal } = useQuery<number>({
+		queryKey: ['member-tokens', memberId],
+		queryFn: async () => {
+			const r = await fetch(`/api/stats/members/${encodeURIComponent(memberId)}/tokens`)
+			if (!r.ok) throw new Error(`HTTP ${r.status}`)
+			const body = (await r.json()) as { tokens: number }
+			return body.tokens ?? 0
+		},
+		refetchInterval: 30_000,
+	})
+
 	const memberTasks = tasks.filter((t) => t.assignedMemberId === memberId)
 
 	return (
@@ -75,6 +86,7 @@ export function MemberDetailPage() {
 							member={member}
 							householdProtocolVersion={householdProtocolVersion}
 							token={isAdmin ? (tokenById.get(member.tokenId) ?? null) : undefined}
+							totalTokensSpent={tokenTotal ?? null}
 						/>
 					</Section>
 
@@ -121,11 +133,14 @@ function MemberDetailCard({
 	member,
 	householdProtocolVersion,
 	token,
+	totalTokensSpent,
 }: {
 	member: MemberSnapshot
 	householdProtocolVersion: string | null
 	/** `undefined` = caller is not admin and shouldn't see token info; `null` = lookup miss. */
 	token: TokenRecord | null | undefined
+	/** All-time token total across every task assigned to this member; `null` while loading. */
+	totalTokensSpent: number | null
 }) {
 	const protoSkew = compareProtocol(member.protocolVersion, householdProtocolVersion)
 	return (
@@ -157,6 +172,14 @@ function MemberDetailCard({
 
 				<Field label="Member ID" value={member.memberId} mono />
 				<Field label="Provider · Model" value={`${member.provider} · ${member.model}`} />
+				<Field
+					label="Total tokens spent"
+					value={
+						totalTokensSpent === null
+							? '…'
+							: `${formatTokens(totalTokensSpent)} (${totalTokensSpent.toLocaleString()})`
+					}
+				/>
 				<Field label="Skills" value={member.skills.join(', ') || '—'} />
 				<Field label="Repos allowlist" value={reposLabel(member.repos)} />
 				<Field label="Worker profile" value={member.workerProfile} />
@@ -243,6 +266,12 @@ function reposLabel(repos: string[] | null): string {
 	if (repos === null) return 'unconstrained'
 	if (repos.length === 0) return '— (none)'
 	return repos.join(', ')
+}
+
+function formatTokens(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+	return value.toLocaleString()
 }
 
 function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 'default' {

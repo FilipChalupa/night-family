@@ -193,6 +193,70 @@ describe('GET /api/stats/tasks — token aggregates', () => {
 	})
 })
 
+describe('GET /api/stats/members/:memberId/tokens', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	it('sums MAX usage across every task ever assigned to the member', async () => {
+		const today = todayUtcNoon()
+		const longAgo = today - 60 * 24 * 60 * 60 * 1000
+		insertTask(rig.sqlite, { id: 't1', status: 'done', member: 'alice', updatedAt: today })
+		insertUsage(rig.sqlite, 't1', 1, { input: 100, output: 50 })
+		insertUsage(rig.sqlite, 't1', 2, { input: 300, output: 150 })
+
+		// Old task — outside any 30-day window but should still count for all-time.
+		insertTask(rig.sqlite, {
+			id: 't-old',
+			status: 'failed',
+			member: 'alice',
+			updatedAt: longAgo,
+		})
+		insertUsage(rig.sqlite, 't-old', 1, { input: 70, output: 30 })
+
+		// In-progress task — also counts.
+		insertTask(rig.sqlite, {
+			id: 't-running',
+			status: 'in_progress',
+			member: 'alice',
+			updatedAt: today,
+		})
+		insertUsage(rig.sqlite, 't-running', 1, { input: 25, output: 25 })
+
+		// Other member — must not leak in.
+		insertTask(rig.sqlite, { id: 't-bob', status: 'done', member: 'bob', updatedAt: today })
+		insertUsage(rig.sqlite, 't-bob', 1, { input: 999, output: 999 })
+
+		const res = await rig.app.request('/api/stats/members/mid-alice/tokens')
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as { memberId: string; tokens: number }
+		// 450 (t1) + 100 (t-old) + 50 (t-running) = 600
+		expect(body).toEqual({ memberId: 'mid-alice', tokens: 600 })
+	})
+
+	it('returns 0 for a member with no tasks or no usage events', async () => {
+		insertTask(rig.sqlite, {
+			id: 't1',
+			status: 'done',
+			member: 'alice',
+			updatedAt: todayUtcNoon(),
+		})
+		// No usage events at all.
+
+		const res = await rig.app.request('/api/stats/members/mid-alice/tokens')
+		const body = (await res.json()) as { memberId: string; tokens: number }
+		expect(body).toEqual({ memberId: 'mid-alice', tokens: 0 })
+
+		const unknown = await rig.app.request('/api/stats/members/mid-nobody/tokens')
+		const unknownBody = (await unknown.json()) as { memberId: string; tokens: number }
+		expect(unknownBody).toEqual({ memberId: 'mid-nobody', tokens: 0 })
+	})
+})
+
 describe('GET /api/stats/task-tokens', () => {
 	let rig: Rig
 	beforeEach(() => {

@@ -160,6 +160,34 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 		})
 	})
 
+	// All-time token total spent by a single member, across every task ever
+	// assigned to them (any status). Bounded in practice by `task_events`
+	// retention — older usage events get purged.
+	app.get('/api/stats/members/:memberId/tokens', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
+		const memberId = c.req.param('memberId')
+		const row = deps.sqlite
+			.prepare(
+				`WITH task_tokens AS (
+					SELECT task_id,
+					       MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+					           COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+					FROM task_events
+					WHERE kind = 'usage'
+					GROUP BY task_id
+				 )
+				 SELECT COALESCE(SUM(tt.tokens), 0) AS total
+				 FROM tasks t
+				 JOIN task_tokens tt ON tt.task_id = t.id
+				 WHERE t.assigned_member_id = ?`,
+			)
+			.get(memberId) as { total: number } | undefined
+
+		return c.json({ memberId, tokens: Number(row?.total ?? 0) })
+	})
+
 	// Per-task token totals (input + output). Cumulative running totals are
 	// emitted by Members in `usage` events; MAX() per task gives the final
 	// spend. Cheap thanks to retention purging old events.
