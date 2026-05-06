@@ -1,8 +1,8 @@
+import type { Day, NightWindow, Schedule } from '@night/shared'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
-import type { Day, NightWindow, Schedule } from '@night/shared'
 
 /**
  * Per-Member schedule loader. Reads a YAML file from disk (or returns a
@@ -214,7 +214,7 @@ export function defaultScheduleYaml(): string {
 #
 # Edit and restart the member to apply changes.
 
-# IANA timezone for all the HH:MM times below.
+# IANA timezone for all the HH:MM times below (e.g. UTC, Europe/Prague).
 timezone: ${BUILT_IN_DEFAULT.timezone}
 
 # Time windows during which \`implement\` is offered. Active if any window
