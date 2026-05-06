@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MemberSnapshot, TaskRecord, UiEvent } from '../types.ts'
 
+/**
+ * The household sends messages at least every ~10s (member heartbeats). If
+ * we go this long without any traffic on a "open" socket, the link is
+ * silently broken (e.g. NAT timeout, server hung) and we force-reconnect.
+ * Shared with the connection-status chip so both agree on what "stale"
+ * means.
+ */
+export const STALE_AFTER_MS = 90_000
+const STALE_CHECK_INTERVAL_MS = 10_000
+
 export function useUiStream(enabled: boolean): {
 	members: MemberSnapshot[]
 	tasks: TaskRecord[]
@@ -21,6 +31,10 @@ export function useUiStream(enabled: boolean): {
 	const wsRef = useRef<WebSocket | null>(null)
 	const reconnectTimer = useRef<number | null>(null)
 	const closedManually = useRef(false)
+	// Mirror of `lastMessageAt` for the watchdog timer to read synchronously
+	// without depending on React state propagation. Reset on `open` so the
+	// new connection gets a full quiet-window before being torn down again.
+	const lastTrafficAtRef = useRef<number | null>(null)
 
 	useEffect(() => {
 		if (!enabled) {
@@ -28,6 +42,7 @@ export function useUiStream(enabled: boolean): {
 			setMembers([])
 			setTasks([])
 			setLastMessageAt(null)
+			lastTrafficAtRef.current = null
 			closedManually.current = true
 			wsRef.current?.close()
 			if (reconnectTimer.current !== null) {
@@ -44,7 +59,14 @@ export function useUiStream(enabled: boolean): {
 			const ws = new WebSocket(url)
 			wsRef.current = ws
 
-			ws.addEventListener('open', () => setConnected(true))
+			ws.addEventListener('open', () => {
+				setConnected(true)
+				// Give the new connection a full quiet-window before the
+				// staleness watchdog can act on it — otherwise a 95s-stale
+				// reconnect would close the fresh socket before the first
+				// snapshot has a chance to land.
+				lastTrafficAtRef.current = Date.now()
+			})
 
 			ws.addEventListener('message', (evt) => {
 				let msg: UiEvent
@@ -53,7 +75,9 @@ export function useUiStream(enabled: boolean): {
 				} catch {
 					return
 				}
-				setLastMessageAt(Date.now())
+				const now = Date.now()
+				lastTrafficAtRef.current = now
+				setLastMessageAt(now)
 				switch (msg.type) {
 					case 'snapshot':
 						setMembers(msg.members)
@@ -101,8 +125,23 @@ export function useUiStream(enabled: boolean): {
 
 		open()
 
+		// Watchdog: if the socket is "open" but quiet for STALE_AFTER_MS,
+		// force-close it. The `close` handler reconnects on the existing
+		// 1.5s timer, and the new socket will pull a fresh `snapshot` —
+		// no manual page reload required.
+		const watchdog = window.setInterval(() => {
+			const ws = wsRef.current
+			const last = lastTrafficAtRef.current
+			if (!ws || ws.readyState !== WebSocket.OPEN) return
+			if (last === null) return
+			if (Date.now() - last > STALE_AFTER_MS) {
+				ws.close()
+			}
+		}, STALE_CHECK_INTERVAL_MS)
+
 		return () => {
 			closedManually.current = true
+			window.clearInterval(watchdog)
 			if (reconnectTimer.current !== null) {
 				window.clearTimeout(reconnectTimer.current)
 			}

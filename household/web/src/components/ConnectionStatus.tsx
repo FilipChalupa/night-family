@@ -4,19 +4,12 @@ import CloudOffIcon from '@mui/icons-material/CloudOff'
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty'
 import SyncIcon from '@mui/icons-material/Sync'
 import { useEffect, useState } from 'react'
+import { STALE_AFTER_MS } from '../hooks/useUiStream.ts'
 
 interface Props {
 	connected: boolean
 	lastMessageAt: number | null
 }
-
-/**
- * The household sends WS messages on every member/task change *and* on every
- * member heartbeat (≈10s). Going much longer than that without any traffic
- * means the link is silently broken — the socket reports open but messages
- * stopped flowing. This is the threshold we flag "stale" at.
- */
-const STALE_AFTER_MS = 90_000
 
 /**
  * Tick rate for the staleness check. Coarse enough that a sleeping mobile
@@ -87,7 +80,7 @@ export function ConnectionStatus({ connected, lastMessageAt }: Props) {
 		const seconds = Math.round((Date.now() - lastMessageAt!) / 1000)
 		return (
 			<Tooltip
-				title={`Socket open but no updates in ${seconds}s. Server may be hung — data on screen could be stale.`}
+				title={`Socket open but no updates in ${seconds}s. Forcing a reconnect — data on screen could be stale until it lands.`}
 			>
 				<Chip
 					icon={<HourglassEmptyIcon />}
