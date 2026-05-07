@@ -2,7 +2,7 @@ import { loadConfig } from './config.ts'
 import { HouseholdConnection } from './connection.ts'
 import { logger } from './logger.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
-import { gcStaleCaches } from './tasks/workspace.ts'
+import { gcStaleCaches, gcStaleTaskDirs } from './tasks/workspace.ts'
 import type { MsgEvent } from '@night/shared'
 
 const config = await loadConfig()
@@ -27,8 +27,12 @@ logger.info(
 	'member starting',
 )
 
-await gcStaleCaches(config.workspaceDir, logger.child({ component: 'gc' })).catch((err) => {
+const gcLogger = logger.child({ component: 'gc' })
+await gcStaleCaches(config.workspaceDir, gcLogger).catch((err) => {
 	logger.warn({ err }, 'cache gc failed (non-fatal)')
+})
+await gcStaleTaskDirs(config.workspaceDir, gcLogger).catch((err) => {
+	logger.warn({ err }, 'task-dir gc failed (non-fatal)')
 })
 
 // `fake` API key keeps the LLM offline and uses the StubProvider, which

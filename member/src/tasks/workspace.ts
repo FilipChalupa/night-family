@@ -562,6 +562,16 @@ async function touch(path: string): Promise<void> {
 }
 
 /**
+ * Per-task scratch / event-buffer dirs. Survive on disk after a task
+ * finishes so a recent failure stays inspectable, but reaped after this
+ * window so they don't accumulate forever. Worktrees themselves are
+ * removed eagerly by `Workspace.cleanup()` at task end; this catches the
+ * leftover events.ndjson + scratch/, plus any worktree that escaped
+ * cleanup (e.g. process killed mid-run).
+ */
+export const TASK_DIR_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
  * Delete cache dirs unused for > CACHE_TTL_MS. Call once at Member startup.
  */
 export async function gcStaleCaches(workspaceDir: string, logger: Logger): Promise<void> {
@@ -585,6 +595,40 @@ export async function gcStaleCaches(workspaceDir: string, logger: Logger): Promi
 			} catch {
 				/* ignore */
 			}
+		}
+	}
+}
+
+/**
+ * Delete per-task dirs (`<workspaceDir>/<taskId>/`) older than
+ * {@link TASK_DIR_TTL_MS}. Each contains the worktree (if not already
+ * cleaned), `events.ndjson`, and `scratch/`. Call once at Member startup
+ * alongside {@link gcStaleCaches}.
+ *
+ * Detection is by name shape: `<taskId>` is a UUID, so we skip anything
+ * that doesn't match. `.cache` is filtered explicitly because it sits at
+ * the same level and has its own GC.
+ */
+export async function gcStaleTaskDirs(workspaceDir: string, logger: Logger): Promise<void> {
+	if (!existsSync(workspaceDir)) return
+	const cutoff = Date.now() - TASK_DIR_TTL_MS
+	const entries = await readdir(workspaceDir, { withFileTypes: true }).catch(() => [])
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue
+		if (entry.name === '.cache' || entry.name.startsWith('.')) continue
+		// Loose UUID-shape check: 32+ hex digits with separators. Avoids
+		// nuking any operator-managed sibling dir that found its way into
+		// the workspace volume.
+		if (!/^[0-9a-f-]{32,}$/i.test(entry.name)) continue
+		const taskPath = join(workspaceDir, entry.name)
+		try {
+			const st = await stat(taskPath)
+			if (st.mtimeMs < cutoff) {
+				await rm(taskPath, { recursive: true, force: true })
+				logger.info({ path: taskPath }, 'gc stale task dir')
+			}
+		} catch {
+			/* ignore */
 		}
 	}
 }

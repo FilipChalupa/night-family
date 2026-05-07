@@ -15,6 +15,7 @@ import {
 	TaskRunner,
 	type AssignedTaskInput,
 } from './runner.ts'
+import { Workspace } from './workspace.ts'
 
 const silentLogger = {
 	info: () => {},
@@ -368,5 +369,228 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 		// StubProvider reports zero usage but still calls record() once.
 		expect(usageRecords).toHaveLength(1)
 		expect(usageRecords[0]).toEqual({ input: 0, output: 0 })
+	})
+})
+
+describe('TaskRunner — end-to-end (implement, with stubbed Workspace)', () => {
+	let workspaceDir: string
+	let workPath: string
+
+	beforeEach(async () => {
+		workspaceDir = await mkdtemp(join(tmpdir(), 'runner-impl-'))
+		workPath = join(workspaceDir, 'work')
+		// The stub Workspace claims this path; tools (write_file, bash) need
+		// it to actually exist on disk so the StubProvider can write a marker.
+		const { mkdir } = await import('node:fs/promises')
+		await mkdir(workPath, { recursive: true })
+	})
+
+	afterEach(async () => {
+		vi.restoreAllMocks()
+		await rm(workspaceDir, { recursive: true, force: true })
+	})
+
+	function buildStubWorkspace(overrides: Partial<Record<string, unknown>> = {}): {
+		workspace: Workspace
+		commit: ReturnType<typeof vi.fn>
+		push: ReturnType<typeof vi.fn>
+		upsertDraftPr: ReturnType<typeof vi.fn>
+		markPrReady: ReturnType<typeof vi.fn>
+		readProjectInstructions: ReturnType<typeof vi.fn>
+		cleanup: ReturnType<typeof vi.fn>
+	} {
+		const stub = {
+			taskId: 't-impl',
+			repo: 'o/r',
+			path: workPath,
+			cachePath: join(workspaceDir, '.cache', 'o', 'r.git'),
+			branch: 'pr/night/abc-fix',
+			baseBranch: 'main',
+			readProjectInstructions: vi.fn().mockResolvedValue(null),
+			commit: vi.fn().mockResolvedValue({ sha: 'cafebabe' }),
+			push: vi.fn().mockResolvedValue(undefined),
+			upsertDraftPr: vi.fn().mockResolvedValue({ url: 'https://github.com/o/r/pull/9' }),
+			markPrReady: vi.fn().mockResolvedValue(undefined),
+			cleanup: vi.fn().mockResolvedValue(undefined),
+			...overrides,
+		}
+		// Read the spies off `stub` (not the originals) so overrides flow
+		// through. `vi.fn().mockRejectedValue(...)` passed via `overrides`
+		// fully replaces the default mock.
+		return {
+			workspace: stub as unknown as Workspace,
+			commit: stub.commit as ReturnType<typeof vi.fn>,
+			push: stub.push as ReturnType<typeof vi.fn>,
+			upsertDraftPr: stub.upsertDraftPr as ReturnType<typeof vi.fn>,
+			markPrReady: stub.markPrReady as ReturnType<typeof vi.fn>,
+			readProjectInstructions: stub.readProjectInstructions as ReturnType<typeof vi.fn>,
+			cleanup: stub.cleanup as ReturnType<typeof vi.fn>,
+		}
+	}
+
+	function buildRunner(): { runner: TaskRunner; sent: unknown[] } {
+		const sent: unknown[] = []
+		const runner = new TaskRunner({
+			memberName: 'octo',
+			memberId: 'm-test',
+			householdUrl: 'https://night.example',
+			provider: new StubProvider('stub-model'),
+			limits: NO_LIMITS,
+			dailyUsage: { tokensToday: () => 0, record: () => undefined },
+			workspaceDir,
+			logger: silentLogger,
+			wsSend: (msg) => {
+				sent.push(msg)
+				return true
+			},
+			stubMode: true,
+		})
+		return { runner, sent }
+	}
+
+	function implementTask(taskId = 't-impl'): AssignedTaskInput {
+		return {
+			taskId,
+			kind: 'implement',
+			title: 'Add login screen',
+			description: 'A description of the task.',
+			repo: 'o/r',
+			prUrl: null,
+			githubToken: 'fake-token',
+			repoUrl: 'https://github.com/o/r.git',
+			// Null metadata skips the eyes-reaction probe (which would call real `gh`).
+			metadata: null,
+		}
+	}
+
+	it('golden path: workspace → commit → push → draft PR → ready, returns prUrl', async () => {
+		const { workspace, commit, push, upsertDraftPr, markPrReady } = buildStubWorkspace()
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner, sent } = buildRunner()
+		const outcome = await runner.run(implementTask())
+
+		expect(outcome.type).toBe('completed')
+		expect(outcome.prUrl).toBe('https://github.com/o/r/pull/9')
+
+		// Commit message threads through summarizeForCommit (subject from agent
+		// summary, then full summary as body) and the agent name as committer.
+		expect(commit).toHaveBeenCalledTimes(1)
+		const [commitMsg, agentName] = commit.mock.calls[0]!
+		expect(agentName).toBe('octo')
+		expect(commitMsg).toMatch(/Stub agent completed task "Add login screen"/)
+
+		// Push runs exactly once after a successful commit.
+		expect(push).toHaveBeenCalledTimes(1)
+
+		// Draft PR is opened with the task title (sliced if needed) and a body
+		// that carries the agent summary; then transitioned to ready.
+		expect(upsertDraftPr).toHaveBeenCalledTimes(1)
+		const prArgs = upsertDraftPr.mock.calls[0]![0] as { title: string; body: string }
+		expect(prArgs.title).toBe('Add login screen')
+		expect(prArgs.body).toContain('## Summary')
+		expect(prArgs.body).toContain('Stub agent completed task')
+
+		expect(markPrReady).toHaveBeenCalledWith('https://github.com/o/r/pull/9')
+
+		// Wire-level events include the draft-PR-opened and ready milestones.
+		const messages = sent as Array<{ kind?: string; payload?: { message?: string } }>
+		const logMessages = messages.filter((m) => m.kind === 'log').map((m) => m.payload?.message)
+		expect(logMessages).toContain('workspace ready')
+		expect(logMessages).toContain('pushed')
+		expect(logMessages).toContain('draft PR opened')
+		expect(logMessages).toContain('PR ready for review')
+	})
+
+	it('marks the task failed with reason "push_failed" when push throws', async () => {
+		const { workspace, push, upsertDraftPr } = buildStubWorkspace({
+			push: vi.fn().mockRejectedValue(new Error('boom')),
+		})
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner } = buildRunner()
+		const outcome = await runner.run(implementTask('t-push-fail'))
+
+		expect(outcome.type).toBe('failed')
+		expect(outcome.reason).toBe('push_failed')
+		expect(push).toHaveBeenCalledTimes(1)
+		// PR steps must NOT run after a push failure — that would publish a
+		// branch ref the remote doesn't have.
+		expect(upsertDraftPr).not.toHaveBeenCalled()
+	})
+
+	it('marks the implement task failed with "no_changes" when commit returns null', async () => {
+		const { workspace, push, upsertDraftPr } = buildStubWorkspace({
+			commit: vi.fn().mockResolvedValue(null),
+		})
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner } = buildRunner()
+		const outcome = await runner.run(implementTask('t-no-changes'))
+
+		expect(outcome.type).toBe('failed')
+		expect(outcome.reason).toBe('no_changes')
+		// Without a commit there's nothing to push or PR.
+		expect(push).not.toHaveBeenCalled()
+		expect(upsertDraftPr).not.toHaveBeenCalled()
+	})
+
+	it('drops the worktree via workspace.cleanup() on the success path', async () => {
+		const { workspace, cleanup } = buildStubWorkspace()
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner } = buildRunner()
+		await runner.run(implementTask('t-cleanup-success'))
+
+		expect(cleanup).toHaveBeenCalledTimes(1)
+	})
+
+	it('still calls workspace.cleanup() when the task fails (e.g. push throws)', async () => {
+		// Disk reclaim must not depend on the success path. A worktree
+		// leaked here once piled up to 100s of GB on the slow-failing
+		// branches before we noticed.
+		const { workspace, cleanup } = buildStubWorkspace({
+			push: vi.fn().mockRejectedValue(new Error('boom')),
+		})
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner } = buildRunner()
+		const outcome = await runner.run(implementTask('t-cleanup-fail'))
+
+		expect(outcome.type).toBe('failed')
+		expect(cleanup).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not surface a cleanup error to the caller (best-effort, logged only)', async () => {
+		const { workspace } = buildStubWorkspace({
+			cleanup: vi.fn().mockRejectedValue(new Error('worktree remove flaked')),
+		})
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner } = buildRunner()
+		// Returns the underlying outcome unmodified — the cleanup throw
+		// must NOT bubble out of run() and corrupt the wire-level result.
+		const outcome = await runner.run(implementTask('t-cleanup-throws'))
+		expect(outcome.type).toBe('completed')
+		expect(outcome.prUrl).toBe('https://github.com/o/r/pull/9')
+	})
+
+	it('skips PR steps but still commits + pushes when no GitHub token is provided', async () => {
+		const { workspace, commit, push, upsertDraftPr, markPrReady } = buildStubWorkspace()
+		vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner, sent } = buildRunner()
+		const outcome = await runner.run({ ...implementTask('t-no-token'), githubToken: '' })
+
+		expect(outcome.type).toBe('completed')
+		expect(outcome.prUrl).toBeUndefined()
+		expect(commit).toHaveBeenCalledTimes(1)
+		expect(push).toHaveBeenCalledTimes(1)
+		expect(upsertDraftPr).not.toHaveBeenCalled()
+		expect(markPrReady).not.toHaveBeenCalled()
+		const logMessages = (sent as Array<{ kind?: string; payload?: { message?: string } }>)
+			.filter((m) => m.kind === 'log')
+			.map((m) => m.payload?.message)
+		expect(logMessages).toContain('PR skipped (no GitHub token)')
 	})
 })

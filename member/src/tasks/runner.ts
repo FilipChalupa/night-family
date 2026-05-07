@@ -124,6 +124,12 @@ export class TaskRunner {
 			if (sent) buffer.markSent(ev.seq)
 		}
 
+		// Hoisted out of `try` so the `finally` block can drop the worktree
+		// regardless of completion or failure path. Per-task event buffer
+		// and scratch dir survive — they get reaped by `gcStaleTaskDirs` on
+		// next startup so a recent failure is still inspectable.
+		let workspaceForCleanup: Workspace | null = null
+
 		try {
 			await emit('log', {
 				message: 'task started',
@@ -192,6 +198,7 @@ export class TaskRunner {
 					workspaceDir: this.deps.workspaceDir,
 					logger: this.deps.logger.child({ component: 'workspace' }),
 				})
+				workspaceForCleanup = workspace
 				await emit('log', { message: 'workspace ready', branch: workspace.branch })
 			} else {
 				// triage, summarize, review, respond — just need a scratch dir
@@ -384,6 +391,20 @@ export class TaskRunner {
 			clearTimeout(wallclockTimer)
 			this.abortController = null
 			this.currentTaskId = null
+			// Drop the worktree to reclaim disk. Bare clone cache survives
+			// (warm for the next task on this repo). Cleanup is best-effort:
+			// a transient `git worktree remove` failure can't fail an
+			// already-completed task.
+			if (workspaceForCleanup) {
+				try {
+					await workspaceForCleanup.cleanup()
+				} catch (err) {
+					this.deps.logger.warn(
+						{ err: (err as Error).message },
+						'workspace cleanup failed (non-fatal)',
+					)
+				}
+			}
 		}
 	}
 
@@ -433,6 +454,20 @@ export class TaskRunner {
 			throw err
 		}
 
+		// Drop the worktree on every exit path — same disk-reclaim story as
+		// implement tasks. Best-effort; logs but doesn't fail the outcome.
+		const cleanupAfter = async (outcome: TaskOutcome): Promise<TaskOutcome> => {
+			try {
+				await workspace.cleanup()
+			} catch (err) {
+				this.deps.logger.warn(
+					{ err: (err as Error).message },
+					'rebase workspace cleanup failed (non-fatal)',
+				)
+			}
+			return outcome
+		}
+
 		let rebaseResult
 		try {
 			rebaseResult = await workspace.rebaseOntoBase()
@@ -446,13 +481,17 @@ export class TaskRunner {
 					outcome: 'conflict',
 					stderr: err.gitStderr.slice(0, 1000),
 				})
-				return await this.fail(emit, workspace, 'rebase_conflict', {
-					stderr: err.gitStderr.slice(0, 1000),
-				})
+				return await cleanupAfter(
+					await this.fail(emit, workspace, 'rebase_conflict', {
+						stderr: err.gitStderr.slice(0, 1000),
+					}),
+				)
 			}
-			return await this.fail(emit, workspace, 'rebase_failed', {
-				message: (err as Error).message,
-			})
+			return await cleanupAfter(
+				await this.fail(emit, workspace, 'rebase_failed', {
+					message: (err as Error).message,
+				}),
+			)
 		}
 
 		await emit('rebase', {
@@ -475,12 +514,14 @@ export class TaskRunner {
 				newSha: rebaseResult.newSha,
 			})
 		} catch (err) {
-			return await this.fail(emit, workspace, 'rebase_push_failed', {
-				message: (err as Error).message,
-			})
+			return await cleanupAfter(
+				await this.fail(emit, workspace, 'rebase_push_failed', {
+					message: (err as Error).message,
+				}),
+			)
 		}
 
-		return {
+		return await cleanupAfter({
 			type: 'completed',
 			result: {
 				rebased: true,
@@ -488,7 +529,7 @@ export class TaskRunner {
 				newSha: rebaseResult.newSha,
 			},
 			...(task.prUrl ? { prUrl: task.prUrl } : {}),
-		}
+		})
 	}
 
 	private enforceLimits(usage: TokenUsage): void {
