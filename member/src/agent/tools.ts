@@ -246,10 +246,16 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 		},
 	}
 
+	// One-shot guard: a single review task should produce exactly one
+	// review on GitHub. Without this, an agent that re-enters the tool in
+	// its loop spams duplicate reviews on the PR (we've seen 30+ approvals
+	// from a single member when the loop hit its iteration cap).
+	let postedReview: { verdict: ReviewVerdict } | null = null
+
 	const postPrReviewTool: ToolDefinition = {
 		name: 'post_pr_review',
 		description:
-			'Post a review on a GitHub pull request. `verdict` is one of `approve` / `request-changes` / `comment`. Attribution footer + marker are appended automatically. If the GitHub API rejects approve/request-changes (e.g. you authored the PR), fall back to verdict `comment` and report the desired verdict in the JSON block at the end of your turn.',
+			'Post a review on a GitHub pull request. `verdict` is one of `approve` / `request-changes` / `comment`. Attribution footer + marker are appended automatically. **Call this at most once per task** — after it succeeds, write your final summary and stop calling tools; subsequent calls in the same task are refused. If the GitHub API rejects approve/request-changes (e.g. you authored the PR), fall back to verdict `comment` and report the desired verdict in the JSON block at the end of your turn.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -260,6 +266,12 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			required: ['pr_url', 'verdict', 'body'],
 		},
 		async run(input) {
+			if (postedReview !== null) {
+				return {
+					output: `A review has already been posted for this PR (verdict: ${postedReview.verdict}). Do not call post_pr_review again — write your final summary and stop calling tools.`,
+					isError: true,
+				}
+			}
 			const { pr_url, verdict, body } = (input ?? {}) as {
 				pr_url?: unknown
 				verdict?: unknown
@@ -286,6 +298,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			const final = appendAttribution(body, attribution)
 			const r = await runGh(['pr', 'review', pr_url, flag, '--body', final])
 			if (!r.ok) return { output: r.err, isError: true }
+			postedReview = { verdict: verdict as ReviewVerdict }
 			return { output: r.out.trim() || `review posted (${verdict})` }
 		},
 	}

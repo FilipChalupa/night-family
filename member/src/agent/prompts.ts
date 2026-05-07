@@ -124,7 +124,7 @@ export function buildKickoffPrompt(task: AgentTask): string {
 			`2. \`bash gh pr view ${prUrl}\` — read the PR description and thread.`,
 			`3. Analyse the diff for correctness, style, security, and test coverage.`,
 			``,
-			`Then post your review via \`post_pr_review({ pr_url, verdict, body })\` where \`verdict\` is \`approve\`, \`request-changes\`, or \`comment\`. If GitHub forbids approving your own PR, fall back to verdict \`comment\` and still report the verdict you'd prefer in the JSON block — Household tracks approvals internally regardless of what GitHub displays.`,
+			`Then post your review via \`post_pr_review({ pr_url, verdict, body })\` where \`verdict\` is \`approve\`, \`request-changes\`, or \`comment\`. **Call \`post_pr_review\` exactly once.** Once it returns successfully, write your final summary and stop calling tools — a second call is a bug and will be refused. If GitHub forbids approving your own PR, fall back to verdict \`comment\` and still report the verdict you'd prefer in the JSON block — Household tracks approvals internally regardless of what GitHub displays.`,
 			``,
 			`When done, write a brief summary and end with a JSON block on its own line:`,
 			`{"verdict":"approved"} or {"verdict":"changes_requested"} or {"verdict":"commented"}`,

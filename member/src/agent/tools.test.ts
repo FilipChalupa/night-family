@@ -220,6 +220,72 @@ describe('detectBlockedGh', () => {
 	})
 })
 
+describe('post_pr_review one-shot guard', () => {
+	let root: string
+	let ghDir: string
+	let originalPath: string | undefined
+	let postPrReview: ToolDefinition
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), 'tools-review-'))
+		ghDir = await mkdtemp(join(tmpdir(), 'fake-gh-'))
+		// Stub `gh` on PATH so post_pr_review's exec succeeds without a real CLI.
+		// `gh pr review … --approve --body …` returns nothing on success in real life.
+		await writeFile(join(ghDir, 'gh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+		originalPath = process.env.PATH
+		process.env.PATH = `${ghDir}:${originalPath ?? ''}`
+		postPrReview = findTool(
+			createDefaultTools({ root, attribution: STUB_ATTRIBUTION }),
+			'post_pr_review',
+		)
+	})
+
+	afterEach(async () => {
+		process.env.PATH = originalPath
+		await rm(root, { recursive: true, force: true })
+		await rm(ghDir, { recursive: true, force: true })
+	})
+
+	it('refuses a second post_pr_review in the same task', async () => {
+		const first = await postPrReview.run({
+			pr_url: 'https://github.com/o/r/pull/1',
+			verdict: 'approve',
+			body: 'looks good',
+		})
+		expect(first.isError).toBeFalsy()
+
+		const second = await postPrReview.run({
+			pr_url: 'https://github.com/o/r/pull/1',
+			verdict: 'approve',
+			body: 'looks good again',
+		})
+		expect(second.isError).toBe(true)
+		expect(second.output).toMatch(/already been posted/i)
+		expect(second.output).toMatch(/approve/)
+	})
+
+	it('does not consume the slot when the underlying gh call fails', async () => {
+		// Replace the fake gh with one that exits non-zero, so the first call
+		// errors out — the guard should NOT lock the tool in that case.
+		await writeFile(join(ghDir, 'gh'), '#!/bin/sh\necho boom >&2\nexit 1\n', { mode: 0o755 })
+		const failed = await postPrReview.run({
+			pr_url: 'https://github.com/o/r/pull/1',
+			verdict: 'approve',
+			body: 'x',
+		})
+		expect(failed.isError).toBe(true)
+
+		// Now make gh succeed and retry — should be allowed through.
+		await writeFile(join(ghDir, 'gh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+		const retry = await postPrReview.run({
+			pr_url: 'https://github.com/o/r/pull/1',
+			verdict: 'approve',
+			body: 'x',
+		})
+		expect(retry.isError).toBeFalsy()
+	})
+})
+
 describe('bash refusal of write-channel gh subcommands', () => {
 	it('refuses `gh pr comment` and points at the dedicated tool', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'tools-'))
