@@ -142,8 +142,11 @@ export class TaskRunner {
 			// Smoke-test the GitHub token against the originating issue by
 			// posting an "eyes" reaction. Failure here almost always means
 			// the PAT can't write to the repo, so abort before we spend any
-			// agent budget instead of failing at PR-open time.
-			if (task.kind === 'implement' && task.repo && task.githubToken) {
+			// agent budget instead of failing at comment / PR-open time.
+			// Applies to issue-driven tasks (triage, implement); PR-driven
+			// tasks (review, respond, summarize) skip this probe.
+			const reactsOnIssue = task.kind === 'implement' || task.kind === 'triage'
+			if (reactsOnIssue && task.repo && task.githubToken) {
 				const issue = githubIssueRef(task.metadata)
 				if (issue?.number !== undefined && issue?.number !== null) {
 					try {

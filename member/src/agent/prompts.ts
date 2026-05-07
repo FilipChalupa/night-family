@@ -73,7 +73,7 @@ export function buildKickoffPrompt(task: AgentTask): string {
 		repo && issueNumber !== null ? `https://github.com/${repo}/issues/${issueNumber}` : null
 
 	if (kind === 'triage') {
-		return [
+		const lines = [
 			`# Triage: ${title}`,
 			``,
 			issueUrl ? `Issue URL: ${issueUrl}` : `(no issue URL on this task)`,
@@ -96,7 +96,14 @@ export function buildKickoffPrompt(task: AgentTask): string {
 			``,
 			`At the end of your turn, return a final message ending with **a single JSON line** on its own (no code fence):`,
 			`{"outcome":"question"} or {"outcome":"plan","size":"S|M|L|XL"}`,
-		].join('\n')
+		]
+		if (issueNumber !== null) {
+			lines.push(
+				``,
+				`The runner has already posted an "eyes" reaction on the originating issue, so you don't need to add one yourself.`,
+			)
+		}
+		return lines.join('\n')
 	}
 
 	if (kind === 'review' && prUrl) {
