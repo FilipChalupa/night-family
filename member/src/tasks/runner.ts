@@ -572,7 +572,7 @@ export class TaskRunner {
  * JSON line we can parse — the dispatcher treats that the same as a
  * question (no implement task spawned).
  */
-function parseTriageOutput(summary: string): {
+export function parseTriageOutput(summary: string): {
 	outcome: 'question' | 'plan' | 'unknown'
 	size?: 'S' | 'M' | 'L' | 'XL'
 } {
@@ -599,7 +599,7 @@ function parseTriageOutput(summary: string): {
  * Extract `{verdict, summary}` from a review summary. Agent is instructed to
  * end with a JSON block; falls back to `commented` if not parseable.
  */
-function parseReviewOutput(summary: string): {
+export function parseReviewOutput(summary: string): {
 	verdict: 'approved' | 'changes_requested' | 'commented'
 	summary: string
 } {
@@ -629,7 +629,7 @@ function parseReviewOutput(summary: string): {
  * because the exact figure includes cache reads / cache creation that the
  * agent shouldn't be reasoning about precisely; ballpark is enough to pace.
  */
-function formatTokenBudgetHint(limits: MemberLimits, dailyUsedSoFar: number): string | null {
+export function formatTokenBudgetHint(limits: MemberLimits, dailyUsedSoFar: number): string | null {
 	const parts: string[] = []
 	if (limits.maxTokensPerTask !== null) {
 		parts.push(`~${limits.maxTokensPerTask.toLocaleString('en-US')} for this task`)
@@ -651,7 +651,7 @@ function formatTokenBudgetHint(limits: MemberLimits, dailyUsedSoFar: number): st
  * Implement / summarize keep the larger budget — those genuinely need
  * read-edit-verify cycles.
  */
-function maxIterationsForKind(kind: TaskKind): number {
+export function maxIterationsForKind(kind: TaskKind): number {
 	switch (kind) {
 		case 'review':
 		case 'triage':
@@ -662,7 +662,7 @@ function maxIterationsForKind(kind: TaskKind): number {
 	}
 }
 
-function summarizeForCommit(title: string, summary: string): string {
+export function summarizeForCommit(title: string, summary: string): string {
 	const firstLine = summary.split('\n')[0] ?? ''
 	const subject = firstLine.length > 0 && firstLine.length < 72 ? firstLine : title
 	return subject + '\n\n' + summary
@@ -689,7 +689,7 @@ class RunStats {
 	}
 }
 
-function prTitleFor(title: string): string {
+export function prTitleFor(title: string): string {
 	return title.slice(0, 200)
 }
 
