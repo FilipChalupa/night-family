@@ -136,11 +136,33 @@ export function TokensPanel({ canManage, members }: Props) {
 	const active = data.tokens.filter((t) => !t.revoked_at)
 	const revoked = data.tokens.filter((t) => t.revoked_at)
 
-	const membersByToken = new Map<string, MemberSnapshot[]>()
+	// Group sessions by token, then dedupe by memberId so the cell shows one
+	// chip per person — not one chip per WS session. The UI stream keeps
+	// disconnected sessions in state (only flips status to `offline`), so a
+	// member who reconnected twice appears three times here without a dedupe
+	// step. Tie-break: prefer non-offline so the chip color reflects whether
+	// the person is currently connected.
+	const STATUS_PRIORITY: Record<MemberSnapshot['status'], number> = {
+		busy: 0,
+		idle: 1,
+		offline: 2,
+	}
+	const sessionsByToken = new Map<string, MemberSnapshot[]>()
 	for (const m of members) {
-		const list = membersByToken.get(m.tokenId)
+		const list = sessionsByToken.get(m.tokenId)
 		if (list) list.push(m)
-		else membersByToken.set(m.tokenId, [m])
+		else sessionsByToken.set(m.tokenId, [m])
+	}
+	const membersByToken = new Map<string, MemberSnapshot[]>()
+	for (const [tokenId, sessions] of sessionsByToken) {
+		const bestByMember = new Map<string, MemberSnapshot>()
+		for (const m of sessions) {
+			const existing = bestByMember.get(m.memberId)
+			if (!existing || STATUS_PRIORITY[m.status] < STATUS_PRIORITY[existing.status]) {
+				bestByMember.set(m.memberId, m)
+			}
+		}
+		membersByToken.set(tokenId, [...bestByMember.values()])
 	}
 
 	return (
