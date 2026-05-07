@@ -30,6 +30,25 @@ describe('buildAttributionFooter', () => {
 		expect(footer).not.toContain('.com//')
 	})
 
+	it('rewrites a wss:// householdUrl to https:// so links are clickable', () => {
+		const footer = buildAttributionFooter({
+			...ATTR,
+			householdUrl: 'wss://night.example.com',
+		})
+		expect(footer).toContain('(https://night.example.com/members/m-123)')
+		expect(footer).toContain('(https://night.example.com/tasks/abcdef0123456789)')
+		expect(footer).not.toContain('wss://')
+	})
+
+	it('rewrites a ws:// householdUrl to http://', () => {
+		const footer = buildAttributionFooter({
+			...ATTR,
+			householdUrl: 'ws://localhost:8080',
+		})
+		expect(footer).toContain('(http://localhost:8080/members/m-123)')
+		expect(footer).not.toContain('ws://localhost')
+	})
+
 	it('encodes member and task ids in URLs', () => {
 		const footer = buildAttributionFooter({
 			...ATTR,
