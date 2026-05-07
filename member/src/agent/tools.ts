@@ -33,6 +33,13 @@ interface CreateOpts {
 	 * carries both the human-visible footer and the HTML marker.
 	 */
 	attribution: AttributionInputs
+	/**
+	 * When true, `post_issue_comment` is locked after one successful call —
+	 * triage tasks are supposed to produce exactly one comment, and a stuck
+	 * agent shouldn't be able to spam the issue thread. Off by default since
+	 * implement / respond tasks may legitimately comment more than once.
+	 */
+	oneShotIssueComment?: boolean
 }
 
 const REVIEW_VERDICTS = ['approve', 'request-changes', 'comment'] as const
@@ -194,10 +201,16 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 		}
 	}
 
+	const oneShotIssueComment = opts.oneShotIssueComment === true
+	let issueCommentPosted = false
+
 	const postIssueCommentTool: ToolDefinition = {
 		name: 'post_issue_comment',
 		description:
-			"Post a comment on a GitHub issue. The body is sent verbatim and an attribution footer + Night Family marker are appended automatically — do NOT add them yourself. Use this whenever you'd otherwise reach for `gh issue comment`.",
+			"Post a comment on a GitHub issue. The body is sent verbatim and an attribution footer + Night Family marker are appended automatically — do NOT add them yourself. Use this whenever you'd otherwise reach for `gh issue comment`." +
+			(oneShotIssueComment
+				? ' **Call this at most once per task** — after it succeeds, write your final summary and stop calling tools; subsequent calls in the same task are refused.'
+				: ''),
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -211,6 +224,12 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			required: ['issue_url', 'body'],
 		},
 		async run(input) {
+			if (oneShotIssueComment && issueCommentPosted) {
+				return {
+					output: 'A comment has already been posted for this task. Do not call post_issue_comment again — write your final summary and stop calling tools.',
+					isError: true,
+				}
+			}
 			const { issue_url, body } = (input ?? {}) as { issue_url?: unknown; body?: unknown }
 			if (typeof issue_url !== 'string' || typeof body !== 'string') {
 				return { output: 'issue_url and body must be strings', isError: true }
@@ -218,6 +237,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			const final = appendAttribution(body, attribution)
 			const r = await runGh(['issue', 'comment', issue_url, '--body', final])
 			if (!r.ok) return { output: r.err, isError: true }
+			issueCommentPosted = true
 			return { output: r.out.trim() || 'comment posted' }
 		},
 	}

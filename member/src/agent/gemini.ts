@@ -6,7 +6,7 @@ import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
-const MAX_LOOP_ITERATIONS = 30
+const DEFAULT_MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 /**
@@ -46,6 +46,7 @@ export class GeminiProvider implements Provider {
 
 	async runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 		const { task, tools, systemPrompt, onEvent, abortSignal } = opts
+		const maxIterations = opts.maxIterations ?? DEFAULT_MAX_LOOP_ITERATIONS
 
 		const sdkTools: FunctionDeclaration[] = tools.map((t) => ({
 			name: t.name,
@@ -69,7 +70,7 @@ export class GeminiProvider implements Provider {
 		const totalUsage: TokenUsage = { input: 0, output: 0 }
 		let summary: string | null = null
 
-		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
+		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			throwIfAborted(abortSignal)
 
 			let response: Awaited<ReturnType<typeof this.client.models.generateContent>> | null =
@@ -180,7 +181,7 @@ export class GeminiProvider implements Provider {
 		}
 
 		if (summary === null) {
-			summary = `(agent loop hit ${MAX_LOOP_ITERATIONS} iterations without completing)`
+			summary = `(agent loop hit ${maxIterations} iterations without completing)`
 		}
 
 		return { summary, usage: totalUsage }

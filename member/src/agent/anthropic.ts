@@ -10,7 +10,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
-const MAX_LOOP_ITERATIONS = 30
+const DEFAULT_MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 16_000
 
 export class AnthropicProvider implements Provider {
@@ -28,6 +28,7 @@ export class AnthropicProvider implements Provider {
 
 	async runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 		const { task, tools, systemPrompt, onEvent, abortSignal } = opts
+		const maxIterations = opts.maxIterations ?? DEFAULT_MAX_LOOP_ITERATIONS
 
 		// Mark the last tool definition as a cache breakpoint. Anthropic caches
 		// all content above (and including) a `cache_control: ephemeral` block,
@@ -65,7 +66,7 @@ export class AnthropicProvider implements Provider {
 
 		const useThinking = true
 
-		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
+		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			throwIfAborted(abortSignal)
 
 			// Mark the latest user turn (kickoff or most-recent tool_results) as a
@@ -181,7 +182,7 @@ export class AnthropicProvider implements Provider {
 		}
 
 		if (summary === null) {
-			summary = `(agent loop hit ${MAX_LOOP_ITERATIONS} iterations without completing)`
+			summary = `(agent loop hit ${maxIterations} iterations without completing)`
 		}
 
 		return { summary, usage: totalUsage }

@@ -52,6 +52,12 @@ export interface RunAgentOptions {
 	systemPrompt: string
 	onEvent: (event: AgentEvent) => void | Promise<void>
 	abortSignal: AbortSignal
+	/**
+	 * Caller-supplied cap on tool-loop iterations. Short tasks (review,
+	 * triage, respond) override the provider's default to fail fast on
+	 * runaway loops; if omitted, the provider's built-in default applies.
+	 */
+	maxIterations?: number
 }
 
 export interface RunAgentResult {

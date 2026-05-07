@@ -95,7 +95,7 @@ export function buildKickoffPrompt(task: AgentTask): string {
 			`- \`bash gh issue view <url> --comments\` to read the full thread (your earlier comments are tagged with a Night Family marker — recognise them so you don't ask the same question twice).`,
 			`- \`bash rg ...\` / \`read_file ...\` to skim the codebase if it helps you judge clarity.`,
 			``,
-			`Do NOT modify any files. Do NOT open a PR. Your only output to GitHub is one comment via \`post_issue_comment\`.`,
+			`Do NOT modify any files. Do NOT open a PR. Your only output to GitHub is **exactly one** comment via \`post_issue_comment\`. Once it returns successfully, write your final summary and stop calling tools — a second call is a bug and will be refused.`,
 			``,
 			`At the end of your turn, return a final message ending with **a single JSON line** on its own (no code fence):`,
 			`{"outcome":"question"} or {"outcome":"plan","size":"S|M|L|XL"}`,

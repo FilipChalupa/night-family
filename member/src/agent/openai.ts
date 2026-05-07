@@ -6,7 +6,7 @@ import OpenAI from 'openai'
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
-const MAX_LOOP_ITERATIONS = 30
+const DEFAULT_MAX_LOOP_ITERATIONS = 30
 const DEFAULT_MAX_TOKENS = 8192
 
 export class OpenAIProvider implements Provider {
@@ -24,6 +24,7 @@ export class OpenAIProvider implements Provider {
 
 	async runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 		const { task, tools, systemPrompt, onEvent, abortSignal } = opts
+		const maxIterations = opts.maxIterations ?? DEFAULT_MAX_LOOP_ITERATIONS
 
 		const sdkTools: OpenAI.ChatCompletionTool[] = tools.map((t) => ({
 			type: 'function' as const,
@@ -46,7 +47,7 @@ export class OpenAIProvider implements Provider {
 		const totalUsage: TokenUsage = { input: 0, output: 0 }
 		let summary: string | null = null
 
-		for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
+		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			throwIfAborted(abortSignal)
 
 			const response = await this.client.chat.completions.create({
@@ -131,7 +132,7 @@ export class OpenAIProvider implements Provider {
 		}
 
 		if (summary === null) {
-			summary = `(agent loop hit ${MAX_LOOP_ITERATIONS} iterations without completing)`
+			summary = `(agent loop hit ${maxIterations} iterations without completing)`
 		}
 
 		return { summary, usage: totalUsage }

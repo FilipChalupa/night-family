@@ -286,6 +286,65 @@ describe('post_pr_review one-shot guard', () => {
 	})
 })
 
+describe('post_issue_comment one-shot guard (triage)', () => {
+	let root: string
+	let ghDir: string
+	let originalPath: string | undefined
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), 'tools-comment-'))
+		ghDir = await mkdtemp(join(tmpdir(), 'fake-gh-'))
+		await writeFile(join(ghDir, 'gh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+		originalPath = process.env.PATH
+		process.env.PATH = `${ghDir}:${originalPath ?? ''}`
+	})
+
+	afterEach(async () => {
+		process.env.PATH = originalPath
+		await rm(root, { recursive: true, force: true })
+		await rm(ghDir, { recursive: true, force: true })
+	})
+
+	it('refuses a second post_issue_comment when oneShotIssueComment is on', async () => {
+		const tools = createDefaultTools({
+			root,
+			attribution: STUB_ATTRIBUTION,
+			oneShotIssueComment: true,
+		})
+		const post = findTool(tools, 'post_issue_comment')
+
+		const first = await post.run({
+			issue_url: 'https://github.com/o/r/issues/1',
+			body: 'hi',
+		})
+		expect(first.isError).toBeFalsy()
+
+		const second = await post.run({
+			issue_url: 'https://github.com/o/r/issues/1',
+			body: 'hi again',
+		})
+		expect(second.isError).toBe(true)
+		expect(second.output).toMatch(/already been posted/i)
+	})
+
+	it('allows multiple post_issue_comment calls when the flag is off (default)', async () => {
+		const tools = createDefaultTools({ root, attribution: STUB_ATTRIBUTION })
+		const post = findTool(tools, 'post_issue_comment')
+
+		const first = await post.run({
+			issue_url: 'https://github.com/o/r/issues/1',
+			body: 'hi',
+		})
+		expect(first.isError).toBeFalsy()
+
+		const second = await post.run({
+			issue_url: 'https://github.com/o/r/issues/1',
+			body: 'hi again',
+		})
+		expect(second.isError).toBeFalsy()
+	})
+})
+
 describe('bash refusal of write-channel gh subcommands', () => {
 	it('refuses `gh pr comment` and points at the dedicated tool', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'tools-'))

@@ -216,6 +216,11 @@ export class TaskRunner {
 				// authenticate without an interactive login.
 				githubToken: task.githubToken || undefined,
 				attribution,
+				// Triage produces exactly one comment (question or plan); lock the
+				// tool after the first success so a stuck loop can't spam the
+				// issue thread the way it could spam reviews before we capped
+				// post_pr_review.
+				oneShotIssueComment: task.kind === 'triage',
 			})
 
 			const systemPrompt = buildSystemPrompt({
@@ -261,6 +266,7 @@ export class TaskRunner {
 					systemPrompt,
 					onEvent: onAgentEvent,
 					abortSignal: ac.signal,
+					maxIterations: maxIterationsForKind(task.kind),
 				})
 			} catch (err) {
 				if (err instanceof QuotaExceededError) {
@@ -609,6 +615,26 @@ function parseReviewOutput(summary: string): {
 		}
 	}
 	return { verdict: 'commented', summary }
+}
+
+/**
+ * Cap on tool-loop iterations per task kind. Short tasks (review, triage,
+ * respond) are read-mostly with one terminal post — they have no business
+ * spinning past ~10 iterations, and a low cap fails fast on runaway loops
+ * (we've shipped duplicate-review incidents because the default of 30
+ * gave a stuck agent enough rope to spam GitHub before halting).
+ * Implement / summarize keep the larger budget — those genuinely need
+ * read-edit-verify cycles.
+ */
+function maxIterationsForKind(kind: TaskKind): number {
+	switch (kind) {
+		case 'review':
+		case 'triage':
+		case 'respond':
+			return 12
+		default:
+			return 30
+	}
 }
 
 function summarizeForCommit(title: string, summary: string): string {
