@@ -227,6 +227,10 @@ export class TaskRunner {
 				memberName: this.deps.memberName,
 				repo: task.repo,
 				projectInstructions,
+				tokenBudgetHint: formatTokenBudgetHint(
+					this.deps.limits,
+					this.deps.dailyUsage.tokensToday(),
+				),
 			})
 
 			const agentTask: AgentTask = {
@@ -615,6 +619,27 @@ function parseReviewOutput(summary: string): {
 		}
 	}
 	return { verdict: 'commented', summary }
+}
+
+/**
+ * Format the configured token caps as a single-line hint for the agent's
+ * system prompt. Returns `null` when no caps are configured — no point
+ * telling the model "you have unlimited budget", and the prompt drops the
+ * whole section in that case. Numbers are quoted as approximate ("~50,000")
+ * because the exact figure includes cache reads / cache creation that the
+ * agent shouldn't be reasoning about precisely; ballpark is enough to pace.
+ */
+function formatTokenBudgetHint(limits: MemberLimits, dailyUsedSoFar: number): string | null {
+	const parts: string[] = []
+	if (limits.maxTokensPerTask !== null) {
+		parts.push(`~${limits.maxTokensPerTask.toLocaleString('en-US')} for this task`)
+	}
+	if (limits.maxTokensPerDay !== null) {
+		const remaining = Math.max(0, limits.maxTokensPerDay - dailyUsedSoFar)
+		parts.push(`~${remaining.toLocaleString('en-US')} remaining today`)
+	}
+	if (parts.length === 0) return null
+	return `Token budget: ${parts.join('; ')}.`
 }
 
 /**

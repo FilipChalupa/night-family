@@ -47,7 +47,12 @@ type ReviewVerdict = (typeof REVIEW_VERDICTS)[number]
 
 export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 	const root = resolve(opts.root)
-	const bashTimeoutMs = opts.bashTimeoutMs ?? 60_000
+	// 5 min default. Real test suites, `npm install`, `vite build` and
+	// similar routinely run past one minute; the previous 60s default left
+	// the agent retrying with worse strategies and burning tokens for no
+	// reason. The hard ceiling on misbehavior is `MAX_TASK_DURATION_MINUTES`
+	// (default 120) on the runner side, plus the per-call AbortController.
+	const bashTimeoutMs = opts.bashTimeoutMs ?? 5 * 60_000
 	const maxFileBytes = opts.maxFileBytes ?? 5 * 1024 * 1024
 	const ghEnv = opts.githubToken ? { GH_TOKEN: opts.githubToken } : {}
 	const attribution = opts.attribution
@@ -127,7 +132,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 	const bashTool: ToolDefinition = {
 		name: 'bash',
 		description:
-			'Run a shell command in the workspace and return its stdout/stderr. Limited to a 60-second timeout. Use this for build, test, git status, package manager commands, and read-only `gh` queries (`gh issue view`, `gh pr diff`, `gh pr view`, `gh api`). Refuses `gh issue comment`, `gh pr comment`, `gh pr review`, `gh pr create`, `gh pr edit` — use the `post_*` tools instead.',
+			'Run a shell command in the workspace and return its stdout/stderr. Limited to a 5-minute per-command timeout. Use this for build, test, git status, package manager commands, and read-only `gh` queries (`gh issue view`, `gh pr diff`, `gh pr view`, `gh api`). Refuses `gh issue comment`, `gh pr comment`, `gh pr review`, `gh pr create`, `gh pr edit` — use the `post_*` tools instead.',
 		inputSchema: {
 			type: 'object',
 			properties: {
