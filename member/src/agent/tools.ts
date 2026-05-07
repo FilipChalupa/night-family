@@ -17,6 +17,7 @@ import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { redactBashOutput } from '@night/shared'
 import { appendAttribution, type AttributionInputs } from '@night/shared'
+import { isTransientGhError, retryWithBackoff } from '../retry.ts'
 import type { ToolDefinition, ToolResult } from './types.ts'
 
 const execFileP = promisify(execFile)
@@ -182,7 +183,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 		},
 	}
 
-	const runGh = async (
+	const runGhOnce = async (
 		args: string[],
 	): Promise<{ ok: true; out: string } | { ok: false; err: string }> => {
 		try {
@@ -205,6 +206,16 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 			}
 		}
 	}
+
+	// Auto-retry transient gh failures (502/503, secondary rate limit, network
+	// blips). Auth / validation / not-found errors don't match the classifier
+	// and propagate unchanged so the agent sees the real reason on the first
+	// try. Default backoff (~2s/8s/30s with jitter) absorbs short blips
+	// without dragging a real outage out for minutes.
+	const runGh: typeof runGhOnce = (args) =>
+		retryWithBackoff(() => runGhOnce(args), {
+			isTransient: (r) => r.ok === false && isTransientGhError(r.err),
+		})
 
 	const oneShotIssueComment = opts.oneShotIssueComment === true
 	let issueCommentPosted = false

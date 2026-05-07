@@ -406,6 +406,41 @@ export class TaskStore {
 	}
 
 	/**
+	 * Tokens spent per member since UTC midnight, derived from `usage`
+	 * events. Returns a `Map<memberId, totalTokens>`; members with no
+	 * usage today are absent (callers should default-zero).
+	 *
+	 * Members emit cumulative running totals in `usage` events, so MAX()
+	 * per (task, member) gives the final spend, then SUM groups them.
+	 * Used by the dispatcher to nudge tasks toward members with more
+	 * remaining headroom — soft load balancing, no hard cap enforcement
+	 * (that lives on the Member side via `MAX_TOKENS_PER_DAY`).
+	 */
+	tokensSpentTodayByMember(now: Date = new Date()): Map<string, number> {
+		const startOfDayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+		const rows = this.db.$client
+			.prepare(
+				`WITH task_member_tokens AS (
+					SELECT task_id, member_id,
+					       MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+					           COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+					FROM task_events
+					WHERE kind = 'usage' AND ts >= ? AND member_id IS NOT NULL
+					GROUP BY task_id, member_id
+				 )
+				 SELECT member_id AS memberId, SUM(tokens) AS total
+				 FROM task_member_tokens
+				 GROUP BY member_id`,
+			)
+			.all(startOfDayMs) as Array<{ memberId: string; total: number }>
+		const out = new Map<string, number>()
+		for (const r of rows) {
+			out.set(r.memberId, Number(r.total) || 0)
+		}
+		return out
+	}
+
+	/**
 	 * Like {@link claimNextFor}, but only matches tasks whose
 	 * `previousMemberId` equals this member — i.e. tasks the member worked on
 	 * previously and that came back to `queued` (e.g. after a

@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm, stat, utimes, writeFile, readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Logger } from 'pino'
+import { isTransientGhError, retryWithBackoff } from '../retry.ts'
 import { authenticatedRemoteUrl, gh, git, GitError } from './git.ts'
 
 export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -249,10 +250,26 @@ export class Workspace {
 		const remote = authenticatedRemoteUrl(this.repo, this.token)
 		const lease = `--force-with-lease=${this.branch}:${this.leaseShaBeforeRebase}`
 		try {
-			await git(['push', lease, remote, `${this.branch}:${this.branch}`], {
-				cwd: this.path,
-				timeoutMs: 120_000,
-			})
+			await retryWithBackoff(
+				() =>
+					git(['push', lease, remote, `${this.branch}:${this.branch}`], {
+						cwd: this.path,
+						timeoutMs: 120_000,
+					}),
+				{
+					// Lease violations ("stale info" / "non-fast-forward") are
+					// the entire point of using a lease — retrying would just
+					// race the same way. Only transport-level errors retry.
+					isTransientError: (err) =>
+						err instanceof GitError && isTransientGhError(err.stderr),
+					onRetry: (attempt, delayMs) => {
+						this.logger.info(
+							{ attempt, delayMs },
+							'pushWithLease transient failure, retrying',
+						)
+					},
+				},
+			)
 		} catch (err) {
 			if (err instanceof GitError) {
 				this.logger.warn(
@@ -285,11 +302,26 @@ export class Workspace {
 		// `(stale info)`. The branch is owned exclusively by this task — it
 		// matches `pr/night/<task-id>-…` and no other agent runs the same task
 		// concurrently — so plain `--force` is safe here.
+		//
+		// Retried on transient errors (HTTP 5xx, secondary rate limit, network
+		// blips) so a 2-second GitHub hiccup doesn't fail an otherwise good
+		// task. Non-transient git errors (auth, validation) still propagate on
+		// the first try.
 		try {
-			await git(['push', '--force', remote, `${this.branch}:${this.branch}`], {
-				cwd: this.path,
-				timeoutMs: 120_000,
-			})
+			await retryWithBackoff(
+				() =>
+					git(['push', '--force', remote, `${this.branch}:${this.branch}`], {
+						cwd: this.path,
+						timeoutMs: 120_000,
+					}),
+				{
+					isTransientError: (err) =>
+						err instanceof GitError && isTransientGhError(err.stderr),
+					onRetry: (attempt, delayMs) => {
+						this.logger.info({ attempt, delayMs }, 'push transient failure, retrying')
+					},
+				},
+			)
 		} catch (err) {
 			if (err instanceof GitError) {
 				this.logger.warn({ stderr: err.stderr.slice(0, 400) }, 'push failed')

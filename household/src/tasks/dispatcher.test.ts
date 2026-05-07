@@ -540,6 +540,75 @@ describe('Dispatcher preferred-member bias', () => {
 	})
 })
 
+describe('Dispatcher daily-budget bias', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	it('among non-preferred idle members, prefers the one with less daily spend', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({ memberName: 'a', status: 'idle', send: aSent })
+		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
+		rig.registry.add(a)
+		rig.registry.add(b)
+
+		// Insert today's usage events directly via drizzle on the underlying db.
+		const sqlite = (
+			rig.taskStore as unknown as { db: { $client: import('better-sqlite3').Database } }
+		).db.$client
+		sqlite
+			.prepare(
+				'INSERT INTO members (member_id, member_name, display_name) VALUES (?, ?, ?)' +
+					' ON CONFLICT(member_id) DO NOTHING',
+			)
+			.run(a.memberId, a.memberName, a.memberName)
+		sqlite
+			.prepare(
+				'INSERT INTO members (member_id, member_name, display_name) VALUES (?, ?, ?)' +
+					' ON CONFLICT(member_id) DO NOTHING',
+			)
+			.run(b.memberId, b.memberName, b.memberName)
+		const insertEvent = sqlite.prepare(
+			'INSERT INTO task_events (task_id, seq, ts, session_id, member_id, kind, payload)' +
+				' VALUES (?, ?, ?, NULL, ?, ?, ?)',
+		)
+		const now = Date.now()
+		// a has spent 100k today; b only 5k.
+		insertEvent.run(
+			'past-task-a',
+			1,
+			now,
+			a.memberId,
+			'usage',
+			JSON.stringify({ input: 100_000, output: 0 }),
+		)
+		insertEvent.run(
+			'past-task-b',
+			1,
+			now,
+			b.memberId,
+			'usage',
+			JSON.stringify({ input: 5_000, output: 0 }),
+		)
+
+		// Single queued task to be claimed.
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+
+		rig.dispatcher.tryDispatchAll()
+
+		const sentAssign = (fn: ReturnType<typeof vi.fn>) =>
+			fn.mock.calls
+				.map((c) => c[0] as { type?: string })
+				.filter((m) => m.type === 'task.assigned').length
+		// b had less daily spend → b gets it.
+		expect(sentAssign(bSent)).toBe(1)
+		expect(sentAssign(aSent)).toBe(0)
+	})
+})
+
 describe('Dispatcher rebase routing', () => {
 	let rig: Rig
 	beforeEach(() => {

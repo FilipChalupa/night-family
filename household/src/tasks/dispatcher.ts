@@ -87,12 +87,21 @@ export class Dispatcher {
 		// after a `changes_requested` review or a retry returned the task to the
 		// queue) get to iterate first, so they reclaim "their" task before any
 		// generic idle member races in for it.
+		//
+		// Within the non-preferred bucket, sort ascending by tokens spent today
+		// — soft load balancing so the next available task goes to whoever has
+		// burned through less of their daily budget. With no usage data
+		// (`Map.get` → undefined → 0), order is the registry's existing order,
+		// which is stable. Hard daily caps still live on the Member side via
+		// `MAX_TOKENS_PER_DAY`; this is just a pre-cap nudge.
 		const idle = this.deps.registry.list().filter((m) => m.status === 'idle')
 		const preferredMemberIds = this.deps.taskStore.preferredMemberIdsForQueued()
-		const ordered = [
-			...idle.filter((m) => preferredMemberIds.has(m.memberId)),
-			...idle.filter((m) => !preferredMemberIds.has(m.memberId)),
-		]
+		const tokensByMember = this.deps.taskStore.tokensSpentTodayByMember()
+		const tokensFor = (id: string): number => tokensByMember.get(id) ?? 0
+		const nonPreferred = idle
+			.filter((m) => !preferredMemberIds.has(m.memberId))
+			.sort((a, b) => tokensFor(a.memberId) - tokensFor(b.memberId))
+		const ordered = [...idle.filter((m) => preferredMemberIds.has(m.memberId)), ...nonPreferred]
 		for (const member of ordered) {
 			this.tryDispatchOne(member)
 		}
