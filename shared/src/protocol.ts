@@ -190,6 +190,13 @@ export interface MsgHandshake {
 	 */
 	repos?: string[]
 	resumes?: ResumeRef[]
+	/**
+	 * Member's daily token cap from `MAX_TOKENS_PER_DAY`, or omitted when
+	 * uncapped. Household uses it as the denominator in load-balancing
+	 * dispatch (sort by `used / cap`) so members with smaller daily budgets
+	 * aren't drained first by absolute-spend ordering.
+	 */
+	max_tokens_per_day?: number
 }
 
 export interface MsgMemberReady {

@@ -233,6 +233,7 @@ function handleHandshake(
 		workerProfile: msg.worker_profile,
 		protocolVersion: msg.protocol_version,
 		tokenId,
+		maxTokensPerDay: msg.max_tokens_per_day ?? null,
 		connectedAt: now,
 		firstConnectedAt,
 		status: 'idle',

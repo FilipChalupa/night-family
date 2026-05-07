@@ -73,6 +73,7 @@ function fakeMember(opts: {
 	status?: 'idle' | 'busy'
 	send?: (m: unknown) => void
 	skills?: ConnectedMember['skills']
+	maxTokensPerDay?: number | null
 }): ConnectedMember {
 	const sessionId = `sess-${opts.memberName}-${Math.random().toString(16).slice(2, 8)}`
 	return {
@@ -101,6 +102,7 @@ function fakeMember(opts: {
 		workerProfile: 'medium',
 		protocolVersion: '3.0.0',
 		tokenId: 'tok',
+		maxTokensPerDay: opts.maxTokensPerDay ?? null,
 		connectedAt: new Date(),
 		firstConnectedAt: new Date(),
 		status: opts.status ?? 'idle',
@@ -547,15 +549,7 @@ describe('Dispatcher daily-budget bias', () => {
 	})
 	afterEach(() => rig.cleanup())
 
-	it('among non-preferred idle members, prefers the one with less daily spend', () => {
-		const aSent = vi.fn()
-		const bSent = vi.fn()
-		const a = fakeMember({ memberName: 'a', status: 'idle', send: aSent })
-		const b = fakeMember({ memberName: 'b', status: 'idle', send: bSent })
-		rig.registry.add(a)
-		rig.registry.add(b)
-
-		// Insert today's usage events directly via drizzle on the underlying db.
+	function seedUsage(rig: Rig, memberId: string, taskId: string, tokens: number): void {
 		const sqlite = (
 			rig.taskStore as unknown as { db: { $client: import('better-sqlite3').Database } }
 		).db.$client
@@ -564,48 +558,113 @@ describe('Dispatcher daily-budget bias', () => {
 				'INSERT INTO members (member_id, member_name, display_name) VALUES (?, ?, ?)' +
 					' ON CONFLICT(member_id) DO NOTHING',
 			)
-			.run(a.memberId, a.memberName, a.memberName)
+			.run(memberId, memberId, memberId)
 		sqlite
 			.prepare(
-				'INSERT INTO members (member_id, member_name, display_name) VALUES (?, ?, ?)' +
-					' ON CONFLICT(member_id) DO NOTHING',
+				'INSERT INTO task_events (task_id, seq, ts, session_id, member_id, kind, payload)' +
+					' VALUES (?, ?, ?, NULL, ?, ?, ?)',
 			)
-			.run(b.memberId, b.memberName, b.memberName)
-		const insertEvent = sqlite.prepare(
-			'INSERT INTO task_events (task_id, seq, ts, session_id, member_id, kind, payload)' +
-				' VALUES (?, ?, ?, NULL, ?, ?, ?)',
-		)
-		const now = Date.now()
-		// a has spent 100k today; b only 5k.
-		insertEvent.run(
-			'past-task-a',
-			1,
-			now,
-			a.memberId,
-			'usage',
-			JSON.stringify({ input: 100_000, output: 0 }),
-		)
-		insertEvent.run(
-			'past-task-b',
-			1,
-			now,
-			b.memberId,
-			'usage',
-			JSON.stringify({ input: 5_000, output: 0 }),
-		)
+			.run(
+				taskId,
+				1,
+				Date.now(),
+				memberId,
+				'usage',
+				JSON.stringify({ input: tokens, output: 0 }),
+			)
+	}
 
-		// Single queued task to be claimed.
+	const sentAssign = (fn: ReturnType<typeof vi.fn>) =>
+		fn.mock.calls
+			.map((c) => c[0] as { type?: string })
+			.filter((m) => m.type === 'task.assigned').length
+
+	it('with equal caps, prefers the member who has used less of their budget', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			maxTokensPerDay: 1_000_000,
+		})
+		const b = fakeMember({
+			memberName: 'b',
+			status: 'idle',
+			send: bSent,
+			maxTokensPerDay: 1_000_000,
+		})
+		rig.registry.add(a)
+		rig.registry.add(b)
+		// a at 10% of cap; b at 0.5%.
+		seedUsage(rig, a.memberId, 'past-task-a', 100_000)
+		seedUsage(rig, b.memberId, 'past-task-b', 5_000)
+
 		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
-
 		rig.dispatcher.tryDispatchAll()
 
-		const sentAssign = (fn: ReturnType<typeof vi.fn>) =>
-			fn.mock.calls
-				.map((c) => c[0] as { type?: string })
-				.filter((m) => m.type === 'task.assigned').length
-		// b had less daily spend → b gets it.
 		expect(sentAssign(bSent)).toBe(1)
 		expect(sentAssign(aSent)).toBe(0)
+	})
+
+	it('with unequal caps, ranks by percentage so a small-cap member is not drained first', () => {
+		// Scenario: a has a generous cap (1M, used 100k → 10%). b has a tight
+		// cap (50k, used 10k → 20%). Absolute-spend ordering would pick b
+		// (10k < 100k); percentage ordering correctly picks a (10% < 20%) so
+		// b's smaller daily budget isn't blown through first.
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			maxTokensPerDay: 1_000_000,
+		})
+		const b = fakeMember({
+			memberName: 'b',
+			status: 'idle',
+			send: bSent,
+			maxTokensPerDay: 50_000,
+		})
+		rig.registry.add(a)
+		rig.registry.add(b)
+		seedUsage(rig, a.memberId, 'past-task-a', 100_000)
+		seedUsage(rig, b.memberId, 'past-task-b', 10_000)
+
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+		rig.dispatcher.tryDispatchAll()
+
+		expect(sentAssign(aSent)).toBe(1)
+		expect(sentAssign(bSent)).toBe(0)
+	})
+
+	it('treats a member with no cap as having unlimited headroom (fraction 0)', () => {
+		// a: uncapped (null), so fraction = 0 even after spending.
+		// b: capped at 50k with 10k used (20%). a wins.
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			maxTokensPerDay: null,
+		})
+		const b = fakeMember({
+			memberName: 'b',
+			status: 'idle',
+			send: bSent,
+			maxTokensPerDay: 50_000,
+		})
+		rig.registry.add(a)
+		rig.registry.add(b)
+		seedUsage(rig, a.memberId, 'past-task-a', 500_000)
+		seedUsage(rig, b.memberId, 'past-task-b', 10_000)
+
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+		rig.dispatcher.tryDispatchAll()
+
+		expect(sentAssign(aSent)).toBe(1)
+		expect(sentAssign(bSent)).toBe(0)
 	})
 })
 

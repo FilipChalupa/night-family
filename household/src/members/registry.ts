@@ -46,6 +46,13 @@ export interface ConnectedMember {
 	workerProfile: WorkerProfile
 	protocolVersion: string
 	tokenId: string
+	/**
+	 * Member-reported daily token cap (`MAX_TOKENS_PER_DAY` on the Member
+	 * side). `null` = uncapped. Used by the dispatcher as the denominator in
+	 * load-balanced ordering — sorting non-preferred members by `used / cap`
+	 * preserves diversity through the night even when caps differ.
+	 */
+	maxTokensPerDay: number | null
 	connectedAt: Date
 	firstConnectedAt: Date
 	status: MemberStatus
@@ -92,6 +99,8 @@ export interface MemberSnapshot {
 	workerProfile: WorkerProfile
 	protocolVersion: string
 	tokenId: string
+	/** Mirror of {@link ConnectedMember.maxTokensPerDay}; `null` = uncapped. */
+	maxTokensPerDay: number | null
 	connectedAt: string
 	firstConnectedAt: string
 	status: MemberSnapshotStatus
@@ -130,6 +139,7 @@ function snapshotConnected(m: ConnectedMember, now: Date = new Date()): MemberSn
 		workerProfile: m.workerProfile,
 		protocolVersion: m.protocolVersion,
 		tokenId: m.tokenId,
+		maxTokensPerDay: m.maxTokensPerDay,
 		connectedAt: m.connectedAt.toISOString(),
 		firstConnectedAt: m.firstConnectedAt.toISOString(),
 		status: m.status,

@@ -157,6 +157,9 @@ export class HouseholdConnection {
 			worker_profile: this.config.workerProfile,
 			repos: this.config.repos,
 			...(resumes.length > 0 ? { resumes } : {}),
+			...(this.config.limits.maxTokensPerDay !== null
+				? { max_tokens_per_day: this.config.limits.maxTokensPerDay }
+				: {}),
 		}
 		this.send(handshake)
 	}

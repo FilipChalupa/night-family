@@ -93,6 +93,7 @@ const MsgHandshakeSchema = v.object({
 	worker_profile: WorkerProfileSchema,
 	repos: v.optional(v.array(v.string())),
 	resumes: v.optional(v.array(ResumeRefSchema)),
+	max_tokens_per_day: v.optional(v.number()),
 })
 
 const MsgMemberReadySchema = v.object({ type: v.literal('member.ready') })
