@@ -497,6 +497,8 @@ async function detectDefaultBranch(cachePath: string): Promise<string> {
 function slug(s: string): string {
 	return (
 		s
+			.normalize('NFD')
+			.replace(/\p{M}+/gu, '')
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-+|-+$/g, '')
