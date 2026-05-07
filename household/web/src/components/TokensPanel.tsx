@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tan
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { EmptyState } from '../routes/Root.tsx'
+import { relativeTime } from '../time.ts'
 import type { MemberSnapshot } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
@@ -431,22 +432,43 @@ function TokenMembersCell({
 	return (
 		<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
 			<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-				{members.map((m) => (
-					<Link
-						key={m.sessionId}
-						to="/members/$memberId"
-						params={{ memberId: m.memberId }}
-						style={{ textDecoration: 'none' }}
-					>
-						<Chip
-							size="small"
-							variant="outlined"
-							color={m.status === 'busy' ? 'warning' : 'success'}
-							label={m.displayName || m.memberName}
-							clickable
-						/>
-					</Link>
-				))}
+				{members.map((m) => {
+					// Tie chip color to current status. The earlier rendering
+					// painted offline members `success` (green) too, which made
+					// reconnect-noise on the dashboard read as "fully active".
+					const color =
+						m.status === 'busy'
+							? 'warning'
+							: m.status === 'idle'
+								? 'success'
+								: 'default'
+					// `lastHeartbeat` on an offline session is the moment the
+					// member last spoke — surfacing it as "Offline since X" is
+					// what the user wants to see when scanning at a glance.
+					const tooltip =
+						m.status === 'offline'
+							? `Offline since ${relativeTime(m.lastHeartbeat)}`
+							: m.status === 'busy'
+								? `Busy · last heartbeat ${relativeTime(m.lastHeartbeat)}`
+								: `Idle · last heartbeat ${relativeTime(m.lastHeartbeat)}`
+					return (
+						<Tooltip key={m.sessionId} title={tooltip}>
+							<Link
+								to="/members/$memberId"
+								params={{ memberId: m.memberId }}
+								style={{ textDecoration: 'none' }}
+							>
+								<Chip
+									size="small"
+									variant="outlined"
+									color={color}
+									label={m.displayName || m.memberName}
+									clickable
+								/>
+							</Link>
+						</Tooltip>
+					)
+				})}
 			</Box>
 			<Typography variant="caption" color="text.secondary">
 				{usageCount.toLocaleString()} lifetime use{usageCount === 1 ? '' : 's'}
