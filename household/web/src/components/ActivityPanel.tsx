@@ -140,7 +140,13 @@ export function ActivityPanel() {
 						<BarChart
 							height={240}
 							layout="horizontal"
-							yAxis={[{ data: data.byMember.map((m) => m.name), scaleType: 'band' }]}
+							yAxis={[
+								{
+									data: data.byMember.map((m) => m.name),
+									scaleType: 'band',
+									width: 'auto',
+								},
+							]}
 							series={[
 								{
 									data: data.byMember.map((m) => m.completed),
@@ -153,7 +159,7 @@ export function ActivityPanel() {
 									color: '#ff8a8a',
 								},
 							]}
-							margin={{ left: 80, right: 16, top: 16, bottom: 32 }}
+							margin={{ right: 16, top: 16, bottom: 32 }}
 						/>
 					)}
 				</Paper>
@@ -195,7 +201,13 @@ export function ActivityPanel() {
 						<BarChart
 							height={240}
 							layout="horizontal"
-							yAxis={[{ data: data.byMember.map((m) => m.name), scaleType: 'band' }]}
+							yAxis={[
+								{
+									data: data.byMember.map((m) => m.name),
+									scaleType: 'band',
+									width: 'auto',
+								},
+							]}
 							series={[
 								{
 									data: data.byMember.map((m) => m.tokens),
@@ -204,7 +216,7 @@ export function ActivityPanel() {
 									valueFormatter: formatTokens,
 								},
 							]}
-							margin={{ left: 80, right: 16, top: 16, bottom: 32 }}
+							margin={{ right: 16, top: 16, bottom: 32 }}
 						/>
 					)}
 				</Paper>
