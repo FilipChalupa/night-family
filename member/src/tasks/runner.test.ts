@@ -276,7 +276,7 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 		// parseReviewOutput, which is the only place verdict normalization
 		// happens before Household sees the wire-level result.
 		class VerdictProvider extends StubProvider {
-			async runAgent(opts: Parameters<StubProvider['runAgent']>[0]) {
+			override async runAgent(opts: Parameters<StubProvider['runAgent']>[0]) {
 				const usage = { input: 100, output: 50 }
 				await opts.onEvent({ kind: 'usage', payload: usage })
 				return {
@@ -326,7 +326,7 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 		// Same review-task path but the agent doesn't end with parsable JSON.
 		// shapeResult must still produce a usable verdict for Household.
 		class NoJsonProvider extends StubProvider {
-			async runAgent(opts: Parameters<StubProvider['runAgent']>[0]) {
+			override async runAgent(opts: Parameters<StubProvider['runAgent']>[0]) {
 				const usage = { input: 0, output: 0 }
 				await opts.onEvent({ kind: 'usage', payload: usage })
 				return { summary: 'looked at it, all fine', usage }

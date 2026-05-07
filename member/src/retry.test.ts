@@ -45,10 +45,11 @@ describe('retryWithBackoff — result-based retries', () => {
 	})
 
 	it('does not retry when isTransient returns false', async () => {
-		const op = vi.fn().mockResolvedValue({ ok: false, code: 401 })
+		type R = { ok: boolean; code: number }
+		const op = vi.fn<() => Promise<R>>().mockResolvedValue({ ok: false, code: 401 })
 		const result = await retryWithBackoff(op, {
 			delays: [1, 1],
-			isTransient: (r) => 'code' in r && r.code === 502,
+			isTransient: (r) => r.code === 502,
 		})
 		expect(result).toEqual({ ok: false, code: 401 })
 		expect(op).toHaveBeenCalledTimes(1)

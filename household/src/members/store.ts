@@ -217,6 +217,11 @@ function rowToOfflineSnapshot(row: typeof members.$inferSelect): OfflineMemberSn
 		workerProfile: (row.workerProfile || 'unknown') as WorkerProfile,
 		protocolVersion: row.protocolVersion,
 		tokenId: row.tokenId ?? '',
+		// Daily cap isn't persisted across sessions — it's reported by the
+		// Member at handshake. Offline rows fall back to `null` (unknown);
+		// dispatcher only ranks live `idle` members anyway, so this never
+		// affects scheduling.
+		maxTokensPerDay: null,
 		connectedAt: row.lastConnectedAt.toISOString(),
 		firstConnectedAt: row.firstConnectedAt.toISOString(),
 		status: 'offline',
