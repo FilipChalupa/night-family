@@ -4,6 +4,12 @@ import { buildSlackMessage } from './sender.ts'
 const TS = '2026-05-06T12:00:00.000Z'
 
 describe('buildSlackMessage', () => {
+	it('overrides webhook identity with a Night Family name and crescent moon emoji', () => {
+		const msg = buildSlackMessage('test', { message: 'hi' }, TS)
+		expect(msg.username).toBe('Night Family')
+		expect(msg.icon_emoji).toBe(':crescent_moon:')
+	})
+
 	it('renders task.failed with danger attachment, header, and fields', () => {
 		const msg = buildSlackMessage(
 			'task.failed',

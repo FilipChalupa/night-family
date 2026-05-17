@@ -148,6 +148,8 @@ export function buildSlackMessage(
 	payload: Record<string, unknown>,
 	ts: string,
 ): {
+	username: string
+	icon_emoji: string
 	text: string
 	attachments: Array<{ color: string; blocks: unknown[] }>
 } {
@@ -183,9 +185,15 @@ export function buildSlackMessage(
 		elements: [{ type: 'mrkdwn', text: `Night Family · \`${event}\` · ${ts}` }],
 	})
 
+	// `username` + `icon_emoji` override the incoming-webhook bot identity so
+	// every workspace shows a consistent "Night Family 🌙" sender regardless
+	// of how the webhook integration was named when installed. `:crescent_moon:`
+	// is a Unicode emoji, so no custom workspace emoji upload is required.
 	// `text` is the notification fallback (mobile pop, sidebar preview);
 	// `blocks` are what's rendered in-channel.
 	return {
+		username: 'Night Family',
+		icon_emoji: ':crescent_moon:',
 		text: `[Night Family] ${desc.title}`,
 		attachments: [{ color: desc.color, blocks }],
 	}
