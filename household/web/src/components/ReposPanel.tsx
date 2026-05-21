@@ -23,6 +23,7 @@ import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
 import { EmptyState } from '../routes/Root.tsx'
 import { relativeTime } from '../time.ts'
@@ -153,57 +154,77 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 							</TableRow>
 						</TableHead>
 						<TableBody>
-							{repos.map((r) => (
-								<TableRow key={r.repo} hover>
-									<TableCell>
+							{repos.map((r) => {
+								const [owner, name] = r.repo.split('/', 2)
+								const detailLink =
+									owner && name ? (
+										<RouterLink
+											to="/repos/$owner/$name"
+											params={{ owner, name }}
+											style={{
+												color: 'inherit',
+												textDecoration: 'none',
+												fontFamily: 'monospace',
+											}}
+										>
+											{r.repo}
+										</RouterLink>
+									) : (
 										<Typography
 											component="code"
 											sx={{ fontFamily: 'monospace' }}
 										>
 											{r.repo}
 										</Typography>
-									</TableCell>
-									<TableCell>
-										<Typography variant="caption" color="text.secondary">
-											{`${window.location.origin}/webhooks/github`}
-										</Typography>
-									</TableCell>
-									<TableCell>
-										<Tooltip title={r.createdAt}>
-											<Typography variant="body2" color="text.secondary">
-												{new Date(r.createdAt).toLocaleDateString()}
+									)
+								return (
+									<TableRow key={r.repo} hover>
+										<TableCell>{detailLink}</TableCell>
+										<TableCell>
+											<Typography variant="caption" color="text.secondary">
+												{`${window.location.origin}/webhooks/github`}
 											</Typography>
-										</Tooltip>
-									</TableCell>
-									<TableCell>
-										{r.lastEventAt ? (
-											<Tooltip title={r.lastEventAt}>
+										</TableCell>
+										<TableCell>
+											<Tooltip title={r.createdAt}>
 												<Typography variant="body2" color="text.secondary">
-													{relativeTime(r.lastEventAt)}
+													{new Date(r.createdAt).toLocaleDateString()}
 												</Typography>
 											</Tooltip>
-										) : (
-											<Typography variant="body2" color="text.secondary">
-												—
-											</Typography>
-										)}
-									</TableCell>
-									<TableCell align="right">
-										{canManage ? (
-											<Button
-												size="small"
-												variant="outlined"
-												color="error"
-												onClick={() => {
-													void remove(r.repo)
-												}}
-											>
-												Remove
-											</Button>
-										) : null}
-									</TableCell>
-								</TableRow>
-							))}
+										</TableCell>
+										<TableCell>
+											{r.lastEventAt ? (
+												<Tooltip title={r.lastEventAt}>
+													<Typography
+														variant="body2"
+														color="text.secondary"
+													>
+														{relativeTime(r.lastEventAt)}
+													</Typography>
+												</Tooltip>
+											) : (
+												<Typography variant="body2" color="text.secondary">
+													—
+												</Typography>
+											)}
+										</TableCell>
+										<TableCell align="right">
+											{canManage ? (
+												<Button
+													size="small"
+													variant="outlined"
+													color="error"
+													onClick={() => {
+														void remove(r.repo)
+													}}
+												>
+													Remove
+												</Button>
+											) : null}
+										</TableCell>
+									</TableRow>
+								)
+							})}
 						</TableBody>
 					</Table>
 				</TableContainer>

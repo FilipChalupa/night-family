@@ -10,19 +10,26 @@ import {
 } from '@night/shared'
 import { resolveSchedule } from './schedule.ts'
 
+/**
+ * Bootstrap-time snapshot of everything the Member needs to run. Treated as
+ * immutable after {@link loadConfig} returns — runtime-mutable state lives on
+ * the consumer (e.g. `HouseholdConnection.currentRepos` mirrors the initial
+ * `repos` and refreshes in place without touching this object). Marking the
+ * whole shape `readonly` keeps that invariant compiler-enforced.
+ */
 export interface MemberConfig {
-	householdUrl: string
-	householdAccessToken: string
-	memberId: string
-	memberName: string
-	displayName: string
-	githubPat: string
+	readonly householdUrl: string
+	readonly householdAccessToken: string
+	readonly memberId: string
+	readonly memberName: string
+	readonly displayName: string
+	readonly githubPat: string
 	/**
 	 * Full skill set this Member is configured to do (from `SKILLS` env;
 	 * default = all). The schedule below decides *when* `implement` is
 	 * actually offered; other skills always pass through.
 	 */
-	skills: Skill[]
+	readonly skills: readonly Skill[]
 	/**
 	 * Time-based gating for the `implement` skill. Inside any
 	 * `nightWindow`, the Member offers everything in `skills`; outside,
@@ -30,26 +37,29 @@ export interface MemberConfig {
 	 * `SCHEDULE_FILE` env / Docker conventional path / repo-root fallback,
 	 * or built-in default if none of those exist.
 	 */
-	schedule: Schedule
+	readonly schedule: Schedule
 	/** Path of the YAML source, or `null` for built-in default. */
-	scheduleSource: string | null
+	readonly scheduleSource: string | null
 	/**
 	 * Repos this Member can work on, derived from `GET /user/repos` with
 	 * the configured PAT. Empty = PAT has no repo access (Member can
-	 * still handle non-repo tasks like `summarize`).
+	 * still handle non-repo tasks like `summarize`). Re-fetched at runtime
+	 * via `repos.refresh`; the live mirror lives on `HouseholdConnection`,
+	 * not here — this field stays at its boot-time value for the life of
+	 * the process.
 	 */
-	repos: string[]
-	provider: Provider
-	model: string
-	aiApiKey: string
-	workerProfile: WorkerProfile
-	workspaceDir: string
-	limits: {
-		maxTokensPerTask: number | null
-		maxTokensPerDay: number | null
-		maxTaskDurationMinutes: number
+	readonly repos: readonly string[]
+	readonly provider: Provider
+	readonly model: string
+	readonly aiApiKey: string
+	readonly workerProfile: WorkerProfile
+	readonly workspaceDir: string
+	readonly limits: {
+		readonly maxTokensPerTask: number | null
+		readonly maxTokensPerDay: number | null
+		readonly maxTaskDurationMinutes: number
 	}
-	logLevel: string
+	readonly logLevel: string
 }
 
 function required(name: string): string {
@@ -155,13 +165,35 @@ export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> 
  * surfaces this list as suggestions only; the actual push attempt at
  * task time is the final source of truth.
  */
+/**
+ * Per-request deadline for one page of `/user/repos`. A hung TCP / stuck
+ * proxy / paused GitHub edge would otherwise leave the caller's
+ * `refreshingRepos` promise pending forever — coalescing would silently
+ * swallow every subsequent refresh request.
+ */
+const GH_REPOS_REQUEST_TIMEOUT_MS = 30_000
+
 export async function fetchAccessibleRepos(pat: string): Promise<string[]> {
 	const PER_PAGE = 100
 	const MAX_PAGES = 10 // 1000 repos cap; way past realistic Night Family setups
 	const all: string[] = []
 	for (let page = 1; page <= MAX_PAGES; page++) {
 		const url = `${GH_API}/user/repos?per_page=${PER_PAGE}&page=${page}&affiliation=owner,collaborator,organization_member`
-		const res = await fetch(url, { headers: GH_HEADERS(pat) })
+		const ac = new AbortController()
+		const timer = setTimeout(() => ac.abort(), GH_REPOS_REQUEST_TIMEOUT_MS)
+		let res: Response
+		try {
+			res = await fetch(url, { headers: GH_HEADERS(pat), signal: ac.signal })
+		} catch (err) {
+			if (ac.signal.aborted) {
+				throw new Error(
+					`GitHub /user/repos timed out after ${GH_REPOS_REQUEST_TIMEOUT_MS} ms`,
+				)
+			}
+			throw err
+		} finally {
+			clearTimeout(timer)
+		}
 		if (!res.ok) {
 			const body = await res.text().catch(() => '')
 			throw new Error(

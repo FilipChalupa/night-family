@@ -208,9 +208,9 @@
 						Added <code>repos.refresh</code> (Household → Member). Carries an opaque
 						<code>reason</code> string for diagnostics (conventional values:
 						<code>schedule_edge</code>, <code>queue_mismatch</code>,
-						<code>manual</code>, <code>periodic</code>, <code>startup</code>). Household
-						pushes this on three triggers: day↔night schedule edges, queued tasks whose
-						repo isn't in any member's allowlist, and the
+						<code>manual</code>, <code>periodic</code>). Household pushes this on three
+						triggers: day↔night schedule edges, queued tasks whose repo isn't in any
+						member's allowlist, and the
 						<code>POST /api/members/:id/refresh-repos</code> admin endpoint.
 					</li>
 					<li>

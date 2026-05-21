@@ -8,6 +8,7 @@ import {
 import { Dashboard } from './routes/Dashboard.tsx'
 import { DocPageView, DocsIndex } from './routes/Docs.tsx'
 import { MemberDetailPage } from './routes/MemberDetailPage.tsx'
+import { RepoDetailPage } from './routes/RepoDetailPage.tsx'
 import { RootLayout } from './routes/Root.tsx'
 import { TaskDetailPage } from './routes/TaskDetailPage.tsx'
 import { TasksPage } from './routes/TasksPage.tsx'
@@ -87,6 +88,15 @@ export const memberDetailRoute = createRoute({
 	component: MemberDetailPage,
 })
 
+// GitHub repo slugs are always `owner/name` — two path segments rather than
+// one URL-encoded slug. Keeps the URL readable (`/repos/foo/bar`) and avoids
+// `%2F` round-trip footguns with TanStack Router's URL parser.
+export const repoDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/repos/$owner/$name',
+	component: RepoDetailPage,
+})
+
 export const docsIndexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/docs',
@@ -107,6 +117,7 @@ const routeTree = rootRoute.addChildren([
 	tasksRoute,
 	taskDetailRoute,
 	memberDetailRoute,
+	repoDetailRoute,
 	docsIndexRoute,
 	docDetailRoute,
 ])

@@ -318,30 +318,36 @@ function ReposField({ repos }: { repos: string[] | null }) {
 				<Typography variant="body2">— (none)</Typography>
 			) : (
 				<Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
-					{repos.map((slug, i) => (
-						<Stack
-							key={slug}
-							direction="row"
-							spacing={0.5}
-							sx={{ alignItems: 'baseline' }}
-						>
-							<Link
-								href={`https://github.com/${slug.split('/').map(encodeURIComponent).join('/')}`}
-								target="_blank"
-								rel="noopener noreferrer"
-								underline="hover"
-								variant="body2"
-								sx={{ wordBreak: 'break-all' }}
+					{repos.map((slug, i) => {
+						const [owner, name] = slug.split('/', 2)
+						return (
+							<Stack
+								key={slug}
+								direction="row"
+								spacing={0.5}
+								sx={{ alignItems: 'baseline' }}
 							>
-								{slug}
-							</Link>
-							{i < repos.length - 1 ? (
-								<Typography variant="body2" color="text.secondary">
-									,
-								</Typography>
-							) : null}
-						</Stack>
-					))}
+								{owner && name ? (
+									<RouterLink
+										to="/repos/$owner/$name"
+										params={{ owner, name }}
+										style={{ color: 'inherit', wordBreak: 'break-all' }}
+									>
+										{slug}
+									</RouterLink>
+								) : (
+									<Typography variant="body2" sx={{ wordBreak: 'break-all' }}>
+										{slug}
+									</Typography>
+								)}
+								{i < repos.length - 1 ? (
+									<Typography variant="body2" color="text.secondary">
+										,
+									</Typography>
+								) : null}
+							</Stack>
+						)
+					})}
 				</Stack>
 			)}
 		</Stack>

@@ -258,6 +258,12 @@ export class HouseholdConnection {
 	 * in-memory mirror so a subsequent reconnect's handshake carries the
 	 * fresh list too. On failure, emits `member.repos_error` (the previous
 	 * list is preserved — refresh is informational, not destructive).
+	 *
+	 * TODO(tests): no unit coverage for this method or the surrounding
+	 * connection layer — coalescing, error → `member.repos_error` path, and
+	 * the 6 h periodic timer are all untested. Setup is non-trivial (WS
+	 * mock + `fetchAccessibleRepos` stub + fake timers), so deferred until
+	 * a regression makes the gap painful.
 	 */
 	private refreshRepos(reason: string): Promise<void> {
 		if (this.state.refreshingRepos) return this.state.refreshingRepos

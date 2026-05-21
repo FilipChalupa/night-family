@@ -264,7 +264,6 @@ export interface MsgMemberRepos {
  *   - `queue_mismatch` — queued task's repo missing from current allowlist
  *   - `manual` — admin/UI button
  *   - `periodic` — Member-side safety-net interval
- *   - `startup` — Member just connected and is refreshing proactively
  */
 export type ReposRefreshReason = string
 
