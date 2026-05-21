@@ -19,7 +19,7 @@ import { useAppData } from '../AppContext.tsx'
 import { RefreshReposButton } from '../components/RefreshReposButton.tsx'
 import { repoDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
-import type { MemberSnapshot } from '../types.ts'
+import type { MemberSnapshot, TaskRecord } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
 /**
@@ -36,7 +36,7 @@ export function RepoDetailPage() {
 	const { owner, name } = repoDetailRoute.useParams()
 	const slug = `${owner}/${name}`
 	const githubUrl = `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
-	const { members, isAdmin } = useAppData()
+	const { members, tasks, isAdmin } = useAppData()
 
 	const rows = members.map((m) => ({
 		member: m,
@@ -45,6 +45,7 @@ export function RepoDetailPage() {
 	const covered = rows.filter((r) => r.coverage === 'covered')
 	const uncovered = rows.filter((r) => r.coverage === 'not-covered')
 	const unconstrained = rows.filter((r) => r.coverage === 'unconstrained')
+	const queued = tasks.filter((t) => t.repo === slug && t.status === 'queued')
 
 	return (
 		<>
@@ -101,6 +102,13 @@ export function RepoDetailPage() {
 						</Stack>
 					</Stack>
 				</Paper>
+			</Section>
+
+			<Section title={`Queued tasks (${queued.length})`}>
+				<QueuedForRepo
+					tasks={queued}
+					coveredCount={covered.length + unconstrained.length}
+				/>
 			</Section>
 
 			<Section title={`Members (${members.length})`}>
@@ -189,6 +197,72 @@ export function RepoDetailPage() {
 				)}
 			</Section>
 		</>
+	)
+}
+
+function QueuedForRepo({ tasks, coveredCount }: { tasks: TaskRecord[]; coveredCount: number }) {
+	if (tasks.length === 0) {
+		return <EmptyState>No queued tasks for this repo.</EmptyState>
+	}
+	return (
+		<TableContainer component={Paper} variant="outlined">
+			<Table size="small">
+				<TableHead>
+					<TableRow>
+						<TableCell>Title</TableCell>
+						<TableCell>Kind</TableCell>
+						<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+							Queued
+						</TableCell>
+						<TableCell />
+					</TableRow>
+				</TableHead>
+				<TableBody>
+					{tasks.map((t) => (
+						<TableRow key={t.id} hover>
+							<TableCell>
+								<RouterLink
+									to="/tasks/$taskId"
+									params={{ taskId: t.id }}
+									style={{ color: 'inherit', textDecoration: 'none' }}
+								>
+									<Typography variant="body2" sx={{ fontWeight: 500 }}>
+										{t.title}
+									</Typography>
+								</RouterLink>
+							</TableCell>
+							<TableCell>
+								<Chip
+									label={t.kind}
+									size="small"
+									variant="outlined"
+									color="default"
+								/>
+							</TableCell>
+							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+								<Tooltip title={t.createdAt}>
+									<Typography variant="body2" color="text.secondary">
+										{relativeTime(t.createdAt)}
+									</Typography>
+								</Tooltip>
+							</TableCell>
+							<TableCell>
+								{coveredCount === 0 ? (
+									<Tooltip title="No connected member's allowlist covers this repo. Dispatch is blocked until someone refreshes or gains push access.">
+										<Chip
+											label="no member covers"
+											size="small"
+											color="warning"
+											variant="filled"
+										/>
+									</Tooltip>
+								) : null}
+							</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</TableContainer>
 	)
 }
 

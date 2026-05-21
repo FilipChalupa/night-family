@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { RefreshReposButton } from '../components/RefreshReposButton.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { useTokensQuery, type TokenRecord } from '../components/TokensPanel.tsx'
 import { memberDetailRoute } from '../router.tsx'
@@ -97,6 +98,7 @@ export function MemberDetailPage() {
 							householdProtocolVersion={householdProtocolVersion}
 							token={isAdmin ? (tokenById.get(member.tokenId) ?? null) : undefined}
 							totalTokensSpent={tokenTotal ?? null}
+							canManage={isAdmin}
 						/>
 					</Section>
 
@@ -144,6 +146,7 @@ function MemberDetailCard({
 	householdProtocolVersion,
 	token,
 	totalTokensSpent,
+	canManage,
 }: {
 	member: MemberSnapshot
 	householdProtocolVersion: string | null
@@ -151,6 +154,7 @@ function MemberDetailCard({
 	token: TokenRecord | null | undefined
 	/** All-time token total across every task assigned to this member; `null` while loading. */
 	totalTokensSpent: number | null
+	canManage: boolean
 }) {
 	const protoSkew = compareProtocol(member.protocolVersion, householdProtocolVersion)
 	return (
@@ -199,6 +203,22 @@ function MemberDetailCard({
 				/>
 				<Field label="Skills" value={member.skills.join(', ') || '—'} />
 				<ReposField repos={member.repos} />
+				{canManage ? (
+					<Stack
+						direction={{ xs: 'column', sm: 'row' }}
+						spacing={{ xs: 0.5, sm: 2 }}
+						sx={{ alignItems: { sm: 'flex-start' } }}
+					>
+						<Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+							Refresh allowlist
+						</Typography>
+						<RefreshReposButton
+							memberId={member.memberId}
+							disabled={member.status === 'offline'}
+							lastError={member.lastReposError}
+						/>
+					</Stack>
+				) : null}
 				<Field label="Worker profile" value={member.workerProfile} />
 				<Field
 					label="Protocol version"

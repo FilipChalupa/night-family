@@ -28,10 +28,13 @@ import PersonIcon from '@mui/icons-material/Person'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
+import { acceptableTaskKinds } from '@night/shared'
 import { useState } from 'react'
+import { useAppData } from '../AppContext.tsx'
 import { relativeTime } from '../time.ts'
 import {
 	reviewWaitState,
+	type MemberSnapshot,
 	type ReviewJobsSummary,
 	type TaskKind,
 	type TaskRecord,
@@ -235,6 +238,7 @@ function TasksTable({
 	const [retryingId, setRetryingId] = useState<string | null>(null)
 	const [retryError, setRetryError] = useState<string | null>(null)
 	const tokensByTask = useTaskTokens()
+	const { members } = useAppData()
 	if (tasks.length === 0) {
 		return (
 			<Box
@@ -339,6 +343,9 @@ function TasksTable({
 									/>
 									{t.status === 'in-review' ? (
 										<ReviewWaitBadge jobs={t.reviewJobs} />
+									) : null}
+									{isQueueBlockedByRepo(t, members) ? (
+										<QueueBlockedByRepoBadge repo={t.repo!} />
 									) : null}
 								</Stack>
 							</TableCell>
@@ -664,6 +671,54 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
 		default:
 			return 'default'
 	}
+}
+
+/**
+ * Is this queued task stuck because no skill-matching, online member has the
+ * repo in its allowlist? Returns false for non-queued tasks, repo-less tasks,
+ * and when at least one matching member already covers the repo (the task is
+ * just waiting for them to free up — that's normal queue behaviour, not a
+ * stuck dispatch). Also returns false when no matching member has the skill
+ * at all — that's a different kind of misconfiguration the chip would
+ * incorrectly attribute to repo coverage.
+ */
+function isQueueBlockedByRepo(task: TaskRecord, members: MemberSnapshot[]): boolean {
+	if (task.status !== 'queued') return false
+	if (!task.repo) return false
+	const live = members.filter((m) => m.status !== 'offline')
+	const skillMatched = live.filter((m) => acceptableTaskKinds(m.skills).includes(task.kind))
+	if (skillMatched.length === 0) return false
+	const repo = task.repo
+	return !skillMatched.some((m) => m.repos === null || m.repos.includes(repo))
+}
+
+function QueueBlockedByRepoBadge({ repo }: { repo: string }) {
+	const [owner, name] = repo.split('/', 2)
+	const chip = (
+		<Chip
+			icon={<WarningAmberIcon />}
+			label="no member covers repo"
+			size="small"
+			color="warning"
+			variant="filled"
+			sx={{ fontWeight: 500 }}
+		/>
+	)
+	const tooltip = `No online, skill-matching member has ${repo} in its allowlist. Dispatch is blocked until somebody refreshes or gains push access. Click to open the repo detail.`
+	if (owner && name) {
+		return (
+			<Tooltip title={tooltip}>
+				<RouterLink
+					to="/repos/$owner/$name"
+					params={{ owner, name }}
+					style={{ textDecoration: 'none' }}
+				>
+					{chip}
+				</RouterLink>
+			</Tooltip>
+		)
+	}
+	return <Tooltip title={tooltip}>{chip}</Tooltip>
 }
 
 /**
