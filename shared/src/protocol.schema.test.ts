@@ -104,4 +104,36 @@ describe('parseHouseholdToMember', () => {
 	it('accepts ping', () => {
 		expect(parseHouseholdToMember('{"type":"ping"}').ok).toBe(true)
 	})
+
+	it('accepts repos.refresh (3.1.0)', () => {
+		expect(parseHouseholdToMember('{"type":"repos.refresh"}').ok).toBe(true)
+	})
+})
+
+describe('parseMemberToHousehold: member.repos', () => {
+	it('accepts member.repos with a list', () => {
+		const out = parseMemberToHousehold(
+			JSON.stringify({ type: 'member.repos', repos: ['o/a', 'o/b'] }),
+		)
+		expect(out.ok).toBe(true)
+		if (out.ok && out.msg.type === 'member.repos') {
+			expect(out.msg.repos).toEqual(['o/a', 'o/b'])
+		}
+	})
+
+	it('accepts member.repos with empty array', () => {
+		const out = parseMemberToHousehold(JSON.stringify({ type: 'member.repos', repos: [] }))
+		expect(out.ok).toBe(true)
+	})
+
+	it('rejects member.repos missing repos field', () => {
+		expect(parseMemberToHousehold('{"type":"member.repos"}').ok).toBe(false)
+	})
+
+	it('rejects member.repos with non-string entries', () => {
+		const out = parseMemberToHousehold(
+			JSON.stringify({ type: 'member.repos', repos: ['o/a', 42] }),
+		)
+		expect(out.ok).toBe(false)
+	})
 })

@@ -155,7 +155,7 @@ export async function fetchGithubIdentity(pat: string): Promise<GithubIdentity> 
  * surfaces this list as suggestions only; the actual push attempt at
  * task time is the final source of truth.
  */
-async function fetchAccessibleRepos(pat: string): Promise<string[]> {
+export async function fetchAccessibleRepos(pat: string): Promise<string[]> {
 	const PER_PAGE = 100
 	const MAX_PAGES = 10 // 1000 repos cap; way past realistic Night Family setups
 	const all: string[] = []

@@ -100,8 +100,12 @@ const dispatcher = new Dispatcher({
 // Schedule edges (and override expirations) need to wake the dispatcher so a
 // Member that was idle through the day picks up `implement` work as soon as
 // the night window opens — without it, the Member would sit idle until the
-// next external event happened to fire.
+// next external event happened to fire. Day↔night is also a natural moment
+// to ask the Member to re-fetch its accessible repos: new collaborator
+// invites granted during the day land before the first night-time `implement`
+// dispatch attempt, so the allowlist is fresh by the time it matters.
 registry.setOnScheduleTick((sessionId) => {
+	dispatcher.requestReposRefreshForSession(sessionId, 'schedule_edge')
 	const member = registry.list().find((m) => m.sessionId === sessionId)
 	if (member && member.status === 'idle') dispatcher.tryDispatchOne(member)
 })

@@ -138,6 +138,11 @@ const MsgHeartbeatSchema = v.object({
 
 const MsgPongSchema = v.object({ type: v.literal('pong') })
 
+const MsgMemberReposSchema = v.object({
+	type: v.literal('member.repos'),
+	repos: v.array(v.string()),
+})
+
 const MemberToHouseholdSchema = v.variant('type', [
 	MsgHandshakeSchema,
 	MsgMemberReadySchema,
@@ -148,6 +153,7 @@ const MemberToHouseholdSchema = v.variant('type', [
 	MsgEventSchema,
 	MsgHeartbeatSchema,
 	MsgPongSchema,
+	MsgMemberReposSchema,
 ])
 
 // ---------------- Household → Member ----------------
@@ -183,6 +189,8 @@ const MsgTaskCancelSchema = v.object({
 
 const MsgPingSchema = v.object({ type: v.literal('ping') })
 
+const MsgReposRefreshSchema = v.object({ type: v.literal('repos.refresh') })
+
 const HouseholdToMemberSchema = v.variant('type', [
 	MsgHandshakeAckSchema,
 	MsgHandshakeRejectSchema,
@@ -190,6 +198,7 @@ const HouseholdToMemberSchema = v.variant('type', [
 	MsgEventsReplayRequestSchema,
 	MsgTaskCancelSchema,
 	MsgPingSchema,
+	MsgReposRefreshSchema,
 ])
 
 // ---------------- Public API ----------------

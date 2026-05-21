@@ -764,3 +764,202 @@ describe('Dispatcher rebase routing', () => {
 		expect(sentTo(bSent)).toHaveLength(0)
 	})
 })
+
+describe('Dispatcher repos.refresh triggers', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+		vi.useFakeTimers({ now: new Date('2026-05-21T12:00:00Z') })
+	})
+	afterEach(() => {
+		rig.cleanup()
+		vi.useRealTimers()
+	})
+
+	const refreshCount = (fn: ReturnType<typeof vi.fn>) =>
+		fn.mock.calls
+			.map((c) => c[0] as { type?: string })
+			.filter((m) => m.type === 'repos.refresh').length
+
+	it('asks members to refresh when a queued task repo is outside every allowlist', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		rig.registry.add(
+			fakeMember({
+				memberName: 'a',
+				status: 'idle',
+				send: aSent,
+				skills: ['triage'],
+				repos: ['o/old'],
+			}),
+		)
+		rig.registry.add(
+			fakeMember({
+				memberName: 'b',
+				status: 'idle',
+				send: bSent,
+				skills: ['triage'],
+				repos: ['o/older'],
+			}),
+		)
+		rig.taskStore.create({
+			kind: 'triage',
+			title: 't',
+			description: 'd',
+			repo: 'o/new',
+		})
+
+		rig.dispatcher.tryDispatchAll()
+
+		expect(refreshCount(aSent)).toBe(1)
+		expect(refreshCount(bSent)).toBe(1)
+	})
+
+	it('does not ask for refresh when at least one matching member already covers the repo', () => {
+		const aSent = vi.fn()
+		const bSent = vi.fn()
+		rig.registry.add(
+			fakeMember({
+				memberName: 'a',
+				status: 'busy', // covers o/new but busy — still counts, refresh would be wasted
+				send: aSent,
+				skills: ['triage'],
+				repos: ['o/new'],
+			}),
+		)
+		rig.registry.add(
+			fakeMember({
+				memberName: 'b',
+				status: 'idle',
+				send: bSent,
+				skills: ['triage'],
+				repos: ['o/other'],
+			}),
+		)
+		rig.taskStore.create({
+			kind: 'triage',
+			title: 't',
+			description: 'd',
+			repo: 'o/new',
+		})
+
+		rig.dispatcher.tryDispatchAll()
+
+		expect(refreshCount(aSent)).toBe(0)
+		expect(refreshCount(bSent)).toBe(0)
+	})
+
+	it('skips members with a null (unconstrained) allowlist — refresh would not change anything', () => {
+		const aSent = vi.fn()
+		rig.registry.add(
+			fakeMember({
+				memberName: 'a',
+				status: 'idle',
+				send: aSent,
+				skills: ['triage'],
+				repos: null,
+			}),
+		)
+		// Task has a repo but the unconstrained member already covers it, so a
+		// refresh trigger isn't even reached — but more importantly, an
+		// unconstrained member with a *constrained* peer also shouldn't be told
+		// to refresh.
+		const bSent = vi.fn()
+		rig.registry.add(
+			fakeMember({
+				memberName: 'b',
+				status: 'idle',
+				send: bSent,
+				skills: ['triage'],
+				repos: null,
+			}),
+		)
+		rig.taskStore.create({
+			kind: 'triage',
+			title: 't',
+			description: 'd',
+			repo: 'o/new',
+		})
+
+		rig.dispatcher.tryDispatchAll()
+
+		expect(refreshCount(aSent)).toBe(0)
+		expect(refreshCount(bSent)).toBe(0)
+	})
+
+	it('throttles repeated refresh asks to the same session', () => {
+		const aSent = vi.fn()
+		rig.registry.add(
+			fakeMember({
+				memberName: 'a',
+				status: 'idle',
+				send: aSent,
+				skills: ['triage'],
+				repos: ['o/old'],
+			}),
+		)
+		rig.taskStore.create({
+			kind: 'triage',
+			title: 't',
+			description: 'd',
+			repo: 'o/new',
+		})
+
+		rig.dispatcher.tryDispatchAll()
+		// Step past the 5s global scan throttle but inside the 30s per-session one.
+		vi.advanceTimersByTime(6_000)
+		rig.dispatcher.tryDispatchAll()
+
+		expect(refreshCount(aSent)).toBe(1)
+
+		// Step past the 30s per-session throttle.
+		vi.advanceTimersByTime(30_000)
+		rig.dispatcher.tryDispatchAll()
+		expect(refreshCount(aSent)).toBe(2)
+	})
+
+	it('requestReposRefreshForSession pushes regardless of throttle (used by schedule edges)', () => {
+		const aSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			skills: ['triage'],
+			repos: ['o/old'],
+		})
+		rig.registry.add(a)
+
+		rig.dispatcher.requestReposRefreshForSession(a.sessionId, 'schedule_edge')
+		rig.dispatcher.requestReposRefreshForSession(a.sessionId, 'schedule_edge')
+
+		expect(refreshCount(aSent)).toBe(2)
+	})
+
+	it('after member.repos arrives via registry, dispatcher claims the now-coverable task', () => {
+		const aSent = vi.fn()
+		const a = fakeMember({
+			memberName: 'a',
+			status: 'idle',
+			send: aSent,
+			skills: ['triage'],
+			repos: ['o/old'],
+		})
+		rig.registry.add(a)
+		const task = rig.taskStore.create({
+			kind: 'triage',
+			title: 't',
+			description: 'd',
+			repo: 'o/new',
+		})
+
+		// Simulate the WS handler path: refreshed repos arrive, registry updates,
+		// dispatcher kicks the one member.
+		rig.registry.updateRepos(a.sessionId, ['o/old', 'o/new'])
+		const refreshedSnap = rig.registry.list().find((m) => m.sessionId === a.sessionId)!
+		rig.dispatcher.tryDispatchOne(refreshedSnap)
+
+		const claimed = rig.taskStore.get(task.id)!
+		expect(claimed.status).toBe('assigned')
+		expect(claimed.assignedMemberId).toBe(a.memberId)
+	})
+})

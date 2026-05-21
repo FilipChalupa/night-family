@@ -38,6 +38,22 @@ const RETRY_BACKOFFS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const
 const DEFAULT_MAX_REVIEW_JOBS_PER_TASK = 2
 const DEFAULT_SELF_REVIEW_FALLBACK_MS = 10 * 60_000
 
+/**
+ * Smallest interval between two `repos.refresh` pushes to the same session.
+ * Keeps us from hammering a Member's PAT against GitHub's secondary rate
+ * limits when a burst of dispatch attempts all rediscover the same stale
+ * allowlist; long enough for one round-trip to land and update the cache.
+ */
+const REPOS_REFRESH_PER_SESSION_THROTTLE_MS = 30_000
+
+/**
+ * Smallest interval between two stale-allowlist scans across the whole fleet.
+ * `tryDispatchAll` runs on every member.ready / task transition, so the scan
+ * itself is throttled; the per-session throttle above only kicks in when the
+ * scan does decide to send.
+ */
+const STALE_ALLOWLIST_SCAN_THROTTLE_MS = 5_000
+
 export interface DispatcherDeps {
 	taskStore: TaskStore
 	jobStore: TaskJobStore
@@ -74,6 +90,8 @@ export class Dispatcher {
 	private readonly selfReviewWakeups = new Map<string, NodeJS.Timeout>()
 	private readonly maxReviewJobsPerTask: number
 	private readonly selfReviewFallbackMs: number
+	private readonly lastReposRefreshBySession = new Map<string, number>()
+	private lastStaleAllowlistScan = 0
 
 	constructor(private readonly deps: DispatcherDeps) {
 		this.maxReviewJobsPerTask = deps.maxReviewJobsPerTask ?? DEFAULT_MAX_REVIEW_JOBS_PER_TASK
@@ -110,6 +128,82 @@ export class Dispatcher {
 		const ordered = [...idle.filter((m) => preferredMemberIds.has(m.memberId)), ...nonPreferred]
 		for (const member of ordered) {
 			this.tryDispatchOne(member)
+		}
+		this.maybeRequestReposRefreshForStaleAllowlists()
+	}
+
+	/**
+	 * Push `repos.refresh` to a single session, ignoring the per-session
+	 * throttle (callers — e.g. day↔night schedule edges — are themselves rare
+	 * enough that throttling here would just suppress the rare useful trigger).
+	 * Bookkeeping is still updated so a follow-up undeliverable-task scan
+	 * doesn't immediately re-ping the same session.
+	 */
+	requestReposRefreshForSession(sessionId: string, reason: string): void {
+		const conn = this.deps.registry.get(sessionId)
+		if (!conn) return
+		conn.send({ type: 'repos.refresh' })
+		this.lastReposRefreshBySession.set(sessionId, Date.now())
+		this.deps.logger.debug(
+			{ sessionId, member: conn.memberName, reason },
+			'requested repos refresh',
+		)
+	}
+
+	/**
+	 * Scan currently queued tasks. For any task whose `repo` is not in *any*
+	 * skill-matching member's allowlist (and at least one such member exists
+	 * with a non-null allowlist — i.e. their list could plausibly be stale),
+	 * ask those members to refresh from GitHub.
+	 *
+	 * This is what makes "user adds a new collaborator with push" land without
+	 * a Member restart: the next queued task for that repo can't be claimed,
+	 * the scan notices the allowlist mismatch, refresh fires, Member pushes
+	 * `member.repos`, and `tryDispatchOne` picks the task up.
+	 *
+	 * Throttled both globally (so the scan doesn't run on every member.ready)
+	 * and per session (so the same Member isn't repeatedly nagged).
+	 */
+	private maybeRequestReposRefreshForStaleAllowlists(now: number = Date.now()): void {
+		if (now - this.lastStaleAllowlistScan < STALE_ALLOWLIST_SCAN_THROTTLE_MS) return
+		this.lastStaleAllowlistScan = now
+
+		const queued = this.deps.taskStore.list({ status: ['queued'] })
+		if (queued.length === 0) return
+
+		const members = this.deps.registry.list()
+		if (members.length === 0) return
+
+		const handled = new Set<string>()
+		for (const task of queued) {
+			if (!task.repo) continue
+			const repo = task.repo
+			const skillMatched = members.filter((m) =>
+				acceptableTaskKinds(m.skills).includes(task.kind),
+			)
+			if (skillMatched.length === 0) continue
+			const anyCovers = skillMatched.some((m) => !m.repos || m.repos.includes(repo))
+			if (anyCovers) continue
+			for (const m of skillMatched) {
+				if (!m.repos) continue // unconstrained — refresh wouldn't change anything
+				if (handled.has(m.sessionId)) continue
+				const last = this.lastReposRefreshBySession.get(m.sessionId) ?? 0
+				if (now - last < REPOS_REFRESH_PER_SESSION_THROTTLE_MS) continue
+				const conn = this.deps.registry.get(m.sessionId)
+				if (!conn) continue
+				conn.send({ type: 'repos.refresh' })
+				this.lastReposRefreshBySession.set(m.sessionId, now)
+				handled.add(m.sessionId)
+				this.deps.logger.info(
+					{
+						sessionId: m.sessionId,
+						member: m.memberName,
+						taskRepo: repo,
+						taskId: task.id,
+					},
+					'requested repos refresh (queued task repo missing from allowlist)',
+				)
+			}
 		}
 	}
 
@@ -333,6 +427,7 @@ export class Dispatcher {
 	}
 
 	onMemberDisconnected(sessionId: string): void {
+		this.lastReposRefreshBySession.delete(sessionId)
 		// Return owned tasks to queue.
 		const ownedTasks = this.deps.taskStore
 			.list({ status: ['assigned', 'in-progress'] })
@@ -379,6 +474,7 @@ export class Dispatcher {
 		newAssignment: { sessionId: string; memberId: string },
 		retainedTaskIds: ReadonlySet<string>,
 	): void {
+		this.lastReposRefreshBySession.delete(oldSessionId)
 		const ownedTasks = this.deps.taskStore
 			.list({ status: ['assigned', 'in-progress'] })
 			.filter((t) => t.assignedSessionId === oldSessionId)

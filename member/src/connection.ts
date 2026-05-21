@@ -16,7 +16,7 @@ import {
 	type ResumeRef,
 } from '@night/shared'
 import type { Logger } from 'pino'
-import type { MemberConfig } from './config.ts'
+import { fetchAccessibleRepos, type MemberConfig } from './config.ts'
 import type { TaskRunner } from './tasks/runner.ts'
 import { EventBuffer, eventFilePath } from './tasks/eventBuffer.ts'
 
@@ -24,6 +24,12 @@ interface State {
 	status: MemberStatus
 	currentTask: string | null
 	lastServerActivity: number
+	/**
+	 * Last in-flight `repos.refresh` we kicked off. Used to coalesce repeated
+	 * Household requests — a refresh already running just gets its result
+	 * shared instead of opening a second concurrent /user/repos fetch.
+	 */
+	refreshingRepos: Promise<void> | null
 }
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
@@ -41,6 +47,7 @@ export class HouseholdConnection {
 		status: 'idle',
 		currentTask: null,
 		lastServerActivity: Date.now(),
+		refreshingRepos: null,
 	}
 
 	constructor(
@@ -214,11 +221,42 @@ export class HouseholdConnection {
 			case 'events.replay_request':
 				await this.replayEvents(msg.task_id, msg.from_seq)
 				break
+			case 'repos.refresh':
+				void this.refreshRepos()
+				break
 			default: {
 				const _exhaustive: never = msg
 				void _exhaustive
 			}
 		}
+	}
+
+	/**
+	 * Re-fetch the accessible-repos list from GitHub and push the result up
+	 * via `member.repos`. Coalesces overlapping refresh requests so a burst
+	 * of `repos.refresh` only does a single API round-trip. Updates
+	 * `config.repos` in-place so a subsequent reconnect's handshake carries
+	 * the fresh list too.
+	 */
+	private refreshRepos(): Promise<void> {
+		if (this.state.refreshingRepos) return this.state.refreshingRepos
+		const run = (async () => {
+			try {
+				const repos = await fetchAccessibleRepos(this.config.githubPat)
+				this.config.repos = repos
+				const sent = this.send({ type: 'member.repos', repos })
+				this.logger.info(
+					{ count: repos.length, sent },
+					'refreshed accessible repos from github',
+				)
+			} catch (err) {
+				this.logger.warn({ err }, 'repos.refresh failed; keeping cached list')
+			} finally {
+				this.state.refreshingRepos = null
+			}
+		})()
+		this.state.refreshingRepos = run
+		return run
 	}
 
 	private startTaskRun(task: AssignedTask): void {

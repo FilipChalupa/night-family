@@ -297,6 +297,20 @@ function routeMemberMessage(
 		case 'member.busy':
 			deps.registry.updateStatus(session.sessionId, 'busy', msg.task_id)
 			break
+		case 'member.repos': {
+			const changed = deps.registry.updateRepos(session.sessionId, msg.repos)
+			if (!changed) break
+			deps.logger.info(
+				{ sessionId: session.sessionId, count: msg.repos.length },
+				'received refreshed repos from member',
+			)
+			// New repos may unblock queued tasks that were skipped because the
+			// task's repo wasn't in the old allowlist. Kick a single-member
+			// dispatch attempt (idle-only inside) to avoid a full sweep.
+			const member = deps.registry.list().find((m) => m.sessionId === session.sessionId)
+			if (member) deps.dispatcher.tryDispatchOne(member)
+			break
+		}
 		case 'task.ack':
 			deps.dispatcher.onAck(msg.task_id)
 			break

@@ -234,6 +234,26 @@ export class MemberRegistry {
 	}
 
 	/**
+	 * Replace a session's cached repos allowlist with a fresh list pushed by
+	 * the Member (`member.repos`). The handshake-time list is just a snapshot,
+	 * so this lets a long-lived Member pick up newly granted repos without a
+	 * full reconnect. Emits `member.updated` so the UI and any listening
+	 * dispatcher see the change.
+	 */
+	updateRepos(sessionId: string, repos: string[]): boolean {
+		const m = this.bySession.get(sessionId)
+		if (!m) return false
+		m.repos = repos
+		m.lastHeartbeat = new Date()
+		this.persistence?.updateRepos(m.memberId, repos)
+		this.emitter.emit('event', {
+			type: 'member.updated',
+			member: snapshotConnected(m),
+		} satisfies RegistryEvent)
+		return true
+	}
+
+	/**
 	 * Set or clear an admin override for the given memberId. Affects every
 	 * connected session for that member (a Member with multiple WS sessions
 	 * for the same id is rare, but still possible during a fast reconnect).

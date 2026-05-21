@@ -87,6 +87,19 @@ export class MemberStateStore {
 		this.db.update(members).set({ lastSeenAt: at }).where(eq(members.memberId, memberId)).run()
 	}
 
+	/**
+	 * Replace the persisted repos allowlist for a member. Used when a live
+	 * session pushes a refreshed list via `member.repos` so the offline
+	 * snapshot the UI shows after disconnect doesn't roll back to a stale set.
+	 */
+	updateRepos(memberId: string, repos: string[], at: Date = new Date()): void {
+		this.db
+			.update(members)
+			.set({ repos: JSON.stringify(repos), lastSeenAt: at })
+			.where(eq(members.memberId, memberId))
+			.run()
+	}
+
 	markDisconnected(memberId: string, at: Date = new Date()): void {
 		this.db
 			.update(members)

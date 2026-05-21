@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '3.0.0'
+export const PROTOCOL_VERSION = '3.1.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -245,6 +245,16 @@ export interface MsgPong {
 	type: 'pong'
 }
 
+/**
+ * Pushed by the Member after refreshing its accessible-repos list, either on
+ * its own or in response to a Household-initiated `repos.refresh`. Replaces
+ * the `repos` allowlist Household cached at handshake. New in protocol 3.1.0.
+ */
+export interface MsgMemberRepos {
+	type: 'member.repos'
+	repos: string[]
+}
+
 export type MemberToHousehold =
 	| MsgHandshake
 	| MsgMemberReady
@@ -255,6 +265,7 @@ export type MemberToHousehold =
 	| MsgEvent
 	| MsgHeartbeat
 	| MsgPong
+	| MsgMemberRepos
 
 // ---------------- Household → Member ----------------
 
@@ -291,6 +302,18 @@ export interface MsgPing {
 	type: 'ping'
 }
 
+/**
+ * Asks the Member to re-fetch its accessible-repos list from GitHub and reply
+ * with `member.repos`. Used when Household notices the cached allowlist may
+ * be stale — e.g. a new task arrived for a repo no idle member can claim, or
+ * the Member's day/night schedule edge just fired. The Member is free to
+ * coalesce repeated requests; Household throttles its end as well.
+ * New in protocol 3.1.0.
+ */
+export interface MsgReposRefresh {
+	type: 'repos.refresh'
+}
+
 export type HouseholdToMember =
 	| MsgHandshakeAck
 	| MsgHandshakeReject
@@ -298,6 +321,7 @@ export type HouseholdToMember =
 	| MsgEventsReplayRequest
 	| MsgTaskCancel
 	| MsgPing
+	| MsgReposRefresh
 
 // ---------------- Helpers ----------------
 
