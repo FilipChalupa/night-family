@@ -255,6 +255,31 @@ export interface MsgMemberRepos {
 	repos: string[]
 }
 
+/**
+ * Reason tag carried on `repos.refresh` (Household→Member) and `repos.error`
+ * (Member→Household). Free-form by design: new triggers can be added without
+ * a protocol bump because both ends treat unknown values as opaque strings.
+ * Conventional values:
+ *   - `schedule_edge` — day↔night transition just fired
+ *   - `queue_mismatch` — queued task's repo missing from current allowlist
+ *   - `manual` — admin/UI button
+ *   - `periodic` — Member-side safety-net interval
+ *   - `startup` — Member just connected and is refreshing proactively
+ */
+export type ReposRefreshReason = string
+
+/**
+ * Member-reported failure of an attempted refresh — surfaces so Household can
+ * log/expose "PAT was revoked" / "GitHub rate-limited us" without inferring
+ * silence as success. The Member keeps its previous cached list; this is
+ * purely informational. New in protocol 3.1.0.
+ */
+export interface MsgMemberReposError {
+	type: 'member.repos_error'
+	reason: ReposRefreshReason
+	error: string
+}
+
 export type MemberToHousehold =
 	| MsgHandshake
 	| MsgMemberReady
@@ -266,6 +291,7 @@ export type MemberToHousehold =
 	| MsgHeartbeat
 	| MsgPong
 	| MsgMemberRepos
+	| MsgMemberReposError
 
 // ---------------- Household → Member ----------------
 
@@ -308,10 +334,13 @@ export interface MsgPing {
  * be stale — e.g. a new task arrived for a repo no idle member can claim, or
  * the Member's day/night schedule edge just fired. The Member is free to
  * coalesce repeated requests; Household throttles its end as well.
- * New in protocol 3.1.0.
+ *
+ * `reason` is opaque to the wire — see {@link ReposRefreshReason} for the
+ * conventional tags. New in protocol 3.1.0.
  */
 export interface MsgReposRefresh {
 	type: 'repos.refresh'
+	reason: ReposRefreshReason
 }
 
 export type HouseholdToMember =

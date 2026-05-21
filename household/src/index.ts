@@ -233,6 +233,25 @@ app.post('/api/members/:memberId/override', async (c) => {
 	return c.json({ ok: true, expires_at: expiresAt.toISOString(), sessions: updated })
 })
 
+/**
+ * Manually ask a Member to re-fetch its accessible-repos list from GitHub.
+ * Pushes `repos.refresh` to every live session for the member; the Member
+ * replies with `member.repos` (or `member.repos_error`) which updates the
+ * cached allowlist asynchronously. Returns the count of sessions pinged so
+ * the UI can render "asked N sessions to refresh" feedback.
+ */
+app.post('/api/members/:memberId/refresh-repos', (c) => {
+	const guardResult = guard.requireAdmin(c)
+	if (guardResult) return guardResult
+	const memberId = c.req.param('memberId')
+	const sessions = registry.findByMemberId(memberId)
+	if (sessions.length === 0) return c.json({ error: 'member_offline' }, 409)
+	for (const s of sessions) {
+		dispatcher.requestReposRefreshForSession(s.sessionId, 'manual')
+	}
+	return c.json({ ok: true, sessions: sessions.length })
+})
+
 mountWhoAmI(app, {
 	sessions: sessionStore,
 	oauthConfigured: !!config.githubOauth,

@@ -311,6 +311,12 @@ function routeMemberMessage(
 			if (member) deps.dispatcher.tryDispatchOne(member)
 			break
 		}
+		case 'member.repos_error':
+			deps.logger.warn(
+				{ sessionId: session.sessionId, reason: msg.reason, error: msg.error },
+				'member failed to refresh accessible repos',
+			)
+			break
 		case 'task.ack':
 			deps.dispatcher.onAck(msg.task_id)
 			break

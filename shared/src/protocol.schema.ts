@@ -143,6 +143,12 @@ const MsgMemberReposSchema = v.object({
 	repos: v.array(v.string()),
 })
 
+const MsgMemberReposErrorSchema = v.object({
+	type: v.literal('member.repos_error'),
+	reason: v.string(),
+	error: v.string(),
+})
+
 const MemberToHouseholdSchema = v.variant('type', [
 	MsgHandshakeSchema,
 	MsgMemberReadySchema,
@@ -154,6 +160,7 @@ const MemberToHouseholdSchema = v.variant('type', [
 	MsgHeartbeatSchema,
 	MsgPongSchema,
 	MsgMemberReposSchema,
+	MsgMemberReposErrorSchema,
 ])
 
 // ---------------- Household → Member ----------------
@@ -189,7 +196,10 @@ const MsgTaskCancelSchema = v.object({
 
 const MsgPingSchema = v.object({ type: v.literal('ping') })
 
-const MsgReposRefreshSchema = v.object({ type: v.literal('repos.refresh') })
+const MsgReposRefreshSchema = v.object({
+	type: v.literal('repos.refresh'),
+	reason: v.string(),
+})
 
 const HouseholdToMemberSchema = v.variant('type', [
 	MsgHandshakeAckSchema,

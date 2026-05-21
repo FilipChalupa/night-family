@@ -105,8 +105,14 @@ describe('parseHouseholdToMember', () => {
 		expect(parseHouseholdToMember('{"type":"ping"}').ok).toBe(true)
 	})
 
-	it('accepts repos.refresh (3.1.0)', () => {
-		expect(parseHouseholdToMember('{"type":"repos.refresh"}').ok).toBe(true)
+	it('accepts repos.refresh with reason (3.1.0)', () => {
+		expect(parseHouseholdToMember('{"type":"repos.refresh","reason":"schedule_edge"}').ok).toBe(
+			true,
+		)
+	})
+
+	it('rejects repos.refresh missing reason', () => {
+		expect(parseHouseholdToMember('{"type":"repos.refresh"}').ok).toBe(false)
 	})
 })
 
@@ -135,5 +141,21 @@ describe('parseMemberToHousehold: member.repos', () => {
 			JSON.stringify({ type: 'member.repos', repos: ['o/a', 42] }),
 		)
 		expect(out.ok).toBe(false)
+	})
+
+	it('accepts member.repos_error with reason and error', () => {
+		const out = parseMemberToHousehold(
+			JSON.stringify({
+				type: 'member.repos_error',
+				reason: 'periodic',
+				error: 'rate_limited',
+			}),
+		)
+		expect(out.ok).toBe(true)
+	})
+
+	it('rejects member.repos_error missing fields', () => {
+		expect(parseMemberToHousehold('{"type":"member.repos_error"}').ok).toBe(false)
+		expect(parseMemberToHousehold('{"type":"member.repos_error","reason":"x"}').ok).toBe(false)
 	})
 })

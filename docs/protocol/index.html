@@ -196,6 +196,43 @@
 			</p>
 
 			<section class="entry">
+				<h2>3.1.0</h2>
+				<p>
+					Refresh-on-demand for the Member's accessible-repos allowlist — Household can
+					now ask a Member to re-fetch <code>/user/repos</code> mid-session, and Members
+					report failures back. Lets newly-granted collaborator access land without a
+					Member restart.
+				</p>
+				<ul>
+					<li>
+						Added <code>repos.refresh</code> (Household → Member). Carries an opaque
+						<code>reason</code> string for diagnostics (conventional values:
+						<code>schedule_edge</code>, <code>queue_mismatch</code>,
+						<code>manual</code>, <code>periodic</code>, <code>startup</code>). Household
+						pushes this on three triggers: day↔night schedule edges, queued tasks whose
+						repo isn't in any member's allowlist, and the
+						<code>POST /api/members/:id/refresh-repos</code> admin endpoint.
+					</li>
+					<li>
+						Added <code>member.repos</code> (Member → Household). Replaces the
+						handshake-time <code>repos</code> cache with the just-fetched list;
+						Household persists and re-dispatches against queued tasks immediately.
+					</li>
+					<li>
+						Added <code>member.repos_error</code> (Member → Household). Reports a
+						refresh failure (PAT revoked, GitHub rate limit, etc.) so the previous list
+						is kept and the operator can see why. Carries the original
+						<code>reason</code> and the error message.
+					</li>
+					<li>
+						Members run a slow safety-net refresh every 6 hours so a fleet with no
+						schedule edges and no incoming tasks still picks up permission changes
+						eventually.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
 				<h2>3.0.0</h2>
 				<p>
 					Schedule evaluation moves to Household; <code>estimate</code> removed;
@@ -205,8 +242,8 @@
 				<ul>
 					<li>
 						<code>handshake.schedule</code> (required) — Members ship their full
-						<code>Schedule</code> (<code>timezone</code> + <code>nightWindows[]</code>) on
-						connect. Household evaluates the schedule per-session and gates dispatch
+						<code>Schedule</code> (<code>timezone</code> + <code>nightWindows[]</code>)
+						on connect. Household evaluates the schedule per-session and gates dispatch
 						accordingly. Members no longer run a local <code>ScheduleController</code>.
 					</li>
 					<li>
@@ -220,10 +257,10 @@
 						the Member doesn't need to know.
 					</li>
 					<li>
-						Removed <code>estimate</code> from <code>Skill</code> and <code>TaskKind</code
-						>; removed <code>estimating</code> from <code>TaskStatus</code>. Triage's
-						plan output already carries the size estimate, so the standalone estimate
-						step is gone for good.
+						Removed <code>estimate</code> from <code>Skill</code> and
+						<code>TaskKind</code>; removed <code>estimating</code> from
+						<code>TaskStatus</code>. Triage's plan output already carries the size
+						estimate, so the standalone estimate step is gone for good.
 					</li>
 					<li>
 						Added <code>rebase</code> to <code>TaskKind</code> (not a new

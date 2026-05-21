@@ -34,6 +34,15 @@ interface State {
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
 
+/**
+ * Member-side safety-net interval for refreshing the accessible-repos list.
+ * Household already triggers a refresh on schedule edges and on queued-task
+ * allowlist mismatches; this is a slow heartbeat that covers the case where
+ * neither of those happens (e.g. small fleet, no day↔night transitions, no
+ * new tasks land for a long stretch but PAT permissions did change).
+ */
+const REPOS_PERIODIC_REFRESH_MS = 6 * 60 * 60 * 1000
+
 export interface ConnectionDeps {
 	taskRunner: TaskRunner
 }
@@ -42,7 +51,16 @@ export class HouseholdConnection {
 	private ws: WebSocket | null = null
 	private heartbeatTimer: NodeJS.Timeout | null = null
 	private watchdogTimer: NodeJS.Timeout | null = null
+	private reposRefreshTimer: NodeJS.Timeout | null = null
 	private shuttingDown = false
+	/**
+	 * Live mirror of the Member's accessible-repos list. Seeded from
+	 * `config.repos` at construction; refreshed in place by
+	 * {@link refreshRepos} so the next handshake (and the next `repos.refresh`
+	 * reply) reflects the most recent GitHub view without mutating the
+	 * immutable startup config.
+	 */
+	private currentRepos: string[]
 	private readonly state: State = {
 		status: 'idle',
 		currentTask: null,
@@ -54,7 +72,9 @@ export class HouseholdConnection {
 		private readonly config: MemberConfig,
 		private readonly logger: Logger,
 		private readonly deps: ConnectionDeps,
-	) {}
+	) {
+		this.currentRepos = [...config.repos]
+	}
 
 	async run(): Promise<void> {
 		let attempt = 0
@@ -162,7 +182,7 @@ export class HouseholdConnection {
 			provider: this.config.provider,
 			model: this.config.model,
 			worker_profile: this.config.workerProfile,
-			repos: this.config.repos,
+			repos: [...this.currentRepos],
 			...(resumes.length > 0 ? { resumes } : {}),
 			...(this.config.limits.maxTokensPerDay !== null
 				? { max_tokens_per_day: this.config.limits.maxTokensPerDay }
@@ -222,7 +242,7 @@ export class HouseholdConnection {
 				await this.replayEvents(msg.task_id, msg.from_seq)
 				break
 			case 'repos.refresh':
-				void this.refreshRepos()
+				void this.refreshRepos(msg.reason)
 				break
 			default: {
 				const _exhaustive: never = msg
@@ -234,23 +254,26 @@ export class HouseholdConnection {
 	/**
 	 * Re-fetch the accessible-repos list from GitHub and push the result up
 	 * via `member.repos`. Coalesces overlapping refresh requests so a burst
-	 * of `repos.refresh` only does a single API round-trip. Updates
-	 * `config.repos` in-place so a subsequent reconnect's handshake carries
-	 * the fresh list too.
+	 * of `repos.refresh` only does a single API round-trip. Updates the
+	 * in-memory mirror so a subsequent reconnect's handshake carries the
+	 * fresh list too. On failure, emits `member.repos_error` (the previous
+	 * list is preserved — refresh is informational, not destructive).
 	 */
-	private refreshRepos(): Promise<void> {
+	private refreshRepos(reason: string): Promise<void> {
 		if (this.state.refreshingRepos) return this.state.refreshingRepos
 		const run = (async () => {
 			try {
 				const repos = await fetchAccessibleRepos(this.config.githubPat)
-				this.config.repos = repos
+				this.currentRepos = repos
 				const sent = this.send({ type: 'member.repos', repos })
 				this.logger.info(
-					{ count: repos.length, sent },
+					{ count: repos.length, reason, sent },
 					'refreshed accessible repos from github',
 				)
 			} catch (err) {
-				this.logger.warn({ err }, 'repos.refresh failed; keeping cached list')
+				const message = err instanceof Error ? err.message : String(err)
+				this.logger.warn({ err, reason }, 'repos.refresh failed; keeping cached list')
+				this.send({ type: 'member.repos_error', reason, error: message })
 			} finally {
 				this.state.refreshingRepos = null
 			}
@@ -342,6 +365,10 @@ export class HouseholdConnection {
 				this.ws?.close(4408, 'household_silent')
 			}
 		}, HEARTBEAT_INTERVAL_MS)
+
+		this.reposRefreshTimer = setInterval(() => {
+			void this.refreshRepos('periodic')
+		}, REPOS_PERIODIC_REFRESH_MS)
 	}
 
 	private clearTimers(): void {
@@ -352,6 +379,10 @@ export class HouseholdConnection {
 		if (this.watchdogTimer) {
 			clearInterval(this.watchdogTimer)
 			this.watchdogTimer = null
+		}
+		if (this.reposRefreshTimer) {
+			clearInterval(this.reposRefreshTimer)
+			this.reposRefreshTimer = null
 		}
 	}
 }

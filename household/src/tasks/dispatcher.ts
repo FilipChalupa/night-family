@@ -142,7 +142,7 @@ export class Dispatcher {
 	requestReposRefreshForSession(sessionId: string, reason: string): void {
 		const conn = this.deps.registry.get(sessionId)
 		if (!conn) return
-		conn.send({ type: 'repos.refresh' })
+		conn.send({ type: 'repos.refresh', reason })
 		this.lastReposRefreshBySession.set(sessionId, Date.now())
 		this.deps.logger.debug(
 			{ sessionId, member: conn.memberName, reason },
@@ -191,7 +191,7 @@ export class Dispatcher {
 				if (now - last < REPOS_REFRESH_PER_SESSION_THROTTLE_MS) continue
 				const conn = this.deps.registry.get(m.sessionId)
 				if (!conn) continue
-				conn.send({ type: 'repos.refresh' })
+				conn.send({ type: 'repos.refresh', reason: 'queue_mismatch' })
 				this.lastReposRefreshBySession.set(m.sessionId, now)
 				handled.add(m.sessionId)
 				this.deps.logger.info(

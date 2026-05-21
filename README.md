@@ -152,6 +152,10 @@ Lookup chain (first hit wins): `SCHEDULE_FILE` env, `/etc/night-family/schedule.
 
 Admins can also push a temporary override ("Implement-only for the next 2h") from the Member detail page in the dashboard; it expires automatically.
 
+## Member repo allowlist
+
+A Member only works on repos its PAT can push to — at startup it pulls `/user/repos` (filtered by `permissions.push`) and ships the list to Household, which uses it as the allowlist when dispatching repo-scoped tasks. Newly granted collaborator access doesn't require a Member restart: Household asks Members to re-fetch the list when (a) a day↔night schedule edge fires, (b) a queued task arrives for a repo no Member's allowlist covers, or (c) an admin clicks "Refresh repos" on the Members panel. Members also run a slow 6-hour safety-net refresh on their own. Failures are reported back (`member.repos_error`) and surface in the Household log; the previous list is kept until the next refresh succeeds.
+
 ## Repo layout
 
 ```
