@@ -239,6 +239,7 @@ function handleHandshake(
 		status: 'idle',
 		currentTask: null,
 		lastHeartbeat: now,
+		lastReposError: null,
 		send: (raw) => {
 			ws.send(typeof raw === 'string' ? raw : JSON.stringify(raw))
 		},
@@ -312,6 +313,7 @@ function routeMemberMessage(
 			break
 		}
 		case 'member.repos_error':
+			deps.registry.setReposError(session.sessionId, msg.reason, msg.error)
 			deps.logger.warn(
 				{ sessionId: session.sessionId, reason: msg.reason, error: msg.error },
 				'member failed to refresh accessible repos',

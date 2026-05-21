@@ -240,6 +240,9 @@ function rowToOfflineSnapshot(row: typeof members.$inferSelect): OfflineMemberSn
 		status: 'offline',
 		currentTask: null,
 		lastHeartbeat: row.lastSeenAt.toISOString(),
+		// Refresh failures are live-session state — once the WS drops, the
+		// error is no longer "current news". Don't persist it across reconnect.
+		lastReposError: null,
 	}
 }
 

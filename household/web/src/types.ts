@@ -40,6 +40,13 @@ export interface MemberSnapshot {
 	status: 'idle' | 'busy' | 'offline'
 	currentTask: string | null
 	lastHeartbeat: string
+	/**
+	 * Last accessible-repos refresh that failed on the live session, or
+	 * `null` if the last refresh succeeded (or none has happened yet).
+	 * Offline members always report `null` — refresh errors are live-session
+	 * state, not persisted across reconnect.
+	 */
+	lastReposError: { reason: string; error: string; at: string } | null
 }
 
 export interface ReviewJobsSummary {

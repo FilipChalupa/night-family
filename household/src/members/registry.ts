@@ -58,6 +58,12 @@ export interface ConnectedMember {
 	status: MemberStatus
 	currentTask: string | null
 	lastHeartbeat: Date
+	/**
+	 * Last failed accessible-repos refresh, if any. Set when the Member
+	 * pushes `member.repos_error`, cleared on the next successful
+	 * `member.repos`. Per-session live state; not persisted across reconnect.
+	 */
+	lastReposError: { reason: string; error: string; at: Date } | null
 	send: (msg: unknown) => void
 	close: (code?: number, reason?: string) => void
 }
@@ -106,6 +112,13 @@ export interface MemberSnapshot {
 	status: MemberSnapshotStatus
 	currentTask: string | null
 	lastHeartbeat: string
+	/**
+	 * Most recent `member.repos_error` payload, if the live session has any.
+	 * `null` for both clean sessions and offline members (whose live error
+	 * state went away with the session). Cleared on the next successful
+	 * refresh.
+	 */
+	lastReposError: { reason: string; error: string; at: string } | null
 }
 
 export type RegistryEvent =
@@ -145,6 +158,13 @@ function snapshotConnected(m: ConnectedMember, now: Date = new Date()): MemberSn
 		status: m.status,
 		currentTask: m.currentTask,
 		lastHeartbeat: m.lastHeartbeat.toISOString(),
+		lastReposError: m.lastReposError
+			? {
+					reason: m.lastReposError.reason,
+					error: m.lastReposError.error,
+					at: m.lastReposError.at.toISOString(),
+				}
+			: null,
 	}
 }
 
@@ -237,15 +257,36 @@ export class MemberRegistry {
 	 * Replace a session's cached repos allowlist with a fresh list pushed by
 	 * the Member (`member.repos`). The handshake-time list is just a snapshot,
 	 * so this lets a long-lived Member pick up newly granted repos without a
-	 * full reconnect. Emits `member.updated` so the UI and any listening
+	 * full reconnect. A successful update also clears any prior
+	 * `lastReposError` — fresh data means the previous failure is no longer
+	 * the latest news. Emits `member.updated` so the UI and any listening
 	 * dispatcher see the change.
 	 */
 	updateRepos(sessionId: string, repos: string[]): boolean {
 		const m = this.bySession.get(sessionId)
 		if (!m) return false
 		m.repos = repos
+		m.lastReposError = null
 		m.lastHeartbeat = new Date()
 		this.persistence?.updateRepos(m.memberId, repos)
+		this.emitter.emit('event', {
+			type: 'member.updated',
+			member: snapshotConnected(m),
+		} satisfies RegistryEvent)
+		return true
+	}
+
+	/**
+	 * Record that a Member-side accessible-repos refresh failed. Surfaces in
+	 * the snapshot so the dashboard can show "last refresh: rate_limited"
+	 * without scraping logs. Stays until the next successful
+	 * {@link updateRepos} call.
+	 */
+	setReposError(sessionId: string, reason: string, error: string): boolean {
+		const m = this.bySession.get(sessionId)
+		if (!m) return false
+		m.lastReposError = { reason, error, at: new Date() }
+		m.lastHeartbeat = new Date()
 		this.emitter.emit('event', {
 			type: 'member.updated',
 			member: snapshotConnected(m),

@@ -254,6 +254,7 @@ export function MembersPanel({
 									<RefreshReposButton
 										memberId={m.memberId}
 										disabled={m.status === 'offline'}
+										lastError={m.lastReposError}
 									/>
 								</TableCell>
 							) : null}
@@ -265,7 +266,15 @@ export function MembersPanel({
 	)
 }
 
-function RefreshReposButton({ memberId, disabled }: { memberId: string; disabled: boolean }) {
+function RefreshReposButton({
+	memberId,
+	disabled,
+	lastError,
+}: {
+	memberId: string
+	disabled: boolean
+	lastError: MemberSnapshot['lastReposError']
+}) {
 	const [pending, setPending] = useState(false)
 	const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null)
 	const click = async () => {
@@ -315,7 +324,23 @@ function RefreshReposButton({ memberId, disabled }: { memberId: string; disabled
 					{feedback.message}
 				</Typography>
 			) : null}
+			{lastError ? <LastReposErrorChip error={lastError} /> : null}
 		</Stack>
+	)
+}
+
+function LastReposErrorChip({ error }: { error: NonNullable<MemberSnapshot['lastReposError']> }) {
+	const tooltip = `Last repos refresh (${error.reason}) failed at ${error.at}: ${error.error}. The previous list is still in use; click Refresh repos to try again.`
+	return (
+		<Tooltip title={tooltip}>
+			<Chip
+				label={`Last refresh failed · ${error.reason}`}
+				size="small"
+				color="error"
+				variant="outlined"
+				sx={{ maxWidth: 240 }}
+			/>
+		</Tooltip>
 	)
 }
 

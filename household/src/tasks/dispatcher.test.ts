@@ -108,6 +108,7 @@ function fakeMember(opts: {
 		status: opts.status ?? 'idle',
 		currentTask: null,
 		lastHeartbeat: new Date(),
+		lastReposError: null,
 		send: opts.send ?? (() => {}),
 		close: () => {},
 	}
@@ -961,5 +962,20 @@ describe('Dispatcher repos.refresh triggers', () => {
 		const claimed = rig.taskStore.get(task.id)!
 		expect(claimed.status).toBe('assigned')
 		expect(claimed.assignedMemberId).toBe(a.memberId)
+	})
+
+	it('setReposError surfaces on snapshot and clears on successful updateRepos', () => {
+		const a = fakeMember({ memberName: 'a', skills: ['triage'], repos: ['o/old'] })
+		rig.registry.add(a)
+
+		rig.registry.setReposError(a.sessionId, 'periodic', 'rate_limited')
+		let snap = rig.registry.list().find((m) => m.sessionId === a.sessionId)!
+		expect(snap.lastReposError).not.toBeNull()
+		expect(snap.lastReposError?.reason).toBe('periodic')
+		expect(snap.lastReposError?.error).toBe('rate_limited')
+
+		rig.registry.updateRepos(a.sessionId, ['o/old', 'o/new'])
+		snap = rig.registry.list().find((m) => m.sessionId === a.sessionId)!
+		expect(snap.lastReposError).toBeNull()
 	})
 })
