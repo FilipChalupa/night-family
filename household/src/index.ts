@@ -12,6 +12,7 @@ import { SecretCipher, resolveSecretsKey } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
 import { RepoBindingStore } from './github/bindings.ts'
+import { sweepStalePrsForRebase } from './github/handlers/pulls.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
@@ -117,6 +118,22 @@ const purgeEvents = () => {
 }
 purgeEvents()
 setInterval(purgeEvents, 24 * 60 * 60 * 1000).unref()
+
+// Freshness sweep (rebase trigger #3, time-driven). Push webhooks keep open
+// PRs current as `main` advances, but they can be missed (Household down, a
+// fork-side base merge, a dropped delivery). Every 6h, enqueue an idempotent
+// rebase for any open PR untouched for 6h+; the active-dedup + cooldown guards
+// and the Member-side no-op-when-current path keep this cheap on a quiet fleet.
+const REBASE_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000
+const REBASE_SWEEP_STALE_AFTER_MS = 6 * 60 * 60 * 1000
+const sweepStaleRebases = () => {
+	const enqueued = sweepStalePrsForRebase(
+		{ taskStore, dispatcher, logger: logger.child({ component: 'rebase-sweep' }) },
+		REBASE_SWEEP_STALE_AFTER_MS,
+	)
+	if (enqueued > 0) logger.info({ enqueued }, 'freshness sweep enqueued rebase task(s)')
+}
+setInterval(sweepStaleRebases, REBASE_SWEEP_INTERVAL_MS).unref()
 
 const app = new Hono()
 

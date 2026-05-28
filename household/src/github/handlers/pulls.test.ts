@@ -12,7 +12,12 @@ import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import { TaskStore } from '../../tasks/store.ts'
 import { TaskJobStore } from '../../tasks/jobStore.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
-import { handlePullRequestEvent, handlePullRequestReviewEvent } from './pulls.ts'
+import {
+	handlePullRequestEvent,
+	handlePullRequestReviewEvent,
+	handlePushEvent,
+	sweepStalePrsForRebase,
+} from './pulls.ts'
 
 const migrationsFolder = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -341,5 +346,117 @@ describe('handlePullRequestReviewEvent — author_association gating', () => {
 		const { parent, body } = seedAndBody('NONE', 'approved')
 		await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
 		expect(rig.taskStore.get(parent.id)!.status).toBe('in-review')
+	})
+})
+
+describe('handlePushEvent — base-branch advance', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function pushBody(opts: { ref: string; deleted?: boolean }) {
+		return {
+			ref: opts.ref,
+			...(opts.deleted ? { deleted: true } : {}),
+			repository: { full_name: REPO },
+		}
+	}
+
+	/** Seed an open PR task with the head/base refs the push handler reads. */
+	function seedOpenPr(prNumber: number, baseRef = 'main') {
+		const parent = seedParentImplement(rig, {
+			branchPrefix: '',
+			prUrl: `https://github.com/${REPO}/pull/${prNumber}`,
+		})
+		rig.taskStore.mergeMetadata(parent.id, {
+			head_ref: `pr/night/${parent.id.slice(0, 8)}-speed`,
+			base_ref: baseRef,
+		})
+		return rig.taskStore.get(parent.id)!
+	}
+
+	function rebasesFor() {
+		return rig.taskStore.list({ repo: REPO }).filter((t) => t.kind === 'rebase')
+	}
+
+	it('enqueues a rebase for an open PR whose base just advanced', async () => {
+		seedOpenPr(7)
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/main' })))
+		const rebases = rebasesFor()
+		expect(rebases).toHaveLength(1)
+		expect(rebases[0]!.metadata?.base_ref).toBe('main')
+		expect(rig.tryDispatchAll).toHaveBeenCalled()
+	})
+
+	it('ignores pushes to a branch that is not any open PR base', async () => {
+		seedOpenPr(7, 'main')
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/release' })))
+		expect(rebasesFor()).toHaveLength(0)
+	})
+
+	it('ignores non-branch refs and branch deletions', async () => {
+		seedOpenPr(7)
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/tags/v1' })))
+		await handlePushEvent(
+			ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/main', deleted: true })),
+		)
+		expect(rebasesFor()).toHaveLength(0)
+	})
+
+	it('does not enqueue when the PR task lacks head/base ref metadata', async () => {
+		// in-review PR but refs never persisted (e.g. pre-upgrade task).
+		seedParentImplement(rig, { branchPrefix: '', prUrl: `https://github.com/${REPO}/pull/9` })
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/main' })))
+		expect(rebasesFor()).toHaveLength(0)
+	})
+
+	it('throttles a burst of pushes to one rebase via the cooldown', async () => {
+		seedOpenPr(7)
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/main' })))
+		// Second push lands seconds later, before the first rebase ran.
+		await handlePushEvent(ctxFor(rig, REPO, pushBody({ ref: 'refs/heads/main' })))
+		expect(rebasesFor()).toHaveLength(1)
+	})
+})
+
+describe('sweepStalePrsForRebase — time-driven freshness', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function seedOpenPr(prNumber: number) {
+		const parent = seedParentImplement(rig, {
+			branchPrefix: '',
+			prUrl: `https://github.com/${REPO}/pull/${prNumber}`,
+		})
+		rig.taskStore.mergeMetadata(parent.id, {
+			head_ref: `pr/night/${parent.id.slice(0, 8)}-speed`,
+			base_ref: 'main',
+		})
+		return rig.taskStore.get(parent.id)!
+	}
+
+	const deps = (rig: Rig) => ({
+		taskStore: rig.taskStore,
+		dispatcher: { tryDispatchAll: rig.tryDispatchAll } as unknown as Dispatcher,
+		logger: silentLogger,
+	})
+
+	it('enqueues a rebase for an open PR untouched past the stale threshold', () => {
+		seedOpenPr(7)
+		// Pretend "now" is an hour past the PR's last update.
+		const future = Date.now() + 60 * 60 * 1000
+		const enqueued = sweepStalePrsForRebase(deps(rig), 10 * 60 * 1000, future)
+		expect(enqueued).toBe(1)
+	})
+
+	it('skips PRs touched more recently than the stale threshold', () => {
+		seedOpenPr(7)
+		const enqueued = sweepStalePrsForRebase(deps(rig), 60 * 60 * 1000, Date.now())
+		expect(enqueued).toBe(0)
 	})
 })

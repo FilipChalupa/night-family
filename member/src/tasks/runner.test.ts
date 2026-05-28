@@ -594,3 +594,90 @@ describe('TaskRunner — end-to-end (implement, with stubbed Workspace)', () => 
 		expect(logMessages).toContain('PR skipped (no GitHub token)')
 	})
 })
+
+describe('TaskRunner — end-to-end (rebase, with stubbed Workspace)', () => {
+	let workspaceDir: string
+
+	beforeEach(async () => {
+		workspaceDir = await mkdtemp(join(tmpdir(), 'runner-rebase-'))
+	})
+	afterEach(async () => {
+		vi.restoreAllMocks()
+		await rm(workspaceDir, { recursive: true, force: true })
+	})
+
+	function buildRunner(): { runner: TaskRunner; sent: unknown[] } {
+		const sent: unknown[] = []
+		const runner = new TaskRunner({
+			memberName: 'octo',
+			memberId: 'm-test',
+			householdUrl: 'https://night.example',
+			provider: new StubProvider('stub-model'),
+			limits: NO_LIMITS,
+			dailyUsage: { tokensToday: () => 0, record: () => undefined },
+			workspaceDir,
+			logger: silentLogger,
+			wsSend: (msg) => {
+				sent.push(msg)
+				return true
+			},
+			stubMode: true,
+		})
+		return { runner, sent }
+	}
+
+	function rebaseTask(): AssignedTaskInput {
+		return {
+			taskId: 't-rebase',
+			kind: 'rebase',
+			title: 'Rebase: Speed up widget',
+			description: 'PR is behind main.',
+			repo: 'o/r',
+			prUrl: 'https://github.com/o/r/pull/9',
+			githubToken: 'fake-token',
+			repoUrl: 'https://github.com/o/r.git',
+			metadata: { head_ref: 'pr/night/abc-speed', base_ref: 'main' },
+		}
+	}
+
+	function stubRebaseWorkspace(behind: number) {
+		const countBehindBase = vi.fn().mockResolvedValue(behind)
+		const rebaseOntoBase = vi
+			.fn()
+			.mockResolvedValue({ rewroteCommits: true, newSha: 'deadbeef' })
+		const pushWithLease = vi.fn().mockResolvedValue(undefined)
+		const cleanup = vi.fn().mockResolvedValue(undefined)
+		const stub = { countBehindBase, rebaseOntoBase, pushWithLease, cleanup }
+		vi.spyOn(Workspace, 'createForRebase').mockResolvedValue(stub as unknown as Workspace)
+		return { countBehindBase, rebaseOntoBase, pushWithLease, cleanup }
+	}
+
+	it('no-ops without rebasing or force-pushing when the head is already current', async () => {
+		const { rebaseOntoBase, pushWithLease } = stubRebaseWorkspace(0)
+		const { runner, sent } = buildRunner()
+
+		const outcome = await runner.run(rebaseTask())
+
+		expect(outcome.type).toBe('completed')
+		expect((outcome as { result: { upToDate?: boolean } }).result.upToDate).toBe(true)
+		expect(rebaseOntoBase).not.toHaveBeenCalled()
+		expect(pushWithLease).not.toHaveBeenCalled()
+
+		const rebaseEvents = (sent as Array<{ kind?: string; payload?: { outcome?: string } }>)
+			.filter((m) => m.kind === 'rebase')
+			.map((m) => m.payload?.outcome)
+		expect(rebaseEvents).toContain('up-to-date')
+	})
+
+	it('rebases and force-pushes with lease when the head is behind base', async () => {
+		const { rebaseOntoBase, pushWithLease } = stubRebaseWorkspace(3)
+		const { runner } = buildRunner()
+
+		const outcome = await runner.run(rebaseTask())
+
+		expect(outcome.type).toBe('completed')
+		expect((outcome as { result: { rebased?: boolean } }).result.rebased).toBe(true)
+		expect(rebaseOntoBase).toHaveBeenCalledTimes(1)
+		expect(pushWithLease).toHaveBeenCalledTimes(1)
+	})
+})

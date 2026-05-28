@@ -19,7 +19,11 @@ import type { Dispatcher } from '../tasks/dispatcher.ts'
 import type { TaskStore } from '../tasks/store.ts'
 import type { RepoBindingStore } from './bindings.ts'
 import { handleIssueCommentEvent, handleIssuesEvent } from './handlers/issues.ts'
-import { handlePullRequestEvent, handlePullRequestReviewEvent } from './handlers/pulls.ts'
+import {
+	handlePullRequestEvent,
+	handlePullRequestReviewEvent,
+	handlePushEvent,
+} from './handlers/pulls.ts'
 import type { MemberRegistry } from '../members/registry.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
 
@@ -129,6 +133,9 @@ async function routeEvent(
 				body,
 				notifSender: deps.notifSender,
 			})
+			break
+		case 'push':
+			await handlePushEvent({ ...deps, repo, body, notifSender: deps.notifSender })
 			break
 		case 'ping':
 			deps.logger.info({ repo }, 'webhook ping')

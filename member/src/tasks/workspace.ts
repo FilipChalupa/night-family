@@ -212,6 +212,25 @@ export class Workspace {
 	}
 
 	/**
+	 * How many commits the base branch is ahead of the current head — i.e.
+	 * how far behind base the PR branch has fallen. Both refs were fetched
+	 * into local heads by {@link createForRebase}, so this is a local
+	 * object-db walk with no network round-trip.
+	 *
+	 * `0` means the head already contains every base commit, so a rebase
+	 * would rewrite nothing. Callers use that to skip the force-push
+	 * entirely — no CI re-run, no dismissed reviews — which makes it safe
+	 * for the Household to over-enqueue rebase tasks (push webhook + the
+	 * periodic freshness sweep both fire optimistically).
+	 */
+	async countBehindBase(): Promise<number> {
+		const out = await git(['rev-list', '--count', `HEAD..${this.baseBranch}`], {
+			cwd: this.path,
+		})
+		return Number(out.trim()) || 0
+	}
+
+	/**
 	 * Run `git rebase <baseBranch>` in this workspace. Aborts the rebase
 	 * on conflict and throws {@link RebaseConflictError}; the caller is
 	 * expected to fail the task and surface the message to humans (who

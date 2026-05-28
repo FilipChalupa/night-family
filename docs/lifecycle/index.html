@@ -417,9 +417,36 @@
 
 			<h3>Stale base detected</h3>
 			<p>
-				When the PR webhook reports <code>behind_by &gt; 0</code> and a Member is still
-				assigned, Household sends <code>task.rebase_suggested</code> to that Member. The
-				Member chooses whether to rebase and push.
+				An open PR whose base branch moved underneath it is kept current by enqueuing a
+				<code>rebase</code> task pointing at the parent <code>implement</code> task. The
+				dispatcher routes it to an <code>implement</code>-skilled Member (preferring the
+				original implementer for cache warmth), which runs a deterministic git-only path
+				— no LLM: it no-ops when the head is already current, otherwise rebases onto the
+				latest base and force-pushes with lease. Conflicts fail fast with
+				<code>rebase_conflict</code> for a human to resolve.
+			</p>
+			<p>Three triggers feed it:</p>
+			<ol>
+				<li>
+					<strong>PR webhook</strong> — a <code>pull_request</code> payload that happens
+					to carry <code>behind_by &gt; 0</code>.
+				</li>
+				<li>
+					<strong>Base push</strong> — a <code>push</code> event to a branch that is the
+					base of an open Night PR (<code>in-review</code> / <code>awaiting-merge</code>).
+					This is the real-world "main moved, the PR silently fell behind" path, since a
+					base push fires no <code>pull_request</code> event.
+				</li>
+				<li>
+					<strong>Freshness sweep</strong> — a periodic (6h) scan that enqueues a rebase
+					for any open PR untouched past the stale threshold, catching PRs missed while
+					Household was down or whose push delivery was lost.
+				</li>
+			</ol>
+			<p>
+				The speculative triggers (push, sweep) are throttled by a per-PR cooldown, and an
+				active rebase is never duplicated; over-enqueuing is otherwise harmless because the
+				Member-side no-op skips the force-push when nothing changed.
 			</p>
 
 			<h2>Failure handling</h2>

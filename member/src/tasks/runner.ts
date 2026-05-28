@@ -468,6 +468,21 @@ export class TaskRunner {
 			return outcome
 		}
 
+		// Idempotency guard. The Household enqueues rebase tasks optimistically
+		// (on every base-branch push and on the periodic freshness sweep) without
+		// knowing whether the PR is actually behind. If the head already contains
+		// every base commit there is nothing to do — completing here avoids a
+		// pointless force-push that would re-trigger CI and dismiss approvals.
+		const behind = await workspace.countBehindBase()
+		if (behind === 0) {
+			await emit('rebase', { outcome: 'up-to-date', headRef, baseRef })
+			return await cleanupAfter({
+				type: 'completed',
+				result: { rebased: false, upToDate: true },
+				...(task.prUrl ? { prUrl: task.prUrl } : {}),
+			})
+		}
+
 		let rebaseResult
 		try {
 			rebaseResult = await workspace.rebaseOntoBase()
