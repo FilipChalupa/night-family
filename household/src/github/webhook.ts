@@ -5,8 +5,7 @@
  *   - Idempotency via X-GitHub-Delivery (primary key in webhook_deliveries).
  *   - Routed to handler functions per `X-GitHub-Event`.
  *
- * Plan §3 / §7: invalid signature = 401, no audit; replays are silently
- * ack'd 200.
+ * Invalid signature = 401, no audit; replays are silently ack'd 200.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'

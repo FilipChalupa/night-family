@@ -20,7 +20,6 @@ Guardrails for AI coding agents (Claude Code, Codex, etc.) working in this repo.
 - npm workspaces: `shared/`, `household/`, `household/web/`, `member/`. Don't reach across without going through `shared/` for cross-cutting types.
 - Dev workflow: `npm run dev` (Household + Vite); see [README.md](README.md) for the full quick start.
 - Env files (`.env.household`, `.env.member`) are loaded automatically by the dev scripts via Node's `--env-file-if-exists`. Don't reintroduce inline env-var prefixes in npm scripts.
-- Single source of truth for design and milestones is [plan.md](plan.md).
 
 ## Protocol changes
 

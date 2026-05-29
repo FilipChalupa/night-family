@@ -1,5 +1,5 @@
 /**
- * Issues + issue-comment webhook handler. Plan §7: only issues with the
+ * Issues + issue-comment webhook handler. Only issues with the
  * `night` label create tasks. We watch:
  *   - `issues.opened` — if labeled `night` already, queue a triage task.
  *   - `issues.labeled` — if the added label is `night`: queue a triage
@@ -26,6 +26,7 @@ import type { Logger } from 'pino'
 import type { MemberRegistry } from '../../members/registry.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
+import { IssueCommentEventSchema, IssuesEventSchema, parsePayload } from './payloads.ts'
 import { isTrustedAuthorAssociation } from './trust.ts'
 
 const NIGHT_LABEL = 'night'
@@ -43,35 +44,28 @@ interface IssuesEventCtx {
 }
 
 export async function handleIssuesEvent(ctx: IssuesEventCtx): Promise<void> {
-	const action = ctx.body['action']
-	if (typeof action !== 'string') return
-
-	const issue = ctx.body['issue'] as
-		| {
-				number: number
-				title: string
-				body: string | null
-				labels: Array<{ name: string }>
-				html_url: string
-		  }
-		| undefined
+	const parsed = parsePayload(IssuesEventSchema, ctx.body)
+	if (!parsed.ok) {
+		ctx.logger.warn(
+			{ repo: ctx.repo, error: parsed.error },
+			'issues webhook payload failed validation — skipping',
+		)
+		return
+	}
+	const { action, issue, label } = parsed.value
 	if (!issue) return
 
 	const hasNightLabel = (issue.labels ?? []).some((l) => l?.name === NIGHT_LABEL)
 
 	if (
 		(action === 'opened' && hasNightLabel) ||
-		(action === 'labeled' &&
-			(ctx.body['label'] as { name?: string } | undefined)?.name === NIGHT_LABEL)
+		(action === 'labeled' && label?.name === NIGHT_LABEL)
 	) {
 		await maybeQueueTriage(ctx, issue, action === 'opened' ? 'issue_opened' : 'label_added')
 		return
 	}
 
-	if (
-		action === 'unlabeled' &&
-		(ctx.body['label'] as { name?: string } | undefined)?.name === NIGHT_LABEL
-	) {
+	if (action === 'unlabeled' && label?.name === NIGHT_LABEL) {
 		cancelForIssue(ctx, issue.number, 'label_removed', new Set())
 		return
 	}
@@ -94,32 +88,22 @@ export async function handleIssuesEvent(ctx: IssuesEventCtx): Promise<void> {
  * follow-up questions or post a plan now that things are clearer.
  */
 export async function handleIssueCommentEvent(ctx: IssuesEventCtx): Promise<void> {
-	const action = ctx.body['action']
+	const parsed = parsePayload(IssueCommentEventSchema, ctx.body)
+	if (!parsed.ok) {
+		ctx.logger.warn(
+			{ repo: ctx.repo, error: parsed.error },
+			'issue_comment webhook payload failed validation — skipping',
+		)
+		return
+	}
+	const { action, issue, comment } = parsed.value
 	if (action !== 'created') return // ignore edited / deleted
-
-	const issue = ctx.body['issue'] as
-		| {
-				number: number
-				title: string
-				body: string | null
-				labels: Array<{ name: string }>
-				html_url: string
-				state?: string
-		  }
-		| undefined
 	if (!issue) return
 	if (issue.state === 'closed') return
 
 	const hasNightLabel = (issue.labels ?? []).some((l) => l?.name === NIGHT_LABEL)
 	if (!hasNightLabel) return
 
-	const comment = ctx.body['comment'] as
-		| {
-				body?: string
-				author_association?: string
-				user?: { login?: string }
-		  }
-		| undefined
 	const commentBody = typeof comment?.body === 'string' ? comment.body : ''
 	if (findAttributionMarker(commentBody) !== null) {
 		// Our own bot-authored comment — never trigger a triage cycle on it.
@@ -151,7 +135,7 @@ export async function handleIssueCommentEvent(ctx: IssuesEventCtx): Promise<void
 
 async function maybeQueueTriage(
 	ctx: IssuesEventCtx,
-	issue: { number: number; title: string; body: string | null; html_url: string },
+	issue: { number: number; title: string; body?: string | null | undefined; html_url: string },
 	source: string,
 ): Promise<void> {
 	const existing = ctx.taskStore.findByIssueNumber(ctx.repo, issue.number)
@@ -258,7 +242,7 @@ function retryFailedTask(ctx: IssuesEventCtx, task: TaskRecord): void {
 }
 
 function buildDescription(issue: {
-	body: string | null
+	body?: string | null | undefined
 	html_url: string
 	number: number
 }): string {

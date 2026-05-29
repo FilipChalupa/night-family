@@ -1,5 +1,5 @@
 /**
- * Hybrid pull dispatcher (per plan §3 / §5).
+ * Hybrid pull dispatcher.
  *
  * Trigger points:
  *   - Member sends `member.ready`         → tryDispatchOne(member)

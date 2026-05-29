@@ -3,6 +3,7 @@
  */
 
 import OpenAI from 'openai'
+import { executeToolCall, throwIfAborted } from './loop.ts'
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
@@ -87,7 +88,6 @@ export class OpenAIProvider implements Provider {
 				throwIfAborted(abortSignal)
 				if (tc.type !== 'function') continue
 
-				const toolName = tc.function.name
 				let parsedInput: unknown
 				try {
 					parsedInput = JSON.parse(tc.function.arguments)
@@ -95,38 +95,17 @@ export class OpenAIProvider implements Provider {
 					parsedInput = {}
 				}
 
-				await onEvent({
-					kind: 'tool_call',
-					payload: { tool: toolName, input: parsedInput },
-				})
-
-				const tool = toolByName.get(toolName)
-				let resultText: string
-				let isError = false
-
-				if (!tool) {
-					resultText = `unknown tool: ${toolName}`
-					isError = true
-				} else {
-					try {
-						const r = await tool.run(parsedInput)
-						resultText = r.output
-						isError = r.isError ?? false
-					} catch (err) {
-						resultText = err instanceof Error ? err.message : String(err)
-						isError = true
-					}
-				}
-
-				await onEvent({
-					kind: 'log',
-					payload: { tool: toolName, output: resultText.slice(0, 800), isError },
-				})
+				const { output } = await executeToolCall(
+					toolByName,
+					tc.function.name,
+					parsedInput,
+					onEvent,
+				)
 
 				messages.push({
 					role: 'tool',
 					tool_call_id: tc.id,
-					content: resultText,
+					content: output,
 				})
 			}
 		}
@@ -136,13 +115,5 @@ export class OpenAIProvider implements Provider {
 		}
 
 		return { summary, usage: totalUsage }
-	}
-}
-
-function throwIfAborted(signal: AbortSignal): void {
-	if (signal.aborted) {
-		const err = new Error('aborted')
-		err.name = 'AbortError'
-		throw err
 	}
 }

@@ -1,6 +1,6 @@
 # Night Family
 
-Self-hosted orchestration of AI coding agents. A central **Household** dispatches issues from GitHub to a fleet of **Members** that write code, open PRs, and review each other. See [plan.md](plan.md) for the full design.
+Self-hosted orchestration of AI coding agents. A central **Household** dispatches issues from GitHub to a fleet of **Members** that write code, open PRs, and review each other.
 
 ## Quick start (local dev)
 
@@ -104,7 +104,7 @@ To require GitHub login in Docker, set `REQUIRE_UI_LOGIN=true` in `.env.househol
 and fill in `PRIMARY_ADMIN_GITHUB_USERNAME`, `GITHUB_OAUTH_CLIENT_ID`, and
 `GITHUB_OAUTH_CLIENT_SECRET` before starting Household.
 
-Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS — see [plan.md §4](plan.md#4-member-klient).
+Member containers run as UID 1000, read-only root, `cap-drop ALL`, `no-new-privileges`. Run them on a partially dedicated VM/VPS.
 
 > **Operator how-tos** (setting up a repo, the `night` label, the schedule UI) live on the dashboard at <code>/docs</code>. The sections below are the developer-facing summary; <code>/docs</code> is what to point a teammate at.
 
@@ -168,7 +168,6 @@ member/      autonomous worker, runs git/gh/agent loop
 docker-compose.household.yml
 docker-compose.member.yml
 docker-compose.dev.yml
-plan.md      design doc — single source of truth
 ```
 
 ## Protocol versioning
@@ -187,9 +186,5 @@ Per-version changelog lives at [docs/protocol/](docs/protocol/index.html) (rende
 
 ## Status
 
-Following the milestone plan in [plan.md §10](plan.md#10-fáze-milestones).
-
 - **M1** — skeleton & connection: in progress / mostly done
 - **M2** — manual tasks: not started
-
-Track per-milestone checkboxes in plan.md.

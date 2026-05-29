@@ -186,6 +186,17 @@ describe('handleIssuesEvent', () => {
 		expect(rig.tryDispatchAll).toHaveBeenCalled()
 	})
 
+	it('drops a malformed payload (wrong-typed issue.number) without creating a task or throwing', async () => {
+		await handleIssuesEvent(
+			ctxFor(rig, REPO, {
+				action: 'opened',
+				issue: { ...issue({ number: 6 }), number: 'not-a-number' },
+			}),
+		)
+		expect(rig.store.list()).toHaveLength(0)
+		expect(rig.tryDispatchAll).not.toHaveBeenCalled()
+	})
+
 	it('skips re-import / retry when an active triage already exists for the issue', async () => {
 		await handleIssuesEvent(
 			ctxFor(rig, REPO, { action: 'opened', issue: issue({ number: 7 }) }),

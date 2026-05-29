@@ -97,7 +97,7 @@ export class TaskRunner {
 		const ac = new AbortController()
 		this.abortController = ac
 
-		// Hard wallclock limit (per plan §4).
+		// Hard wallclock limit.
 		const wallclockTimer = setTimeout(() => {
 			ac.abort(new TaskTimeoutError(this.deps.limits.maxTaskDurationMinutes))
 		}, this.deps.limits.maxTaskDurationMinutes * 60_000)

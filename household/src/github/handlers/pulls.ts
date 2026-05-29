@@ -1,7 +1,6 @@
 /**
  * Pull request + review webhook handlers.
  *
- * Per plan §6 / §7:
  *   - PR `opened`/`synchronize` updates `pr_url` (and snapshots the head/base
  *     refs into task metadata) on the originating task.
  *   - PR `closed` with `merged: true` → task → `done`.
@@ -36,6 +35,13 @@ import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
 import type { NotificationSender } from '../../notifications/sender.ts'
 import type { TaskRecord, TaskStore } from '../../tasks/store.ts'
+import {
+	parsePayload,
+	PullRequestEventSchema,
+	PullRequestReviewEventSchema,
+	PushEventSchema,
+	type PullRequest,
+} from './payloads.ts'
 import { isTrustedAuthorAssociation } from './trust.ts'
 
 interface PullsEventCtx {
@@ -46,17 +52,6 @@ interface PullsEventCtx {
 	registry: MemberRegistry
 	notifSender?: NotificationSender | undefined
 	logger: Logger
-}
-
-interface PullRequestPayload {
-	number: number
-	html_url: string
-	state: 'open' | 'closed'
-	merged: boolean
-	mergeable_state?: string
-	behind_by?: number
-	head: { ref: string; sha: string }
-	base: { ref: string }
 }
 
 /**
@@ -100,9 +95,16 @@ export interface RebaseEnqueueDeps {
 }
 
 export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> {
-	const action = ctx.body['action']
-	const pr = ctx.body['pull_request'] as PullRequestPayload | undefined
-	if (typeof action !== 'string' || !pr) return
+	const parsed = parsePayload(PullRequestEventSchema, ctx.body)
+	if (!parsed.ok) {
+		ctx.logger.warn(
+			{ repo: ctx.repo, error: parsed.error },
+			'pull_request webhook payload failed validation — skipping',
+		)
+		return
+	}
+	const { action, pull_request: pr } = parsed.value
+	if (!pr) return
 
 	const task = findTaskForPr(ctx.taskStore, ctx.repo, pr)
 	if (!task) {
@@ -186,7 +188,7 @@ interface RebaseEnqueueOpts {
 	prUrl: string
 	headRef: string
 	baseRef: string
-	headSha?: string
+	headSha?: string | undefined
 	/** Known commits-behind, when a webhook reported it. Informational only. */
 	behindBy?: number
 	/** Why this rebase was enqueued — surfaced in logs (`push` / `sweep` / `behind_by`). */
@@ -340,11 +342,6 @@ export function sweepStalePrsForRebase(
 	return enqueued
 }
 
-interface PushPayload {
-	ref?: string
-	deleted?: boolean
-}
-
 /**
  * `push` webhook handler — trigger #2 for rebases. A push to a branch fires
  * no `pull_request` event for the PRs that target it, so without this an open
@@ -355,10 +352,17 @@ interface PushPayload {
  * whether a rebase is actually needed and no-ops if the head is already current.
  */
 export async function handlePushEvent(ctx: PullsEventCtx): Promise<void> {
-	const push = ctx.body as PushPayload
-	const ref = push.ref
+	const parsed = parsePayload(PushEventSchema, ctx.body)
+	if (!parsed.ok) {
+		ctx.logger.warn(
+			{ repo: ctx.repo, error: parsed.error },
+			'push webhook payload failed validation — skipping',
+		)
+		return
+	}
+	const { ref, deleted } = parsed.value
 	if (typeof ref !== 'string' || !ref.startsWith('refs/heads/')) return // tags / non-branch
-	if (push.deleted) return // branch deletion isn't a base advance
+	if (deleted) return // branch deletion isn't a base advance
 	const branch = ref.slice('refs/heads/'.length)
 
 	const openPrs = ctx.taskStore
@@ -376,16 +380,15 @@ export async function handlePushEvent(ctx: PullsEventCtx): Promise<void> {
 }
 
 export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<void> {
-	const action = ctx.body['action']
-	const pr = ctx.body['pull_request'] as PullRequestPayload | undefined
-	const review = ctx.body['review'] as
-		| {
-				state: 'commented' | 'approved' | 'changes_requested'
-				body?: string
-				author_association?: string
-				user?: { login?: string }
-		  }
-		| undefined
+	const parsed = parsePayload(PullRequestReviewEventSchema, ctx.body)
+	if (!parsed.ok) {
+		ctx.logger.warn(
+			{ repo: ctx.repo, error: parsed.error },
+			'pull_request_review webhook payload failed validation — skipping',
+		)
+		return
+	}
+	const { action, pull_request: pr, review } = parsed.value
 	if (action !== 'submitted' || !pr || !review) return
 
 	// Public-repo guard: only repo-affiliated reviewers can drive
@@ -435,7 +438,7 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 	}
 }
 
-function findTaskForPr(store: TaskStore, repo: string, pr: PullRequestPayload): TaskRecord | null {
+function findTaskForPr(store: TaskStore, repo: string, pr: PullRequest): TaskRecord | null {
 	// Primary: branch convention `pr/night/<task-id-prefix>-…`
 	const m = pr.head.ref.match(/^pr\/night\/([0-9a-f]+)/i)
 	if (m && m[1]) {
@@ -459,7 +462,7 @@ function persistPrUrl(store: TaskStore, task: TaskRecord, prUrl: string): void {
  * branch name. Skips the write when both refs already match (avoids a metadata
  * churn + `task.updated` re-emit on every `synchronize`).
  */
-function persistPrRefs(store: TaskStore, task: TaskRecord, pr: PullRequestPayload): void {
+function persistPrRefs(store: TaskStore, task: TaskRecord, pr: PullRequest): void {
 	const meta = task.metadata ?? {}
 	if (meta['head_ref'] === pr.head.ref && meta['base_ref'] === pr.base.ref) return
 	store.mergeMetadata(task.id, { head_ref: pr.head.ref, base_ref: pr.base.ref })

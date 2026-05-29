@@ -183,6 +183,17 @@ describe('handlePullRequestEvent — rebase enqueueing', () => {
 		expect(rig.tryDispatchAll).toHaveBeenCalled()
 	})
 
+	it('drops a malformed pull_request payload (missing head) without throwing', async () => {
+		await handlePullRequestEvent(
+			ctxFor(rig, REPO, {
+				action: 'synchronize',
+				pull_request: { number: 7, html_url: 'https://x/7', base: { ref: 'main' } },
+			}),
+		)
+		expect(rig.taskStore.list({ repo: REPO })).toHaveLength(0)
+		expect(rig.tryDispatchAll).not.toHaveBeenCalled()
+	})
+
 	it('does not enqueue a second rebase while one is already in flight', async () => {
 		const parent = seedParentImplement(rig, {
 			branchPrefix: '',

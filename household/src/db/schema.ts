@@ -43,7 +43,7 @@ export const members = sqliteTable(
 /**
  * Tasks — one row per Night Family task. PR/review jobs are tracked
  * separately in `task_jobs` so a single task can have multiple parallel
- * review jobs (per plan §6).
+ * review jobs.
  */
 export const tasks = sqliteTable(
 	'tasks',
@@ -117,7 +117,7 @@ export const tasks = sqliteTable(
 /**
  * Task events — audit trail of everything that happened on a task. Members
  * stream events with monotonic seq; Household ack-uses by writing here.
- * Retention policy (raw eventy): 90 days, per plan §3.
+ * Retention policy (raw events): 90 days.
  */
 export const taskEvents = sqliteTable(
 	'task_events',
@@ -179,7 +179,7 @@ export const oauthStates = sqliteTable('oauth_states', {
 
 /**
  * Task jobs — parallel review (or future job types) dispatched for a single
- * parent task. One implement task → N concurrent review jobs per plan §6.
+ * parent task. One implement task → N concurrent review jobs.
  */
 export const taskJobs = sqliteTable(
 	'task_jobs',
@@ -210,7 +210,7 @@ export const taskJobs = sqliteTable(
 
 /**
  * Notification delivery log — failed sends sit here with a Retry button
- * in the UI (per plan §3 notifications).
+ * in the UI.
  */
 export const notificationDeliveries = sqliteTable('notification_deliveries', {
 	id: text('id').primaryKey(),

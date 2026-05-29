@@ -96,7 +96,7 @@ export class TaskEventLog {
 	}
 
 	/**
-	 * Drop raw event rows older than retentionDays. Per plan §3 — default 90.
+	 * Drop raw event rows older than retentionDays — default 90.
 	 */
 	purgeOlderThan(retentionDays: number): number {
 		const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000

@@ -2,7 +2,7 @@
  * Redaction filter — Member runs this on event payloads before sending
  * to Household. Strips obvious secrets so they never leave the agent.
  *
- * Coverage (per plan §4):
+ * Coverage:
  *  - AWS access keys
  *  - GitHub PATs (ghp_*, github_pat_*)
  *  - JWTs

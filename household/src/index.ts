@@ -111,13 +111,25 @@ registry.setOnScheduleTick((sessionId) => {
 	if (member && member.status === 'idle') dispatcher.tryDispatchOne(member)
 })
 
-// Daily purge of raw event rows older than 90 days (per plan §3).
+// Wrap a periodic callback so a thrown error is logged instead of crashing the
+// process. A `setInterval` callback has no caller to catch its throws — an
+// unhandled exception in one (e.g. a transient DB error mid-purge) would
+// otherwise take down the whole Household hours into a run.
+const guardPeriodic = (job: string, fn: () => void) => () => {
+	try {
+		fn()
+	} catch (err) {
+		logger.error({ err, job }, 'periodic job failed')
+	}
+}
+
+// Daily purge of raw event rows older than 90 days.
 const purgeEvents = () => {
 	const removed = eventLog.purgeOlderThan(90)
 	if (removed > 0) logger.info({ removed }, 'purged stale task_events')
 }
 purgeEvents()
-setInterval(purgeEvents, 24 * 60 * 60 * 1000).unref()
+setInterval(guardPeriodic('purge_events', purgeEvents), 24 * 60 * 60 * 1000).unref()
 
 // Freshness sweep (rebase trigger #3, time-driven). Push webhooks keep open
 // PRs current as `main` advances, but they can be missed (Household down, a
@@ -133,7 +145,7 @@ const sweepStaleRebases = () => {
 	)
 	if (enqueued > 0) logger.info({ enqueued }, 'freshness sweep enqueued rebase task(s)')
 }
-setInterval(sweepStaleRebases, REBASE_SWEEP_INTERVAL_MS).unref()
+setInterval(guardPeriodic('rebase_sweep', sweepStaleRebases), REBASE_SWEEP_INTERVAL_MS).unref()
 
 const app = new Hono()
 
@@ -168,7 +180,10 @@ const memberHandler = createMemberWsHandler({
 
 const sessionStore = new SessionStore(dbHandles.db)
 sessionStore.purgeExpired()
-setInterval(() => sessionStore.purgeExpired(), 60 * 60 * 1000).unref()
+setInterval(
+	guardPeriodic('session_purge', () => sessionStore.purgeExpired()),
+	60 * 60 * 1000,
+).unref()
 
 const uiHandler = createUiWsHandler({
 	registry,

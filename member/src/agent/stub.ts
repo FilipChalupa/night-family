@@ -7,6 +7,7 @@
  * a real LLM API call.
  */
 
+import { throwIfAborted } from './loop.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, ToolDefinition } from './types.ts'
 
 export class StubProvider implements Provider {
@@ -73,10 +74,4 @@ export class StubProvider implements Provider {
 
 function byName(tools: ToolDefinition[], name: string): ToolDefinition | undefined {
 	return tools.find((t) => t.name === name)
-}
-
-function throwIfAborted(signal: AbortSignal): void {
-	if (signal.aborted) {
-		throw new Error('aborted')
-	}
 }

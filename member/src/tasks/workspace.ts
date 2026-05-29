@@ -453,7 +453,7 @@ export class Workspace {
 	/**
 	 * Read project-specific instructions from the target repo. Looks for
 	 * AGENTS.md / CLAUDE.md / .cursor/rules/*.md / .github/copilot-instructions.md
-	 * (first found wins, per plan §4).
+	 * (first found wins).
 	 */
 	async readProjectInstructions(): Promise<string | null> {
 		const candidates = [

@@ -3,6 +3,7 @@
  */
 
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '@google/genai'
+import { executeToolCall, throwIfAborted } from './loop.ts'
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
@@ -143,35 +144,17 @@ export class GeminiProvider implements Provider {
 				throwIfAborted(abortSignal)
 
 				const toolName = fc.name ?? ''
-				await onEvent({ kind: 'tool_call', payload: { tool: toolName, input: fc.args } })
-
-				const tool = toolByName.get(toolName)
-				let resultText: string
-				let isError = false
-
-				if (!tool) {
-					resultText = `unknown tool: ${toolName}`
-					isError = true
-				} else {
-					try {
-						const r = await tool.run(fc.args as Record<string, unknown>)
-						resultText = r.output
-						isError = r.isError ?? false
-					} catch (err) {
-						resultText = err instanceof Error ? err.message : String(err)
-						isError = true
-					}
-				}
-
-				await onEvent({
-					kind: 'log',
-					payload: { tool: toolName, output: resultText.slice(0, 800), isError },
-				})
+				const { output, isError } = await executeToolCall(
+					toolByName,
+					toolName,
+					fc.args,
+					onEvent,
+				)
 
 				responseParts.push({
 					functionResponse: {
 						name: toolName,
-						response: { output: resultText, is_error: isError },
+						response: { output, is_error: isError },
 					},
 				})
 			}
@@ -227,12 +210,4 @@ function describeEmptyResponse(
 	const candidateCount = response.candidates?.length ?? 0
 	if (candidateCount === 0) lines.push('candidates: 0')
 	return lines.join(' · ')
-}
-
-function throwIfAborted(signal: AbortSignal): void {
-	if (signal.aborted) {
-		const err = new Error('aborted')
-		err.name = 'AbortError'
-		throw err
-	}
 }

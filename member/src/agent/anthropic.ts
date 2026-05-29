@@ -7,6 +7,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { executeToolCall, throwIfAborted } from './loop.ts'
 import { buildKickoffPrompt } from './prompts.ts'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from './types.ts'
 
@@ -135,46 +136,18 @@ export class AnthropicProvider implements Provider {
 			for (const block of toolUseBlocks) {
 				throwIfAborted(abortSignal)
 
-				const tool = toolByName.get(block.name)
-				await onEvent({
-					kind: 'tool_call',
-					payload: { tool: block.name, input: block.input },
-				})
-
-				if (!tool) {
-					toolResults.push({
-						type: 'tool_result',
-						tool_use_id: block.id,
-						content: `unknown tool: ${block.name}`,
-						is_error: true,
-					})
-					continue
-				}
-
-				let result
-				try {
-					result = await tool.run(block.input)
-				} catch (err) {
-					result = {
-						output: err instanceof Error ? err.message : String(err),
-						isError: true,
-					}
-				}
-
-				await onEvent({
-					kind: 'log',
-					payload: {
-						tool: block.name,
-						output: result.output.slice(0, 800),
-						isError: result.isError ?? false,
-					},
-				})
+				const { output, isError } = await executeToolCall(
+					toolByName,
+					block.name,
+					block.input,
+					onEvent,
+				)
 
 				toolResults.push({
 					type: 'tool_result',
 					tool_use_id: block.id,
-					content: result.output.length > 0 ? result.output : '(no output)',
-					...(result.isError ? { is_error: true } : {}),
+					content: output.length > 0 ? output : '(no output)',
+					...(isError ? { is_error: true } : {}),
 				})
 			}
 
@@ -225,12 +198,4 @@ function extractText(content: Anthropic.ContentBlock[]): string | null {
 	}
 	if (parts.length === 0) return null
 	return parts.join('\n').trim()
-}
-
-function throwIfAborted(signal: AbortSignal): void {
-	if (signal.aborted) {
-		const err = new Error('aborted')
-		err.name = 'AbortError'
-		throw err
-	}
 }
