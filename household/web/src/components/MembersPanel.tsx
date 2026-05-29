@@ -16,7 +16,7 @@ import {
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { relativeTime } from '../time.ts'
-import type { MemberSnapshot, TaskRecord } from '../types.ts'
+import type { MemberScheduleStatus, MemberSnapshot, Skill, TaskRecord } from '../types.ts'
 import { RefreshReposButton } from './RefreshReposButton.tsx'
 import type { TokenRecord } from './TokensPanel.tsx'
 
@@ -213,9 +213,11 @@ export function MembersPanel({
 								</Typography>
 							</TableCell>
 							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
-								<Typography variant="body2" color="text.secondary">
-									{m.skills.join(', ')}
-								</Typography>
+								<SkillsCell
+									fullSkills={m.fullSkills}
+									activeSkills={m.skills}
+									scheduleStatus={m.scheduleStatus}
+								/>
 							</TableCell>
 							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 								<Typography variant="body2" color="text.secondary">
@@ -264,6 +266,63 @@ export function MembersPanel({
 				</TableBody>
 			</Table>
 		</TableContainer>
+	)
+}
+
+function SkillsCell({
+	fullSkills,
+	activeSkills,
+	scheduleStatus,
+}: {
+	fullSkills: Skill[]
+	activeSkills: Skill[]
+	scheduleStatus: MemberScheduleStatus | null
+}) {
+	const active = new Set(activeSkills)
+	// Show the Member's full static capability set; dim the ones the
+	// schedule (or a missing override) has gated off right now.
+	const inactiveTooltip = (skill: Skill): string => {
+		const base = `${skill} isn't offered right now — it's gated by this member's schedule.`
+		if (!scheduleStatus) return base
+		const when = relativeTime(scheduleStatus.nextTransitionAt)
+		return scheduleStatus.inNightWindow
+			? `${base} The active window (${scheduleStatus.activeWindow ?? 'night'}) ends ${when}.`
+			: `${base} Next active window starts ${when}.`
+	}
+	return (
+		<Box
+			sx={{
+				display: 'flex',
+				flexWrap: 'wrap',
+				gap: 0.25,
+				columnGap: 0.5,
+				alignItems: 'center',
+			}}
+		>
+			{fullSkills.map((skill, i) => {
+				const isActive = active.has(skill)
+				const text = (
+					<Typography
+						component="span"
+						variant="body2"
+						color={isActive ? 'text.secondary' : 'text.disabled'}
+						sx={isActive ? undefined : { textDecoration: 'line-through' }}
+					>
+						{skill}
+						{i < fullSkills.length - 1 ? ',' : ''}
+					</Typography>
+				)
+				return isActive ? (
+					<Box component="span" key={skill}>
+						{text}
+					</Box>
+				) : (
+					<Tooltip key={skill} title={inactiveTooltip(skill)}>
+						<Box component="span">{text}</Box>
+					</Tooltip>
+				)
+			})}
+		</Box>
 	)
 }
 
