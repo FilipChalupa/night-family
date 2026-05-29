@@ -21,6 +21,8 @@
 		"build:member": "docker compose -f docker-compose.member.yml build",
 		"up:household": "docker compose -f docker-compose.household.yml up -d",
 		"up:member": "docker compose -f docker-compose.member.yml up -d",
+		"rebuild:member": "docker compose -f docker-compose.member.yml up -d --build",
+		"rebuild:household": "docker compose -f docker-compose.household.yml up -d --build",
 		"down:household": "docker compose -f docker-compose.household.yml down",
 		"down:member": "docker compose -f docker-compose.member.yml down"
 	},
