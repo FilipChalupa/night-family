@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MemberSnapshot, TaskRecord, UiEvent } from '../types.ts'
 
 /**
@@ -23,7 +23,12 @@ export function useUiStream(enabled: boolean): {
 	 */
 	lastMessageAt: number | null
 } {
-	const [members, setMembers] = useState<MemberSnapshot[]>([])
+	// Raw per-session rows exactly as the stream delivers them, keyed by
+	// `sessionId`. A single member can briefly own several: a fresh session
+	// plus the `offline` shells of prior sessions it superseded (each
+	// reconnect mints a new `sessionId`, so the old row can't be overwritten
+	// in place). The displayed `members` below collapses these by `memberId`.
+	const [rawMembers, setRawMembers] = useState<MemberSnapshot[]>([])
 	const [tasks, setTasks] = useState<TaskRecord[]>([])
 	const [connected, setConnected] = useState(false)
 	const [householdProtocolVersion, setHouseholdProtocolVersion] = useState<string | null>(null)
@@ -39,7 +44,7 @@ export function useUiStream(enabled: boolean): {
 	useEffect(() => {
 		if (!enabled) {
 			setConnected(false)
-			setMembers([])
+			setRawMembers([])
 			setTasks([])
 			setLastMessageAt(null)
 			lastTrafficAtRef.current = null
@@ -80,16 +85,19 @@ export function useUiStream(enabled: boolean): {
 				setLastMessageAt(now)
 				switch (msg.type) {
 					case 'snapshot':
-						setMembers(msg.members)
+						setRawMembers(msg.members)
 						setTasks(msg.tasks)
 						setHouseholdProtocolVersion(msg.protocolVersion)
 						break
 					case 'member.connected':
 					case 'member.updated':
-						setMembers((prev) => upsert(prev, msg.member, (m) => m.sessionId))
+						setRawMembers((prev) => upsert(prev, msg.member, (m) => m.sessionId))
 						break
 					case 'member.disconnected':
-						setMembers((prev) =>
+						// Match by `sessionId`, never `memberId`: a late disconnect
+						// for a session that's already been superseded must not
+						// flip the member's newer live session to offline.
+						setRawMembers((prev) =>
 							prev.map((m) =>
 								m.sessionId === msg.sessionId
 									? { ...m, status: 'offline', currentTask: null }
@@ -149,7 +157,40 @@ export function useUiStream(enabled: boolean): {
 		}
 	}, [enabled])
 
+	// Collapse the raw per-session rows to one row per member for everything
+	// downstream (the table, the member count, token grouping, the task
+	// dispatch filter). Done here rather than in each consumer so they all
+	// agree on "a member" being a single thing.
+	const members = useMemo(() => dedupeByMember(rawMembers), [rawMembers])
+
 	return { members, tasks, connected, householdProtocolVersion, lastMessageAt }
+}
+
+/**
+ * One displayed row per `memberId`. When a member has live session(s) we show
+ * the most recent one and drop the leftover `offline` shells; only when a
+ * member has no live session at all do we fall back to its offline row. The
+ * `onlineSessionCount` we attach lets the UI flag the rare case of a member
+ * being connected more than once at the same time.
+ */
+function dedupeByMember(raw: MemberSnapshot[]): MemberSnapshot[] {
+	const groups = new Map<string, MemberSnapshot[]>()
+	for (const m of raw) {
+		const g = groups.get(m.memberId)
+		if (g) g.push(m)
+		else groups.set(m.memberId, [m])
+	}
+	const out: MemberSnapshot[] = []
+	for (const sessions of groups.values()) {
+		const online = sessions.filter((m) => m.status !== 'offline')
+		const representative =
+			online.length > 0
+				? online.reduce((a, b) => (b.connectedAt > a.connectedAt ? b : a))
+				: sessions[0]
+		if (!representative) continue
+		out.push({ ...representative, onlineSessionCount: online.length })
+	}
+	return out
 }
 
 function upsert<T>(prev: T[], item: T, key: (x: T) => string): T[] {

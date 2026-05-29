@@ -1,3 +1,4 @@
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import {
 	Box,
 	Button,
@@ -91,7 +92,7 @@ export function MembersPanel({
 				</TableHead>
 				<TableBody>
 					{members.map((m) => (
-						<TableRow key={m.sessionId} hover>
+						<TableRow key={m.memberId} hover>
 							<TableCell>
 								<Link
 									to="/members/$memberId"
@@ -126,12 +127,28 @@ export function MembersPanel({
 								</Link>
 							</TableCell>
 							<TableCell>
-								<Chip
-									label={m.status}
-									size="small"
-									color={statusColor(m.status)}
-									variant="outlined"
-								/>
+								<Stack
+									spacing={0.5}
+									sx={{ flexDirection: 'row', alignItems: 'center' }}
+								>
+									<Chip
+										label={m.status}
+										size="small"
+										color={statusColor(m.status)}
+										variant="outlined"
+									/>
+									{m.onlineSessionCount && m.onlineSessionCount > 1 ? (
+										<Tooltip
+											title={`This member has ${m.onlineSessionCount} online sessions at once — it's probably running on more than one machine (or a stale session didn't disconnect cleanly). Only the most recent session is shown.`}
+										>
+											<WarningAmberRoundedIcon
+												color="warning"
+												fontSize="small"
+												aria-label={`${m.onlineSessionCount} concurrent online sessions`}
+											/>
+										</Tooltip>
+									) : null}
+								</Stack>
 								{m.currentTask ? (
 									<Stack spacing={0.5} sx={{ mt: 0.5, alignItems: 'flex-start' }}>
 										{(() => {

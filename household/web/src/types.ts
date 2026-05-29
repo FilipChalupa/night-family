@@ -41,6 +41,14 @@ export interface MemberSnapshot {
 	currentTask: string | null
 	lastHeartbeat: string
 	/**
+	 * Client-derived: how many concurrent online sessions share this
+	 * `memberId`. Normally `1` (or `0` for an offline member). `>1` means the
+	 * same member is connected more than once at the same time — surfaced as a
+	 * warning in the UI rather than silently collapsed into one row. Absent on
+	 * the wire; populated only after the stream dedupes sessions by member.
+	 */
+	onlineSessionCount?: number
+	/**
 	 * Last accessible-repos refresh that failed on the live session, or
 	 * `null` if the last refresh succeeded (or none has happened yet).
 	 * Offline members always report `null` — refresh errors are live-session
