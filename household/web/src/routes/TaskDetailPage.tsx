@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { ReviewWaitBadge } from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
@@ -180,6 +181,25 @@ function TaskDetailCard({
 					}
 				/>
 				<Field
+					label="Issue"
+					value={
+						task.githubIssueUrl ? (
+							<MuiLink
+								href={task.githubIssueUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								underline="hover"
+							>
+								{task.githubIssueNumber
+									? `#${task.githubIssueNumber}`
+									: task.githubIssueUrl}
+							</MuiLink>
+						) : (
+							'—'
+						)
+					}
+				/>
+				<Field
 					label="Assigned to"
 					value={
 						task.assignedMemberId ? (
@@ -228,18 +248,7 @@ function TaskDetailCard({
 						<Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
 							Description
 						</Typography>
-						<Typography
-							variant="body2"
-							component="pre"
-							sx={{
-								fontFamily: 'inherit',
-								whiteSpace: 'pre-wrap',
-								wordBreak: 'break-word',
-								m: 0,
-							}}
-						>
-							{task.description}
-						</Typography>
+						<Markdown>{task.description}</Markdown>
 					</Box>
 				) : null}
 
