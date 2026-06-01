@@ -21,9 +21,25 @@ const FILTERABLE_STATUSES: ReadonlyArray<TaskStatus> = [
 	'failed',
 ]
 
+/**
+ * "Open" / not-yet-closed tasks: everything still moving through the
+ * lifecycle, i.e. all statuses except the terminal `done` / `failed`. Exported
+ * so the page can count them for the title and the quick-filter chip without
+ * re-deriving the set.
+ */
+export const OPEN_STATUSES: ReadonlyArray<TaskStatus> = [
+	'queued',
+	'assigned',
+	'in-progress',
+	'in-review',
+	'awaiting-merge',
+]
+
 interface Props {
 	q: string
 	status: TaskStatus[] | null
+	/** How many tasks are currently open — shown on the quick-filter chip. */
+	openCount: number
 	onChange: (next: { q: string; status: TaskStatus[] | null }) => void
 }
 
@@ -36,7 +52,7 @@ interface Props {
  * we don't want to spam URL pushes on every keystroke (each one nukes the
  * tanstack-router cache for this route).
  */
-export function TasksFilterBar({ q, status, onChange }: Props) {
+export function TasksFilterBar({ q, status, openCount, onChange }: Props) {
 	const [draft, setDraft] = useState(q)
 
 	// Sync if the URL param changed externally (e.g. browser back).
@@ -62,6 +78,14 @@ export function TasksFilterBar({ q, status, onChange }: Props) {
 	const clearAll = (): void => {
 		setDraft('')
 		onChange({ q: '', status: null })
+	}
+
+	// The quick "Open" filter is active only when the status selection is
+	// exactly the open set — toggling it on selects them all, off clears the
+	// status filter entirely (the text query is left untouched).
+	const openOnly = sameStatusSet(status, OPEN_STATUSES)
+	const toggleOpenOnly = (): void => {
+		onChange({ q, status: openOnly ? null : [...OPEN_STATUSES] })
 	}
 
 	const hasFilter = q.length > 0 || (status !== null && status.length > 0)
@@ -95,7 +119,15 @@ export function TasksFilterBar({ q, status, onChange }: Props) {
 					},
 				}}
 			/>
-			<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+			<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, alignItems: 'center' }}>
+				<Chip
+					label={`Open · ${openCount}`}
+					size="small"
+					variant={openOnly ? 'filled' : 'outlined'}
+					color={openOnly ? 'primary' : 'default'}
+					onClick={toggleOpenOnly}
+				/>
+				<Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'divider', mx: 0.5 }} />
 				{FILTERABLE_STATUSES.map((s) => {
 					const active = status !== null && status.includes(s)
 					return (
@@ -112,6 +144,13 @@ export function TasksFilterBar({ q, status, onChange }: Props) {
 			</Box>
 		</Stack>
 	)
+}
+
+/** True when `selected` contains exactly the statuses in `target` (order-insensitive). */
+function sameStatusSet(selected: TaskStatus[] | null, target: ReadonlyArray<TaskStatus>): boolean {
+	if (selected === null || selected.length !== target.length) return false
+	const set = new Set(selected)
+	return target.every((s) => set.has(s))
 }
 
 /**

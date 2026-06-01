@@ -3,7 +3,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { Link } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useAppData } from '../AppContext.tsx'
-import { TasksFilterBar, filterTasks } from '../components/TasksFilterBar.tsx'
+import { OPEN_STATUSES, TasksFilterBar, filterTasks } from '../components/TasksFilterBar.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { tasksRoute } from '../router.tsx'
 import { Section } from './Root.tsx'
@@ -14,6 +14,10 @@ export function TasksPage() {
 	const navigate = tasksRoute.useNavigate()
 
 	const filtered = useMemo(() => filterTasks(tasks, q, status), [tasks, q, status])
+	const openCount = useMemo(
+		() => tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length,
+		[tasks],
+	)
 	const lastPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1)
 	const safePage = Math.min(page, lastPage)
 	const hasFilter = q.length > 0 || (status !== null && status.length > 0)
@@ -39,14 +43,15 @@ export function TasksPage() {
 			<Section
 				title={
 					hasFilter
-						? `All tasks (${filtered.length} of ${tasks.length})`
-						: `All tasks (${tasks.length})`
+						? `All tasks (${filtered.length} of ${tasks.length}) · ${openCount} open`
+						: `All tasks (${tasks.length}) · ${openCount} open`
 				}
 			>
 				<Stack spacing={2}>
 					<TasksFilterBar
 						q={q}
 						status={status}
+						openCount={openCount}
 						onChange={(next) =>
 							void navigate({
 								search: (prev) => ({
