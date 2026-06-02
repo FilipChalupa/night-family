@@ -7,6 +7,20 @@
 import type { Schedule, Skill, TaskKind, TaskStatus } from '@night/shared'
 export type { Schedule, Skill, TaskKind, TaskStatus }
 
+/**
+ * Statuses for tasks still moving through the lifecycle — everything except
+ * the terminal `done` / `failed`. Single source of truth for "open": used by
+ * the tasks quick filter, the open-count overview, and the
+ * cancellable-while-active check in the tasks table.
+ */
+export const OPEN_STATUSES: ReadonlyArray<TaskStatus> = [
+	'queued',
+	'assigned',
+	'in-progress',
+	'in-review',
+	'awaiting-merge',
+]
+
 export interface MemberScheduleStatus {
 	inNightWindow: boolean
 	activeWindow: string | null
@@ -78,6 +92,22 @@ export function reviewWaitState(jobs: ReviewJobsSummary | null): 'agent' | 'huma
 	if (jobs.pending > 0 || jobs.inProgress > 0) return 'agent'
 	if (jobs.completed > 0 || jobs.failed > 0) return 'human'
 	return 'unknown'
+}
+
+/**
+ * True when the ball is in a human's court rather than an agent's: the task is
+ * `awaiting-merge` (a human must merge), or it's `in-review` and every review
+ * job has finished (a human must approve / push fixups / merge). Drives the
+ * "Waiting on human" quick filter. A bare `in-review` with no review jobs yet
+ * (`reviewWaitState === 'unknown'`) counts as agent-side and is excluded.
+ */
+export function isWaitingOnHuman(task: {
+	status: TaskStatus
+	reviewJobs: ReviewJobsSummary | null
+}): boolean {
+	if (task.status === 'awaiting-merge') return true
+	if (task.status === 'in-review') return reviewWaitState(task.reviewJobs) === 'human'
+	return false
 }
 
 export interface TaskRecord {

@@ -42,6 +42,8 @@ interface TasksSearch {
 	q: string
 	/** Status whitelist. `null` = no filter (show all). */
 	status: TaskStatus[] | null
+	/** Cross-cutting quick filter. `'human'` = only tasks waiting on a human; `null` = off. */
+	waiting: 'human' | null
 }
 
 export const tasksRoute = createRoute({
@@ -72,7 +74,8 @@ export const tasksRoute = createRoute({
 				.map((s) => s.trim())
 				.filter((s): s is TaskStatus => ALL_TASK_STATUSES.includes(s as TaskStatus))
 		}
-		return { page, pageSize, q, status }
+		const waiting = search['waiting'] === 'human' ? 'human' : null
+		return { page, pageSize, q, status, waiting }
 	},
 })
 

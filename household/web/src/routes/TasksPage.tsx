@@ -3,24 +3,29 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { Link } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useAppData } from '../AppContext.tsx'
-import { OPEN_STATUSES, TasksFilterBar, filterTasks } from '../components/TasksFilterBar.tsx'
+import { TasksFilterBar, filterTasks } from '../components/TasksFilterBar.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { tasksRoute } from '../router.tsx'
+import { OPEN_STATUSES, isWaitingOnHuman } from '../types.ts'
 import { Section } from './Root.tsx'
 
 export function TasksPage() {
 	const { tasks, isAdmin, createTask, cancelTask, retryTask } = useAppData()
-	const { page, pageSize, q, status } = tasksRoute.useSearch()
+	const { page, pageSize, q, status, waiting } = tasksRoute.useSearch()
 	const navigate = tasksRoute.useNavigate()
 
-	const filtered = useMemo(() => filterTasks(tasks, q, status), [tasks, q, status])
+	const filtered = useMemo(
+		() => filterTasks(tasks, q, status, waiting),
+		[tasks, q, status, waiting],
+	)
 	const openCount = useMemo(
 		() => tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length,
 		[tasks],
 	)
+	const waitingCount = useMemo(() => tasks.filter(isWaitingOnHuman).length, [tasks])
 	const lastPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1)
 	const safePage = Math.min(page, lastPage)
-	const hasFilter = q.length > 0 || (status !== null && status.length > 0)
+	const hasFilter = q.length > 0 || (status !== null && status.length > 0) || waiting !== null
 
 	return (
 		<>
@@ -51,13 +56,16 @@ export function TasksPage() {
 					<TasksFilterBar
 						q={q}
 						status={status}
+						waiting={waiting}
 						openCount={openCount}
+						waitingCount={waitingCount}
 						onChange={(next) =>
 							void navigate({
 								search: (prev) => ({
 									...prev,
 									q: next.q,
 									status: next.status,
+									waiting: next.waiting,
 									page: 0,
 								}),
 							})

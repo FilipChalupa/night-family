@@ -8,6 +8,7 @@ import { ReposPanel } from '../components/ReposPanel.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { TokensPanel, useTokensQuery } from '../components/TokensPanel.tsx'
 import { UsersPanel } from '../components/UsersPanel.tsx'
+import { OPEN_STATUSES } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
 const DASHBOARD_TASKS_LIMIT = 5
@@ -27,6 +28,7 @@ export function Dashboard() {
 
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
 	const hiddenCount = Math.max(0, tasks.length - visibleTasks.length)
+	const openCount = tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length
 
 	// Admin-only — endpoint 403s for non-admins, so don't fetch.
 	const tokensQuery = useTokensQuery({ enabled: isAdmin })
@@ -37,7 +39,7 @@ export function Dashboard() {
 				<ActivityPanel />
 			</Section>
 
-			<Section title={`Tasks (${tasks.length})`}>
+			<Section title={`Tasks (${tasks.length}) · ${openCount} open`}>
 				<Stack spacing={1.5}>
 					<TasksPanel
 						tasks={visibleTasks}
@@ -50,7 +52,7 @@ export function Dashboard() {
 					<Box sx={{ textAlign: 'right' }}>
 						<Link
 							to="/tasks"
-							search={{ page: 0, pageSize: 25, q: '', status: null }}
+							search={{ page: 0, pageSize: 25, q: '', status: null, waiting: null }}
 							style={{
 								color: 'inherit',
 								textDecoration: 'underline',

@@ -33,6 +33,7 @@ import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { relativeTime } from '../time.ts'
 import {
+	OPEN_STATUSES,
 	reviewWaitState,
 	type MemberSnapshot,
 	type ReviewJobsSummary,
@@ -67,13 +68,6 @@ interface Props {
 // Filter order roughly mirrors the typical lifecycle: triage runs first,
 // then implement, then rebase / review / respond. Summarize is standalone.
 const KINDS: TaskKind[] = ['triage', 'implement', 'rebase', 'review', 'respond', 'summarize']
-const ACTIVE: ReadonlyArray<TaskStatus> = [
-	'queued',
-	'assigned',
-	'in-progress',
-	'in-review',
-	'awaiting-merge',
-]
 
 export function TasksPanel({
 	tasks,
@@ -481,7 +475,7 @@ function TasksTable({
 											</Tooltip>
 										)
 									})()}
-									{canManage && ACTIVE.includes(t.status) ? (
+									{canManage && OPEN_STATUSES.includes(t.status) ? (
 										<Button
 											size="small"
 											variant="outlined"

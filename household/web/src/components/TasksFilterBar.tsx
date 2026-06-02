@@ -3,7 +3,12 @@ import ClearIcon from '@mui/icons-material/Clear'
 import SearchIcon from '@mui/icons-material/Search'
 import { IconButton, InputAdornment } from '@mui/material'
 import { useEffect, useState } from 'react'
-import type { TaskStatus } from '../types.ts'
+import {
+	isWaitingOnHuman,
+	OPEN_STATUSES,
+	type ReviewJobsSummary,
+	type TaskStatus,
+} from '../types.ts'
 
 /**
  * Statuses people typically filter by, in the order the chip row should
@@ -21,26 +26,21 @@ const FILTERABLE_STATUSES: ReadonlyArray<TaskStatus> = [
 	'failed',
 ]
 
-/**
- * "Open" / not-yet-closed tasks: everything still moving through the
- * lifecycle, i.e. all statuses except the terminal `done` / `failed`. Exported
- * so the page can count them for the title and the quick-filter chip without
- * re-deriving the set.
- */
-export const OPEN_STATUSES: ReadonlyArray<TaskStatus> = [
-	'queued',
-	'assigned',
-	'in-progress',
-	'in-review',
-	'awaiting-merge',
-]
+/** Cross-cutting quick filters that aren't expressible as a status whitelist. */
+export type WaitingFilter = 'human'
 
-interface Props {
+export interface TasksFilterValue {
 	q: string
 	status: TaskStatus[] | null
-	/** How many tasks are currently open — shown on the quick-filter chip. */
+	waiting: WaitingFilter | null
+}
+
+interface Props extends TasksFilterValue {
+	/** How many tasks are currently open — shown on the "Open" quick-filter chip. */
 	openCount: number
-	onChange: (next: { q: string; status: TaskStatus[] | null }) => void
+	/** How many tasks are waiting on a human — shown on the "Waiting on human" chip. */
+	waitingCount: number
+	onChange: (next: TasksFilterValue) => void
 }
 
 /**
@@ -52,7 +52,7 @@ interface Props {
  * we don't want to spam URL pushes on every keystroke (each one nukes the
  * tanstack-router cache for this route).
  */
-export function TasksFilterBar({ q, status, openCount, onChange }: Props) {
+export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, onChange }: Props) {
 	const [draft, setDraft] = useState(q)
 
 	// Sync if the URL param changed externally (e.g. browser back).
@@ -62,33 +62,39 @@ export function TasksFilterBar({ q, status, openCount, onChange }: Props) {
 
 	useEffect(() => {
 		if (draft === q) return
-		const handle = window.setTimeout(() => onChange({ q: draft, status }), 200)
+		const handle = window.setTimeout(() => onChange({ q: draft, status, waiting }), 200)
 		return () => window.clearTimeout(handle)
-		// `onChange` and `status` are intentionally excluded — flushing the debounced
-		// query is what this effect is for, not re-firing on filter chip clicks.
+		// `onChange`, `status` and `waiting` are intentionally excluded — flushing the
+		// debounced query is what this effect is for, not re-firing on filter clicks.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draft])
 
 	const toggleStatus = (s: TaskStatus): void => {
 		const current = status ?? []
 		const next = current.includes(s) ? current.filter((x) => x !== s) : [...current, s]
-		onChange({ q, status: next.length === 0 ? null : next })
+		onChange({ q, status: next.length === 0 ? null : next, waiting })
 	}
 
 	const clearAll = (): void => {
 		setDraft('')
-		onChange({ q: '', status: null })
+		onChange({ q: '', status: null, waiting: null })
 	}
 
 	// The quick "Open" filter is active only when the status selection is
 	// exactly the open set — toggling it on selects them all, off clears the
-	// status filter entirely (the text query is left untouched).
+	// status filter entirely (the text query and `waiting` are left untouched).
 	const openOnly = sameStatusSet(status, OPEN_STATUSES)
 	const toggleOpenOnly = (): void => {
-		onChange({ q, status: openOnly ? null : [...OPEN_STATUSES] })
+		onChange({ q, status: openOnly ? null : [...OPEN_STATUSES], waiting })
 	}
 
-	const hasFilter = q.length > 0 || (status !== null && status.length > 0)
+	// "Waiting on human" is a cross-cutting predicate (not a status), so it
+	// lives in its own param and composes with the others via AND.
+	const toggleWaiting = (): void => {
+		onChange({ q, status, waiting: waiting === 'human' ? null : 'human' })
+	}
+
+	const hasFilter = q.length > 0 || (status !== null && status.length > 0) || waiting !== null
 
 	return (
 		<Stack spacing={1.5}>
@@ -127,6 +133,13 @@ export function TasksFilterBar({ q, status, openCount, onChange }: Props) {
 					color={openOnly ? 'primary' : 'default'}
 					onClick={toggleOpenOnly}
 				/>
+				<Chip
+					label={`Waiting on human · ${waitingCount}`}
+					size="small"
+					variant={waiting === 'human' ? 'filled' : 'outlined'}
+					color={waiting === 'human' ? 'primary' : 'default'}
+					onClick={toggleWaiting}
+				/>
 				<Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'divider', mx: 0.5 }} />
 				{FILTERABLE_STATUSES.map((s) => {
 					const active = status !== null && status.includes(s)
@@ -158,11 +171,18 @@ function sameStatusSet(selected: TaskStatus[] | null, target: ReadonlyArray<Task
  * `(N filtered)` counter and the actual filtered list never disagree.
  */
 export function filterTasks<
-	T extends { title: string; description: string; repo: string | null; status: TaskStatus },
->(tasks: T[], q: string, status: TaskStatus[] | null): T[] {
+	T extends {
+		title: string
+		description: string
+		repo: string | null
+		status: TaskStatus
+		reviewJobs: ReviewJobsSummary | null
+	},
+>(tasks: T[], q: string, status: TaskStatus[] | null, waiting: WaitingFilter | null): T[] {
 	const needle = q.trim().toLowerCase()
 	return tasks.filter((t) => {
 		if (status !== null && !status.includes(t.status)) return false
+		if (waiting === 'human' && !isWaitingOnHuman(t)) return false
 		if (needle.length === 0) return true
 		const haystack = `${t.title}\n${t.description}\n${t.repo ?? ''}`.toLowerCase()
 		return haystack.includes(needle)
