@@ -8,6 +8,7 @@
 		"build": "tsc && vite build",
 		"preview": "vite preview",
 		"typecheck": "tsc",
+		"test": "vitest run --passWithNoTests",
 		"icons": "node scripts/generate-icons.mjs"
 	},
 	"dependencies": {

@@ -160,7 +160,10 @@ export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, on
 }
 
 /** True when `selected` contains exactly the statuses in `target` (order-insensitive). */
-function sameStatusSet(selected: TaskStatus[] | null, target: ReadonlyArray<TaskStatus>): boolean {
+export function sameStatusSet(
+	selected: TaskStatus[] | null,
+	target: ReadonlyArray<TaskStatus>,
+): boolean {
 	if (selected === null || selected.length !== target.length) return false
 	const set = new Set(selected)
 	return target.every((s) => set.has(s))

@@ -173,7 +173,7 @@ export function useUiStream(enabled: boolean): {
  * `onlineSessionCount` we attach lets the UI flag the rare case of a member
  * being connected more than once at the same time.
  */
-function dedupeByMember(raw: MemberSnapshot[]): MemberSnapshot[] {
+export function dedupeByMember(raw: MemberSnapshot[]): MemberSnapshot[] {
 	const groups = new Map<string, MemberSnapshot[]>()
 	for (const m of raw) {
 		const g = groups.get(m.memberId)
