@@ -1,18 +1,21 @@
-import { Alert, Button, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
 import {
 	createRootRoute,
 	createRoute,
 	createRouter,
+	lazyRouteComponent,
 	type ErrorComponentProps,
 } from '@tanstack/react-router'
 import { Dashboard } from './routes/Dashboard.tsx'
-import { DocPageView, DocsIndex } from './routes/Docs.tsx'
-import { MemberDetailPage } from './routes/MemberDetailPage.tsx'
-import { RepoDetailPage } from './routes/RepoDetailPage.tsx'
 import { RootLayout } from './routes/Root.tsx'
-import { TaskDetailPage } from './routes/TaskDetailPage.tsx'
-import { TasksPage } from './routes/TasksPage.tsx'
 import type { TaskStatus } from './types.ts'
+
+// The shell (`RootLayout`) and the landing page (`Dashboard`) load eagerly so
+// the first paint has no extra round-trip. Every other route's component is
+// code-split via `lazyRouteComponent` — this keeps heavy, page-specific deps
+// (e.g. `react-markdown` in TaskDetail) out of the initial bundle. Charts
+// (`@mui/x-charts`) live in `ActivityPanel`, which the Dashboard lazy-loads on
+// its own, so they split out too.
 
 const rootRoute = createRootRoute({ component: RootLayout })
 
@@ -49,7 +52,7 @@ interface TasksSearch {
 export const tasksRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/tasks',
-	component: TasksPage,
+	component: lazyRouteComponent(() => import('./routes/TasksPage.tsx'), 'TasksPage'),
 	validateSearch: (search: Record<string, unknown>): TasksSearch => {
 		const rawPage = Number(search['page'])
 		const page = Number.isFinite(rawPage) && rawPage >= 0 ? Math.floor(rawPage) : 0
@@ -82,13 +85,16 @@ export const tasksRoute = createRoute({
 export const taskDetailRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/tasks/$taskId',
-	component: TaskDetailPage,
+	component: lazyRouteComponent(() => import('./routes/TaskDetailPage.tsx'), 'TaskDetailPage'),
 })
 
 export const memberDetailRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/members/$memberId',
-	component: MemberDetailPage,
+	component: lazyRouteComponent(
+		() => import('./routes/MemberDetailPage.tsx'),
+		'MemberDetailPage',
+	),
 })
 
 // GitHub repo slugs are always `owner/name` — two path segments rather than
@@ -97,22 +103,19 @@ export const memberDetailRoute = createRoute({
 export const repoDetailRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/repos/$owner/$name',
-	component: RepoDetailPage,
+	component: lazyRouteComponent(() => import('./routes/RepoDetailPage.tsx'), 'RepoDetailPage'),
 })
 
 export const docsIndexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/docs',
-	component: DocsIndex,
+	component: lazyRouteComponent(() => import('./routes/Docs.tsx'), 'DocsIndex'),
 })
 
 export const docDetailRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/docs/$slug',
-	component: function DocDetailRouteComponent() {
-		const { slug } = docDetailRoute.useParams()
-		return <DocPageView slug={slug} />
-	},
+	component: lazyRouteComponent(() => import('./routes/Docs.tsx'), 'DocDetailPage'),
 })
 
 const routeTree = rootRoute.addChildren([
@@ -157,7 +160,23 @@ function RouteError({ error, reset }: ErrorComponentProps) {
 	)
 }
 
-export const router = createRouter({ routeTree, defaultErrorComponent: RouteError })
+function RoutePending() {
+	return (
+		<Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+			<CircularProgress size={28} />
+		</Box>
+	)
+}
+
+export const router = createRouter({
+	routeTree,
+	defaultErrorComponent: RouteError,
+	// Fetch a route's code-split chunk on hover/focus so navigation usually
+	// has it ready by click — hides the lazy-load latency for the common case.
+	defaultPreload: 'intent',
+	// Shown only if a chunk is still loading when the route actually renders.
+	defaultPendingComponent: RoutePending,
+})
 
 declare module '@tanstack/react-router' {
 	interface Register {

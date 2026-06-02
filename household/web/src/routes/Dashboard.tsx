@@ -1,7 +1,7 @@
-import { Box, Stack } from '@mui/material'
+import { Box, Skeleton, Stack } from '@mui/material'
 import { Link } from '@tanstack/react-router'
+import { Suspense, lazy } from 'react'
 import { useAppData } from '../AppContext.tsx'
-import { ActivityPanel } from '../components/ActivityPanel.tsx'
 import { MembersPanel } from '../components/MembersPanel.tsx'
 import { NotificationsPanel } from '../components/NotificationsPanel.tsx'
 import { ReposPanel } from '../components/ReposPanel.tsx'
@@ -10,6 +10,12 @@ import { TokensPanel, useTokensQuery } from '../components/TokensPanel.tsx'
 import { UsersPanel } from '../components/UsersPanel.tsx'
 import { OPEN_STATUSES, isWaitingOnHuman } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
+
+// Charts (`@mui/x-charts`) are heavy and live only in ActivityPanel, so split
+// them into their own chunk and stream the panel in after first paint.
+const ActivityPanel = lazy(() =>
+	import('../components/ActivityPanel.tsx').then((m) => ({ default: m.ActivityPanel })),
+)
 
 const DASHBOARD_TASKS_LIMIT = 5
 
@@ -37,7 +43,9 @@ export function Dashboard() {
 	return (
 		<>
 			<Section title="Activity">
-				<ActivityPanel />
+				<Suspense fallback={<Skeleton variant="rounded" height={240} />}>
+					<ActivityPanel />
+				</Suspense>
 			</Section>
 
 			<Section

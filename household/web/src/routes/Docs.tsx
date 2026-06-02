@@ -10,7 +10,7 @@
 
 import { Box, Paper, Stack, Typography } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import { Link } from '@tanstack/react-router'
+import { Link, useParams } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { EmptyState, Section } from './Root.tsx'
 
@@ -78,6 +78,16 @@ export function DocsIndex() {
 			</Stack>
 		</Section>
 	)
+}
+
+/**
+ * Route component for `/docs/$slug`. Reads the slug from the URL itself (rather
+ * than taking a prop) so it can be lazy-loaded directly as the route's
+ * `component` — see `router.tsx`.
+ */
+export function DocDetailPage() {
+	const { slug } = useParams({ from: '/docs/$slug' })
+	return <DocPageView slug={slug} />
 }
 
 export function DocPageView({ slug }: { slug: string }) {
