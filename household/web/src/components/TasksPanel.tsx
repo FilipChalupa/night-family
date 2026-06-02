@@ -22,6 +22,7 @@ import {
 	Tooltip,
 	Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import HistoryIcon from '@mui/icons-material/History'
 import HourglassTopIcon from '@mui/icons-material/HourglassTop'
 import PersonIcon from '@mui/icons-material/Person'
@@ -34,6 +35,7 @@ import { useAppData } from '../AppContext.tsx'
 import { relativeTime } from '../time.ts'
 import {
 	OPEN_STATUSES,
+	isWaitingOnHuman,
 	reviewWaitState,
 	type MemberSnapshot,
 	type ReviewJobsSummary,
@@ -280,7 +282,26 @@ function TasksTable({
 				</TableHead>
 				<TableBody>
 					{tasks.map((t) => (
-						<TableRow key={t.id} hover>
+						<TableRow
+							key={t.id}
+							hover
+							sx={
+								isWaitingOnHuman(t)
+									? {
+											// Waiting on a human (agent done reviewing, or
+											// ready to merge) — accent the row so it doesn't
+											// get lost. The status chip + ReviewWaitBadge carry
+											// the same meaning textually for screen readers.
+											borderLeft: 3,
+											borderLeftColor: 'warning.main',
+											'& > td': {
+												bgcolor: (theme) =>
+													alpha(theme.palette.warning.main, 0.08),
+											},
+										}
+									: undefined
+							}
+						>
 							<TableCell>
 								{(() => {
 									const issue = githubIssueRef(t)

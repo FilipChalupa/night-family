@@ -8,7 +8,7 @@ import { ReposPanel } from '../components/ReposPanel.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { TokensPanel, useTokensQuery } from '../components/TokensPanel.tsx'
 import { UsersPanel } from '../components/UsersPanel.tsx'
-import { OPEN_STATUSES } from '../types.ts'
+import { OPEN_STATUSES, isWaitingOnHuman } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
 const DASHBOARD_TASKS_LIMIT = 5
@@ -29,6 +29,7 @@ export function Dashboard() {
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
 	const hiddenCount = Math.max(0, tasks.length - visibleTasks.length)
 	const openCount = tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length
+	const waitingCount = tasks.filter(isWaitingOnHuman).length
 
 	// Admin-only — endpoint 403s for non-admins, so don't fetch.
 	const tokensQuery = useTokensQuery({ enabled: isAdmin })
@@ -39,7 +40,9 @@ export function Dashboard() {
 				<ActivityPanel />
 			</Section>
 
-			<Section title={`Tasks (${tasks.length}) · ${openCount} open`}>
+			<Section
+				title={`Tasks (${tasks.length}) · ${openCount} open · ${waitingCount} waiting`}
+			>
 				<Stack spacing={1.5}>
 					<TasksPanel
 						tasks={visibleTasks}
@@ -49,7 +52,26 @@ export function Dashboard() {
 						onRetry={retryTask}
 						showCreateForm={false}
 					/>
-					<Box sx={{ textAlign: 'right' }}>
+					<Stack spacing={0.5} sx={{ alignItems: 'flex-end' }}>
+						{waitingCount > 0 ? (
+							<Link
+								to="/tasks"
+								search={{
+									page: 0,
+									pageSize: 25,
+									q: '',
+									status: null,
+									waiting: 'human',
+								}}
+								style={{
+									color: 'inherit',
+									textDecoration: 'underline',
+									fontSize: '0.875rem',
+								}}
+							>
+								{`${waitingCount} waiting on human →`}
+							</Link>
+						) : null}
 						<Link
 							to="/tasks"
 							search={{ page: 0, pageSize: 25, q: '', status: null, waiting: null }}
@@ -63,7 +85,7 @@ export function Dashboard() {
 								? `Open tasks page (${tasks.length} tasks, +${hiddenCount} hidden, create new) →`
 								: 'Open tasks page (create new, see all) →'}
 						</Link>
-					</Box>
+					</Stack>
 				</Stack>
 			</Section>
 

@@ -20,6 +20,17 @@ export interface TaskPushPersistence {
 }
 
 export class TaskPushTransitionTracker {
+	/**
+	 * Task ids for which we've already fired the in-review "waiting on human"
+	 * push, so a flurry of `republish` ticks doesn't re-notify. Cleared when a
+	 * task leaves `in-review` so a later review round can notify again. In
+	 * memory (not persisted like `lastNotifiedStatus`) on purpose: this edge is
+	 * triggered by the last review job finishing, which is event-driven and
+	 * doesn't recur after a restart — there's no later `task.updated` to
+	 * re-fire on for an already-waiting task.
+	 */
+	private readonly notifiedWaiting = new Set<string>()
+
 	constructor(private readonly persistence: TaskPushPersistence) {}
 
 	/**
@@ -29,6 +40,27 @@ export class TaskPushTransitionTracker {
 	 * for transitions we don't notify on.
 	 */
 	observe(task: TaskRecord): PushPayload | null {
+		// "Waiting on human" while a task stays `in-review` is an edge with NO
+		// status change — the last review job finished, so the ball moves to a
+		// human (approve / push fixups / merge). The status-diff below would
+		// never catch it, so detect it here. (`awaiting-merge` is the other
+		// waiting state and is covered by describe()'s "Ready for merge".)
+		if (task.status !== 'in-review') {
+			this.notifiedWaiting.delete(task.id)
+		} else if (
+			task.lastNotifiedStatus !== null && // not a baseline/rehydrated row
+			isWaitingOnHuman(task) &&
+			!this.notifiedWaiting.has(task.id)
+		) {
+			this.notifiedWaiting.add(task.id)
+			return {
+				title: 'Ready for your review',
+				body: task.title,
+				taskId: task.id,
+				tag: `task:${task.id}`,
+			}
+		}
+
 		const before = task.lastNotifiedStatus
 		if (before === task.status) return null
 
@@ -44,6 +76,19 @@ export class TaskPushTransitionTracker {
 		this.persistence.setLastNotifiedStatus(task.id, task.status)
 		return payload
 	}
+}
+
+/**
+ * In-review tasks waiting on a human: every review job has finished (none
+ * pending or in progress, at least one completed/failed). Mirrors the web
+ * `isWaitingOnHuman` for the in-review case; the `awaiting-merge` case is
+ * handled by the status-change path.
+ */
+function isWaitingOnHuman(task: TaskRecord): boolean {
+	const jobs = task.reviewJobs
+	if (!jobs) return false
+	if (jobs.pending > 0 || jobs.inProgress > 0) return false
+	return jobs.completed > 0 || jobs.failed > 0
 }
 
 function describe(task: TaskRecord, before: TaskStatus): PushPayload | null {

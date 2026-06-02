@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MemberSnapshot } from '../types.ts'
-import { dedupeByMember } from './useUiStream.ts'
+import { dedupeByMember, upsertMemberSession } from './useUiStream.ts'
 
 const member = (partial: Partial<MemberSnapshot>): MemberSnapshot => ({
 	sessionId: 'sess-1',
@@ -76,5 +76,38 @@ describe('dedupeByMember', () => {
 			member({ memberId: 'm1', sessionId: 's1-dup', status: 'offline' }),
 		])
 		expect(out.map((m) => m.memberId)).toEqual(['m1', 'm2'])
+	})
+})
+
+describe('upsertMemberSession', () => {
+	it('adds a brand-new session', () => {
+		const out = upsertMemberSession([], member({ sessionId: 's1' }))
+		expect(out).toHaveLength(1)
+		expect(out[0]?.sessionId).toBe('s1')
+	})
+
+	it('updates an existing session in place (by sessionId)', () => {
+		const prev = [member({ sessionId: 's1', status: 'idle' })]
+		const out = upsertMemberSession(prev, member({ sessionId: 's1', status: 'busy' }))
+		expect(out).toHaveLength(1)
+		expect(out[0]?.status).toBe('busy')
+	})
+
+	it('drops the offline shell of a prior session when the member reconnects', () => {
+		const prev = [member({ sessionId: 'old', status: 'offline' })]
+		const out = upsertMemberSession(prev, member({ sessionId: 'new', status: 'idle' }))
+		expect(out.map((m) => m.sessionId)).toEqual(['new'])
+	})
+
+	it('keeps another *online* session for the same member (concurrent connection)', () => {
+		const prev = [member({ sessionId: 'a', status: 'idle' })]
+		const out = upsertMemberSession(prev, member({ sessionId: 'b', status: 'idle' }))
+		expect(out.map((m) => m.sessionId).sort()).toEqual(['a', 'b'])
+	})
+
+	it('does not touch offline shells belonging to a different member', () => {
+		const prev = [member({ memberId: 'other', sessionId: 'x', status: 'offline' })]
+		const out = upsertMemberSession(prev, member({ memberId: 'member-1', sessionId: 's1' }))
+		expect(out.map((m) => m.sessionId).sort()).toEqual(['s1', 'x'])
 	})
 })

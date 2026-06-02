@@ -91,7 +91,7 @@ export function useUiStream(enabled: boolean): {
 						break
 					case 'member.connected':
 					case 'member.updated':
-						setRawMembers((prev) => upsert(prev, msg.member, (m) => m.sessionId))
+						setRawMembers((prev) => upsertMemberSession(prev, msg.member))
 						break
 					case 'member.disconnected':
 						// Match by `sessionId`, never `memberId`: a late disconnect
@@ -191,6 +191,30 @@ export function dedupeByMember(raw: MemberSnapshot[]): MemberSnapshot[] {
 		out.push({ ...representative, onlineSessionCount: online.length })
 	}
 	return out
+}
+
+/**
+ * Apply a `member.connected` / `member.updated` event to the raw session list:
+ * upsert the incoming session by `sessionId`, and drop any *offline* shells of
+ * the same member left behind by an earlier session. A reconnect mints a fresh
+ * `sessionId`, so the prior session's row can't be overwritten in place — and
+ * once a live session exists, its dead predecessors are pure noise. Other live
+ * sessions for the member are kept (so `dedupeByMember` can still flag the rare
+ * concurrent-connection case).
+ */
+export function upsertMemberSession(
+	prev: MemberSnapshot[],
+	member: MemberSnapshot,
+): MemberSnapshot[] {
+	const withoutShells = prev.filter(
+		(m) =>
+			!(
+				m.memberId === member.memberId &&
+				m.sessionId !== member.sessionId &&
+				m.status === 'offline'
+			),
+	)
+	return upsert(withoutShells, member, (m) => m.sessionId)
 }
 
 function upsert<T>(prev: T[], item: T, key: (x: T) => string): T[] {

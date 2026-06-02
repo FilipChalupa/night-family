@@ -1,4 +1,4 @@
-import { Box, Chip, Stack, TextField } from '@mui/material'
+import { Box, Chip, Divider, Stack, TextField } from '@mui/material'
 import ClearIcon from '@mui/icons-material/Clear'
 import SearchIcon from '@mui/icons-material/Search'
 import { IconButton, InputAdornment } from '@mui/material'
@@ -132,6 +132,7 @@ export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, on
 					variant={openOnly ? 'filled' : 'outlined'}
 					color={openOnly ? 'primary' : 'default'}
 					onClick={toggleOpenOnly}
+					aria-pressed={openOnly}
 				/>
 				<Chip
 					label={`Waiting on human · ${waitingCount}`}
@@ -139,8 +140,9 @@ export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, on
 					variant={waiting === 'human' ? 'filled' : 'outlined'}
 					color={waiting === 'human' ? 'primary' : 'default'}
 					onClick={toggleWaiting}
+					aria-pressed={waiting === 'human'}
 				/>
-				<Box sx={{ width: '1px', alignSelf: 'stretch', bgcolor: 'divider', mx: 0.5 }} />
+				<Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 				{FILTERABLE_STATUSES.map((s) => {
 					const active = status !== null && status.includes(s)
 					return (
@@ -151,6 +153,7 @@ export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, on
 							variant={active ? 'filled' : 'outlined'}
 							color={active ? 'primary' : 'default'}
 							onClick={() => toggleStatus(s)}
+							aria-pressed={active}
 						/>
 					)
 				})}

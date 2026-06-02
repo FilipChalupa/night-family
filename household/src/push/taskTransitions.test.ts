@@ -113,4 +113,52 @@ describe('TaskPushTransitionTracker', () => {
 		// the same status (e.g. on a republish) must stay silent.
 		expect(r.step({ id: 't1', status: 'failed', lastNotifiedStatus: 'failed' })).toBeNull()
 	})
+
+	const allReviewJobsDone = { pending: 0, inProgress: 0, completed: 1, failed: 0 }
+
+	it('fires "Ready for your review" when the last review job finishes while in-review', () => {
+		const r = rig()
+		// Enters review with the agent still working — no notification yet.
+		expect(r.step({ id: 't1', status: 'in-review' })).toBeNull()
+		expect(
+			r.step({
+				id: 't1',
+				status: 'in-review',
+				reviewJobs: { pending: 0, inProgress: 1, completed: 0, failed: 0 },
+			}),
+		).toBeNull()
+		// Last job finishes → ball is now on the human. Status hasn't changed.
+		const payload = r.step({ id: 't1', status: 'in-review', reviewJobs: allReviewJobsDone })
+		expect(payload?.title).toBe('Ready for your review')
+		expect(payload?.taskId).toBe('t1')
+	})
+
+	it('does not re-fire the waiting push on subsequent republish ticks', () => {
+		const r = rig()
+		r.step({ id: 't1', status: 'in-review' })
+		expect(
+			r.step({ id: 't1', status: 'in-review', reviewJobs: allReviewJobsDone })?.title,
+		).toBe('Ready for your review')
+		// More republishes with the same "all done" summary must stay silent.
+		expect(r.step({ id: 't1', status: 'in-review', reviewJobs: allReviewJobsDone })).toBeNull()
+	})
+
+	it('re-arms the waiting push for a later review round', () => {
+		const r = rig()
+		r.step({ id: 't1', status: 'in-review' })
+		expect(
+			r.step({ id: 't1', status: 'in-review', reviewJobs: allReviewJobsDone })?.title,
+		).toBe('Ready for your review')
+		// Human pushes fixups → back to queued → another review → done again.
+		r.step({ id: 't1', status: 'queued' })
+		r.step({ id: 't1', status: 'in-review' })
+		expect(
+			r.step({ id: 't1', status: 'in-review', reviewJobs: allReviewJobsDone })?.title,
+		).toBe('Ready for your review')
+	})
+
+	it('does not treat a freshly in-review row with no jobs as waiting', () => {
+		const r = rig()
+		expect(r.step({ id: 't1', status: 'in-review', reviewJobs: null })).toBeNull()
+	})
 })
