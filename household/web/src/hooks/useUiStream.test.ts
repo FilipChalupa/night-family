@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { MemberSnapshot } from '../types.ts'
-import { dedupeByMember, upsertMemberSession } from './useUiStream.ts'
+import type { MemberSnapshot, TaskLogEvent } from '../types.ts'
+import { dedupeByMember, mergeTaskEvent, upsertMemberSession } from './useUiStream.ts'
+
+const logEvent = (seq: number, partial: Partial<TaskLogEvent> = {}): TaskLogEvent => ({
+	seq,
+	ts: '2026-01-01T00:00:00.000Z',
+	kind: 'log',
+	memberId: 'member-1',
+	payload: null,
+	...partial,
+})
 
 const member = (partial: Partial<MemberSnapshot>): MemberSnapshot => ({
 	sessionId: 'sess-1',
@@ -109,5 +118,31 @@ describe('upsertMemberSession', () => {
 		const prev = [member({ memberId: 'other', sessionId: 'x', status: 'offline' })]
 		const out = upsertMemberSession(prev, member({ memberId: 'member-1', sessionId: 's1' }))
 		expect(out.map((m) => m.sessionId).sort()).toEqual(['s1', 'x'])
+	})
+})
+
+describe('mergeTaskEvent', () => {
+	it('prepends a newer event, keeping the list newest-first', () => {
+		const out = mergeTaskEvent([logEvent(5), logEvent(4)], logEvent(6))
+		expect(out.map((e) => e.seq)).toEqual([6, 5, 4])
+	})
+
+	it('inserts an out-of-order (older) event into its sorted position', () => {
+		const out = mergeTaskEvent([logEvent(6), logEvent(4)], logEvent(5))
+		expect(out.map((e) => e.seq)).toEqual([6, 5, 4])
+	})
+
+	it('ignores a duplicate seq (replayed event) and returns the same array', () => {
+		const prev = [logEvent(5), logEvent(4)]
+		const out = mergeTaskEvent(prev, logEvent(5, { kind: 'commit' }))
+		expect(out).toBe(prev)
+	})
+
+	it('caps the list at 500 rows, dropping the oldest', () => {
+		const prev = Array.from({ length: 500 }, (_, i) => logEvent(500 - i)) // seq 500..1
+		const out = mergeTaskEvent(prev, logEvent(501))
+		expect(out).toHaveLength(500)
+		expect(out[0]?.seq).toBe(501)
+		expect(out.at(-1)?.seq).toBe(2) // seq 1 fell off the end
 	})
 })

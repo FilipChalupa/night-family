@@ -4,6 +4,7 @@
  * ignored via INSERT OR IGNORE so reconnection idempotently catches up.
  */
 
+import { EventEmitter } from 'node:events'
 import { desc, eq, max, sql } from 'drizzle-orm'
 import type { Db } from '../db/index.ts'
 import { taskEvents } from '../db/schema.ts'
@@ -27,6 +28,15 @@ export interface StoredEvent {
 	payload: unknown
 }
 
+/**
+ * Fired when `insert` actually persists a new row. Carries `taskId` (the
+ * stored row otherwise omits it, since callers already scope by task) so the
+ * UI stream can route it to the right open task-events view.
+ */
+export interface AppendedEvent extends StoredEvent {
+	taskId: string
+}
+
 function safeParse(raw: string): unknown {
 	try {
 		return JSON.parse(raw)
@@ -36,6 +46,8 @@ function safeParse(raw: string): unknown {
 }
 
 export class TaskEventLog {
+	private readonly emitter = new EventEmitter()
+
 	constructor(private readonly db: Db) {}
 
 	/**
@@ -43,12 +55,13 @@ export class TaskEventLog {
 	 * actually written.
 	 */
 	insert(event: IncomingEvent): boolean {
+		const ts = new Date(event.tsMs)
 		const result = this.db
 			.insert(taskEvents)
 			.values({
 				taskId: event.taskId,
 				seq: event.seq,
-				ts: new Date(event.tsMs),
+				ts,
 				sessionId: event.sessionId,
 				memberId: event.memberId,
 				kind: event.kind,
@@ -56,7 +69,30 @@ export class TaskEventLog {
 			})
 			.onConflictDoNothing()
 			.run()
+		if (result.changes > 0) {
+			// Only on a genuinely new row — replayed duplicates must not
+			// re-notify the UI.
+			this.emit({
+				taskId: event.taskId,
+				seq: event.seq,
+				ts,
+				sessionId: event.sessionId,
+				memberId: event.memberId,
+				kind: event.kind,
+				payload: event.payload,
+			})
+		}
 		return result.changes > 0
+	}
+
+	/** Subscribe to newly appended events. Returns an unsubscribe function. */
+	on(listener: (event: AppendedEvent) => void): () => void {
+		this.emitter.on('event', listener)
+		return () => this.emitter.off('event', listener)
+	}
+
+	private emit(event: AppendedEvent): void {
+		this.emitter.emit('event', event)
 	}
 
 	/**

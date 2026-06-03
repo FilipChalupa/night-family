@@ -154,6 +154,15 @@ export interface UserRecord {
 	added_by: string
 }
 
+/** A single entry in a task's event log (as served by `/api/tasks/:id/events`). */
+export interface TaskLogEvent {
+	seq: number
+	ts: string
+	kind: string
+	memberId: string | null
+	payload: unknown
+}
+
 export type UiEvent =
 	| {
 			type: 'snapshot'
@@ -167,3 +176,4 @@ export type UiEvent =
 	| { type: 'task.created'; task: TaskRecord }
 	| { type: 'task.updated'; task: TaskRecord }
 	| { type: 'task.deleted'; taskId: string }
+	| { type: 'task.event'; taskId: string; event: TaskLogEvent }

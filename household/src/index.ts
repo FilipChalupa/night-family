@@ -189,6 +189,7 @@ const uiHandler = createUiWsHandler({
 	registry,
 	memberStore,
 	taskStore,
+	eventLog,
 	sessions: sessionStore,
 	requireUiLogin: config.requireUiLogin,
 	logger: logger.child({ component: 'ws.ui' }),

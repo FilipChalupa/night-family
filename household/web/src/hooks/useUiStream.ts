@@ -1,5 +1,6 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MemberSnapshot, TaskRecord, UiEvent } from '../types.ts'
+import type { MemberSnapshot, TaskLogEvent, TaskRecord, UiEvent } from '../types.ts'
 
 /**
  * The household sends messages at least every ~10s (member heartbeats). If
@@ -33,6 +34,7 @@ export function useUiStream(enabled: boolean): {
 	const [connected, setConnected] = useState(false)
 	const [householdProtocolVersion, setHouseholdProtocolVersion] = useState<string | null>(null)
 	const [lastMessageAt, setLastMessageAt] = useState<number | null>(null)
+	const queryClient = useQueryClient()
 	const wsRef = useRef<WebSocket | null>(null)
 	const reconnectTimer = useRef<number | null>(null)
 	const closedManually = useRef(false)
@@ -112,6 +114,17 @@ export function useUiStream(enabled: boolean): {
 					case 'task.deleted':
 						setTasks((prev) => prev.filter((t) => t.id !== msg.taskId))
 						break
+					case 'task.event':
+						// Splice the new event straight into the cached
+						// task-events list so an open dialog updates live. We
+						// skip (return undefined) when no entry exists, so we
+						// never fabricate a cache the next open would read as
+						// complete — that open fetches fresh instead.
+						queryClient.setQueryData<TaskLogEvent[]>(
+							['task-events', msg.taskId],
+							(prev) => (prev ? mergeTaskEvent(prev, msg.event) : prev),
+						)
+						break
 				}
 			})
 
@@ -155,7 +168,7 @@ export function useUiStream(enabled: boolean): {
 			}
 			wsRef.current?.close()
 		}
-	}, [enabled])
+	}, [enabled, queryClient])
 
 	// Collapse the raw per-session rows to one row per member for everything
 	// downstream (the table, the member count, token grouping, the task
@@ -215,6 +228,17 @@ export function upsertMemberSession(
 			),
 	)
 	return upsert(withoutShells, member, (m) => m.sessionId)
+}
+
+/**
+ * Insert a live event into the cached (newest-first) task-events list,
+ * deduping by `seq` so a replayed event can't double up. Bounded to 500 rows —
+ * matching the API's own cap — so a long-running task can't grow it without
+ * limit while the dialog stays open.
+ */
+export function mergeTaskEvent(prev: TaskLogEvent[], event: TaskLogEvent): TaskLogEvent[] {
+	if (prev.some((e) => e.seq === event.seq)) return prev
+	return [event, ...prev].sort((a, b) => b.seq - a.seq).slice(0, 500)
 }
 
 function upsert<T>(prev: T[], item: T, key: (x: T) => string): T[] {

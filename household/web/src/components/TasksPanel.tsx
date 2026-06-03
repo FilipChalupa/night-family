@@ -40,6 +40,7 @@ import {
 	type MemberSnapshot,
 	type ReviewJobsSummary,
 	type TaskKind,
+	type TaskLogEvent,
 	type TaskRecord,
 	type TaskStatus,
 } from '../types.ts'
@@ -562,16 +563,8 @@ function TasksTable({
 	)
 }
 
-interface TaskEvent {
-	seq: number
-	ts: string
-	kind: string
-	memberId: string | null
-	payload: unknown
-}
-
 function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose: () => void }) {
-	const { data: events, error } = useQuery<TaskEvent[]>({
+	const { data: events, error } = useQuery<TaskLogEvent[]>({
 		queryKey: ['task-events', taskId],
 		queryFn: async () => {
 			const r = await fetch(`/api/tasks/${taskId}/events?limit=50`)
@@ -579,7 +572,7 @@ function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose:
 				const b = (await r.json().catch(() => ({}))) as { error?: string }
 				throw new Error(b.error ?? `HTTP ${r.status}`)
 			}
-			const body = (await r.json()) as { events: TaskEvent[] }
+			const body = (await r.json()) as { events: TaskLogEvent[] }
 			return body.events
 		},
 		enabled: taskId !== null,
