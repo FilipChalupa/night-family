@@ -181,12 +181,17 @@ export class TaskRunner {
 			}
 
 			// Tasks that don't need a git worktree — agent works in a scratch dir.
+			// Triage is NOT here: it clones the repo so the agent can read the
+			// code to judge how clear/large the issue is, but it still produces
+			// no commit/PR (see `producesPr` below) — its only output is one
+			// issue comment.
 			const isReview = task.kind === 'review'
-			const isNoWorkspace =
-				isReview ||
-				task.kind === 'respond' ||
-				task.kind === 'triage' ||
-				task.kind === 'summarize'
+			const isNoWorkspace = isReview || task.kind === 'respond' || task.kind === 'summarize'
+
+			// Of the worktree tasks, only implement turns its file edits into a
+			// commit + draft PR. Triage reads the tree but never writes to it, so
+			// it skips the commit/push/PR path even though it has a workspace.
+			const producesPr = !isNoWorkspace && task.kind !== 'triage'
 
 			let workspace: Workspace | null = null
 			if (task.repo && !isNoWorkspace) {
@@ -201,7 +206,7 @@ export class TaskRunner {
 				workspaceForCleanup = workspace
 				await emit('log', { message: 'workspace ready', branch: workspace.branch })
 			} else {
-				// triage, summarize, review, respond — just need a scratch dir
+				// summarize, review, respond — just need a scratch dir
 				// for any file ops the agent does while reading context.
 				const scratch = join(this.deps.workspaceDir, task.taskId, 'scratch')
 				await mkdir(scratch, { recursive: true })
@@ -304,8 +309,11 @@ export class TaskRunner {
 
 			this.deps.dailyUsage.record(providerResult.usage)
 
-			// Review / respond / summarize — no commit/push/PR, return immediately.
-			if (isNoWorkspace) {
+			// Review / respond / summarize / triage — no commit/push/PR, return
+			// immediately. Triage had a cloned worktree to read the code, but its
+			// only output is the issue comment it already posted; the workspace is
+			// dropped in the `finally` block below.
+			if (!producesPr) {
 				await emit('log', { message: 'task complete', summary: providerResult.summary })
 				return {
 					type: 'completed',

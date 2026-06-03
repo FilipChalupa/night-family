@@ -502,6 +502,34 @@ describe('TaskRunner — end-to-end (implement, with stubbed Workspace)', () => 
 		expect(logMessages).toContain('PR ready for review')
 	})
 
+	it('triage clones a workspace to read the code but never commits/pushes/opens a PR', async () => {
+		const { workspace, commit, push, upsertDraftPr, cleanup } = buildStubWorkspace()
+		const create = vi.spyOn(Workspace, 'create').mockResolvedValue(workspace)
+
+		const { runner, sent } = buildRunner()
+		const outcome = await runner.run({
+			...implementTask('t-triage'),
+			kind: 'triage',
+		})
+
+		// Repo is cloned (the agent needs the tree to judge clarity/size)…
+		expect(create).toHaveBeenCalledTimes(1)
+		const messages = sent as Array<{ kind?: string; payload?: { message?: string } }>
+		const logMessages = messages.filter((m) => m.kind === 'log').map((m) => m.payload?.message)
+		expect(logMessages).toContain('workspace ready')
+
+		// …but triage's only output is the issue comment it posted via the tool;
+		// it must not turn the worktree into a commit/PR.
+		expect(commit).not.toHaveBeenCalled()
+		expect(push).not.toHaveBeenCalled()
+		expect(upsertDraftPr).not.toHaveBeenCalled()
+
+		expect(outcome.type).toBe('completed')
+		expect(outcome.prUrl).toBeUndefined()
+		// Worktree is still reclaimed on the no-PR path.
+		expect(cleanup).toHaveBeenCalledTimes(1)
+	})
+
 	it('marks the task failed with reason "push_failed" when push throws', async () => {
 		const { workspace, push, upsertDraftPr } = buildStubWorkspace({
 			push: vi.fn().mockRejectedValue(new Error('boom')),
