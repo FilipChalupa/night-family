@@ -21,8 +21,9 @@ RUN npm ci --omit=dev --workspace=@night/member --include-workspace-root
 # ---- runtime stage ----
 FROM node:22-alpine AS runtime
 # Tools the Member needs: git for cloning, gh for PR/review actions,
-# bash for Bash tool calls, tini for proper signal handling.
-RUN apk add --no-cache git github-cli bash tini openssh-client ca-certificates
+# bash for Bash tool calls, ripgrep (rg) for fast .gitignore-aware search the
+# system prompt tells the agent to use, tini for proper signal handling.
+RUN apk add --no-cache git github-cli bash ripgrep tini openssh-client ca-certificates
 
 WORKDIR /app
 ENV NODE_ENV=production
