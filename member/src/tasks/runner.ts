@@ -233,6 +233,9 @@ export class TaskRunner {
 				// issue thread the way it could spam reviews before we capped
 				// post_pr_review.
 				oneShotIssueComment: task.kind === 'triage',
+				// Read-mostly kinds get a tight per-command timeout so a slow
+				// whole-repo search fails fast instead of eating a 5-minute hang.
+				bashTimeoutMs: bashTimeoutMsForKind(task.kind),
 			})
 
 			const systemPrompt = buildSystemPrompt({
@@ -723,6 +726,29 @@ export function maxIterationsForKind(kind: TaskKind): number {
 			return 12
 		default:
 			return 30
+	}
+}
+
+/**
+ * Per-command bash timeout by task kind. The read-mostly kinds (triage,
+ * review, respond, summarize) only ever `ls` / `cat` / search / run `gh`
+ * read commands — nothing they do legitimately runs past a minute. A tight
+ * cap there kills a runaway whole-repo `rg` / `grep` fast and hands the agent
+ * a "timed out" it can still react to inside its small iteration budget,
+ * instead of burning a full 5 minutes (and a whole iteration) per hang — the
+ * exact failure mode that stalled triage on the Kilomayo monorepo. Implement
+ * and rebase keep the generous budget: real test suites, installs, and builds
+ * routinely run past a minute (see the note in `createDefaultTools`).
+ */
+export function bashTimeoutMsForKind(kind: TaskKind): number {
+	switch (kind) {
+		case 'triage':
+		case 'review':
+		case 'respond':
+		case 'summarize':
+			return 60_000
+		default:
+			return 5 * 60_000
 	}
 }
 

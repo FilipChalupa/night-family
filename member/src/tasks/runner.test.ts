@@ -7,6 +7,7 @@ import { StubProvider } from '../agent/stub.ts'
 import type { MemberLimits, TokenUsage } from '../agent/types.ts'
 import {
 	formatTokenBudgetHint,
+	bashTimeoutMsForKind,
 	maxIterationsForKind,
 	parseReviewOutput,
 	parseTriageOutput,
@@ -133,6 +134,20 @@ describe('maxIterationsForKind', () => {
 		expect(maxIterationsForKind('implement')).toBe(30)
 		expect(maxIterationsForKind('summarize')).toBe(30)
 		expect(maxIterationsForKind('rebase')).toBe(30)
+	})
+})
+
+describe('bashTimeoutMsForKind', () => {
+	it('tightens read-mostly kinds to 60s so a runaway search fails fast', () => {
+		expect(bashTimeoutMsForKind('triage')).toBe(60_000)
+		expect(bashTimeoutMsForKind('review')).toBe(60_000)
+		expect(bashTimeoutMsForKind('respond')).toBe(60_000)
+		expect(bashTimeoutMsForKind('summarize')).toBe(60_000)
+	})
+
+	it('keeps the 5-minute budget for kinds that build / test', () => {
+		expect(bashTimeoutMsForKind('implement')).toBe(5 * 60_000)
+		expect(bashTimeoutMsForKind('rebase')).toBe(5 * 60_000)
 	})
 })
 
