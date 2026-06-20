@@ -844,7 +844,7 @@ function githubIssueRef(task: TaskRecord): { number: number | null; url: string 
  * event. Only meaningful while the task is active — a stopped preview keeps the
  * key but the URL is no longer reachable, so callers gate on task status.
  */
-function previewUrlOf(task: TaskRecord): string | null {
+export function previewUrlOf(task: TaskRecord): string | null {
 	const u = task.metadata?.['preview_url']
 	return typeof u === 'string' && u.length > 0 ? u : null
 }

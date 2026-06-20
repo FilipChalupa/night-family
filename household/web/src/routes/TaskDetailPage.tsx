@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { Markdown } from '../components/Markdown.tsx'
-import { ReviewWaitBadge } from '../components/TasksPanel.tsx'
+import { previewUrlOf, ReviewWaitBadge } from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -232,6 +232,24 @@ function TaskDetailCard({
 						)
 					}
 				/>
+				{(() => {
+					const previewUrl = previewUrlOf(task)
+					return previewUrl && ACTIVE_STATUSES.has(task.status) ? (
+						<Field
+							label="Preview"
+							value={
+								<MuiLink
+									href={previewUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									underline="hover"
+								>
+									▶ {previewUrl}
+								</MuiLink>
+							}
+						/>
+					) : null
+				})()}
 				<Field label="Plan size" value={planLabel(task)} />
 				<Field label="Retries" value={String(task.retryCount)} />
 				<Field
