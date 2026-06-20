@@ -194,16 +194,19 @@ browser talks to the dev server directly — HMR/WebSocket and streaming Just Wo
 and Household never fetches Member URLs server-side (no SSRF). The cost: the
 target must be reachable from the viewer's browser.
 
-**Multi-port-ready.** A preview can expose more than one port (a web dev server
-plus an API, say), so a preview carries a _list_ of ports end-to-end —
+**Multi-port.** A preview can expose more than one port (a web dev server plus an
+API, say). Set `PREVIEW_PORTS=5173:web,3000:api` on the Member — first = primary
+(the one we inject `PORT` into and wait for); extras are advertised but not
+health-checked. A preview carries a _list_ of ports end-to-end —
 `metadata.preview_ports: [{ port, label, url, target }]`, surfaced as one link
 each in the dashboard and PR section. Additional ports resolve at
-`<household>/previews/<task-id>/<port>`. Today the Member only reports one port
-(`app`); detecting several (and, for the eventual subdomain-based proxy,
-`<port>-<id>.previews.<domain>` wildcard routing so each dev server sees itself
-at an origin root) is the next step. Note the harder half is app-side: a frontend
-that hardcodes `http://localhost:<api-port>` still needs its API's public URL
-injected — inherently per-project.
+`<household>/previews/<task-id>/<port>`.
+
+Still ahead: for the eventual subdomain-based proxy, `<port>-<id>.previews.<domain>`
+wildcard routing so each dev server sees itself at an origin root (path routing
+breaks root-relative assets; the redirect dodges it, a true proxy won't). And the
+harder half is app-side: a frontend that hardcodes `http://localhost:<api-port>`
+still needs its API's public URL injected — inherently per-project.
 
 **Next step: reach NAT'd Members.** Tunnel the preview over the Member's existing
 WebSocket (so Household is the only inbound surface), swapping the 302 for a real

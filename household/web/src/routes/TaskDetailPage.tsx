@@ -238,15 +238,20 @@ function TaskDetailCard({
 						<Field
 							label="Preview"
 							value={
-								<MuiLink
-									href={ports[0]!.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									underline="hover"
-								>
-									▶ {ports.length > 1 ? `${ports[0]!.label}: ` : ''}
-									{ports[0]!.url}
-								</MuiLink>
+								<Stack spacing={0.5}>
+									{ports.map((p) => (
+										<MuiLink
+											key={p.port}
+											href={p.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											underline="hover"
+										>
+											▶ {ports.length > 1 ? `${p.label}: ` : ''}
+											{p.url}
+										</MuiLink>
+									))}
+								</Stack>
 							}
 						/>
 					) : null

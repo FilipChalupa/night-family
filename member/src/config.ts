@@ -61,7 +61,13 @@ export interface MemberConfig {
 	}
 	/** Settings for the `preview` skill (runs a project's dev server). */
 	readonly preview: {
-		readonly basePort: number
+		/**
+		 * Ports the preview exposes, in priority order — the first is the
+		 * primary (the dev server we inject `PORT` into and wait for). Extra
+		 * ports (e.g. a separate API) are advertised as additional links but
+		 * not health-checked. Always at least one entry.
+		 */
+		readonly ports: ReadonlyArray<{ readonly port: number; readonly label: string }>
 		readonly readyTimeoutMs: number
 		/**
 		 * How a running preview is exposed:
@@ -113,6 +119,34 @@ function parseProvider(raw: string): Provider {
 		throw new Error(`AI_PROVIDER must be anthropic|gemini|openai, got: ${raw}`)
 	}
 	return raw
+}
+
+/**
+ * Parse `PREVIEW_PORTS` — a comma-separated `port[:label]` list, e.g.
+ * `5173:web,3000:api`. The first entry is the primary. Falls back to a single
+ * `basePort` (label `app`) when the env is unset/empty. Throws on a malformed
+ * entry so a typo fails loudly at startup rather than silently dropping a port.
+ */
+export function parsePreviewPorts(
+	raw: string | undefined,
+	basePort: number,
+): Array<{ port: number; label: string }> {
+	if (!raw || raw.trim() === '') return [{ port: basePort, label: 'app' }]
+	const out = raw
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean)
+		.map((entry) => {
+			const [portRaw, labelRaw] = entry.split(':')
+			const port = Number.parseInt(portRaw!, 10)
+			if (!Number.isInteger(port) || port < 1 || port > 65535) {
+				throw new Error(`Invalid port in PREVIEW_PORTS: ${entry}`)
+			}
+			const label = labelRaw?.trim() || String(port)
+			return { port, label }
+		})
+	if (out.length === 0) return [{ port: basePort, label: 'app' }]
+	return out
 }
 
 function parsePreviewPublishMode(raw: string): 'local' | 'household' {
@@ -265,7 +299,10 @@ function loadEnvConfig(): PartialConfig {
 			maxTaskDurationMinutes: optionalNumber('MAX_TASK_DURATION_MINUTES') ?? 120,
 		},
 		preview: {
-			basePort: optionalNumber('PREVIEW_BASE_PORT') ?? 4321,
+			ports: parsePreviewPorts(
+				process.env.PREVIEW_PORTS,
+				optionalNumber('PREVIEW_BASE_PORT') ?? 4321,
+			),
 			readyTimeoutMs: optionalNumber('PREVIEW_READY_TIMEOUT_MS') ?? 120_000,
 			publishMode: parsePreviewPublishMode(optional('PREVIEW_PUBLISH_MODE', 'local')),
 		},

@@ -67,7 +67,11 @@ export interface TaskRunnerDeps {
 	logger: Logger
 	wsSend: (msg: MsgEvent) => boolean
 	stubMode: boolean
-	preview: { basePort: number; readyTimeoutMs: number; publishMode: 'local' | 'household' }
+	preview: {
+		ports: ReadonlyArray<{ port: number; label: string }>
+		readyTimeoutMs: number
+		publishMode: 'local' | 'household'
+	}
 }
 
 export interface TaskOutcome {
@@ -607,29 +611,36 @@ export class TaskRunner {
 		let preview: RunningPreview | null = null
 		let annotatedPr = false
 		try {
+			const portCfg = this.deps.preview.ports
+			const primaryCfg = portCfg[0]!
 			preview = await PreviewServer.start({
 				cwd: checkout.path,
 				logger: previewLogger,
-				port: this.deps.preview.basePort,
+				port: primaryCfg.port,
 				readyTimeoutMs: this.deps.preview.readyTimeoutMs,
 				// Dev servers are chatty (HMR etc.) — keep their output in the
 				// Member log, not the Household event stream.
 				onLog: (line) => previewLogger.debug({ component: 'preview' }, line),
 			})
 
-			// A preview exposes a *list* of ports (today just the one dev server).
-			// `target` is where the server actually listens on this host; `url`
-			// is what we show (Household-domain link in `household` mode, the
-			// local URL otherwise). Household stores the list and redirects each
-			// public URL to its target.
-			const ports: PreviewPort[] = [
-				{
-					port: preview.port,
-					label: 'app',
-					target: preview.url,
-					url: this.previewPublicUrl(task.taskId, preview.url, preview.port, true),
-				},
-			]
+			// A preview exposes a *list* of ports (the primary dev server plus any
+			// extra configured ones, e.g. an API). `target` is where each listens
+			// on this host; `url` is what we show (Household-domain link in
+			// `household` mode, the local URL otherwise). Household stores the
+			// list and redirects each public URL to its target. Only the primary
+			// is health-checked (PreviewServer waited for it); extras are
+			// advertised as configured.
+			const startedPreview = preview
+			const ports: PreviewPort[] = portCfg.map((cfg, i) => {
+				const isPrimary = i === 0
+				const target = isPrimary ? startedPreview.url : `http://localhost:${cfg.port}`
+				return {
+					port: cfg.port,
+					label: cfg.label,
+					target,
+					url: this.previewPublicUrl(task.taskId, target, cfg.port, isPrimary),
+				}
+			})
 			const primary = ports[0]!
 			await emit('log', {
 				message: 'preview ready',

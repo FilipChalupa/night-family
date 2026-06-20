@@ -216,7 +216,11 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 				return true
 			},
 			stubMode: true,
-			preview: { basePort: 4321, readyTimeoutMs: 120_000, publishMode: 'local' },
+			preview: {
+				ports: [{ port: 4321, label: 'app' }],
+				readyTimeoutMs: 120_000,
+				publishMode: 'local',
+			},
 		})
 		return { runner, sent, usageRecords }
 	}
@@ -317,7 +321,11 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 				return true
 			},
 			stubMode: true,
-			preview: { basePort: 4321, readyTimeoutMs: 120_000, publishMode: 'local' },
+			preview: {
+				ports: [{ port: 4321, label: 'app' }],
+				readyTimeoutMs: 120_000,
+				publishMode: 'local',
+			},
 		})
 
 		const outcome = await runner.run({
@@ -361,7 +369,11 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 			logger: silentLogger,
 			wsSend: () => true,
 			stubMode: true,
-			preview: { basePort: 4321, readyTimeoutMs: 120_000, publishMode: 'local' },
+			preview: {
+				ports: [{ port: 4321, label: 'app' }],
+				readyTimeoutMs: 120_000,
+				publishMode: 'local',
+			},
 		})
 
 		const outcome = await runner.run({
@@ -462,7 +474,11 @@ describe('TaskRunner — end-to-end (implement, with stubbed Workspace)', () => 
 				return true
 			},
 			stubMode: true,
-			preview: { basePort: 4321, readyTimeoutMs: 120_000, publishMode: 'local' },
+			preview: {
+				ports: [{ port: 4321, label: 'app' }],
+				readyTimeoutMs: 120_000,
+				publishMode: 'local',
+			},
 		})
 		return { runner, sent }
 	}
@@ -669,7 +685,11 @@ describe('TaskRunner — end-to-end (rebase, with stubbed Workspace)', () => {
 				return true
 			},
 			stubMode: true,
-			preview: { basePort: 4321, readyTimeoutMs: 120_000, publishMode: 'local' },
+			preview: {
+				ports: [{ port: 4321, label: 'app' }],
+				readyTimeoutMs: 120_000,
+				publishMode: 'local',
+			},
 		})
 		return { runner, sent }
 	}

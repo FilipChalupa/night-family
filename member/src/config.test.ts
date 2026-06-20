@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ALL_SKILLS } from '@night/shared'
-import { fetchGithubIdentity, loadConfig, type GithubIdentity } from './config.ts'
+import {
+	fetchGithubIdentity,
+	loadConfig,
+	parsePreviewPorts,
+	type GithubIdentity,
+} from './config.ts'
 
 const REQUIRED_ENV = [
 	'HOUSEHOLD_URL',
@@ -223,5 +228,32 @@ describe('fetchGithubIdentity', () => {
 		]) as unknown as typeof globalThis.fetch
 		const id = await fetchGithubIdentity('ghp_test')
 		expect(id.repos).toEqual(['octo/owned'])
+	})
+})
+
+describe('parsePreviewPorts', () => {
+	it('falls back to a single primary port (label app) when unset/empty', () => {
+		expect(parsePreviewPorts(undefined, 4321)).toEqual([{ port: 4321, label: 'app' }])
+		expect(parsePreviewPorts('', 4321)).toEqual([{ port: 4321, label: 'app' }])
+		expect(parsePreviewPorts('   ', 5000)).toEqual([{ port: 5000, label: 'app' }])
+	})
+
+	it('parses a port:label list, first entry primary', () => {
+		expect(parsePreviewPorts('5173:web,3000:api', 4321)).toEqual([
+			{ port: 5173, label: 'web' },
+			{ port: 3000, label: 'api' },
+		])
+	})
+
+	it('defaults a missing label to the port number', () => {
+		expect(parsePreviewPorts('5173,3000:api', 4321)).toEqual([
+			{ port: 5173, label: '5173' },
+			{ port: 3000, label: 'api' },
+		])
+	})
+
+	it('throws on a malformed or out-of-range port', () => {
+		expect(() => parsePreviewPorts('nope', 4321)).toThrow(/Invalid port/)
+		expect(() => parsePreviewPorts('70000', 4321)).toThrow(/Invalid port/)
 	})
 })
