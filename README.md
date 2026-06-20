@@ -173,10 +173,13 @@ The Member then (see `member/src/tasks/preview.ts`):
 
 1. checks out the branch into a throwaway worktree (`checkoutBranch` in `workspace.ts`),
 2. installs deps + starts the dev server, detected from `package.json` (`dev` → `preview` → `start`),
-3. reports the URL via a `preview ready` event, and writes a **🔎 Preview**
+3. **auto-detects the URL** the dev server prints on stdout/stderr (`URL_RE` +
+   `normalizeUrl` rewrite `0.0.0.0`→`localhost`); `PREVIEW_BASE_PORT` is only the
+   `PORT` hint + the fallback used if nothing is printed before the timeout,
+4. reports the URL(s) via a `preview ready` event, and writes a **🔎 Preview**
    section into the PR opened for that branch (if any), flipping it to _Stopped_
    on teardown (`annotatePrWithPreview`),
-4. holds the server open until the task is cancelled (or the wallclock limit hits),
+5. holds the server open until the task is cancelled (or the wallclock limit hits),
    then tears down the server and the worktree.
 
 **Online exposure is not wired yet** — for now the reported URL is

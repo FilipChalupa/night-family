@@ -4,18 +4,21 @@
  * Given a checked-out repo (see {@link checkoutBranch}), it:
  *   1. installs dependencies (detected from the lockfile),
  *   2. starts the project's dev/preview server (detected from package.json),
- *   3. waits until the server prints a local URL (or the port is listening),
+ *   3. auto-detects the bound URL by scanning the server's stdout/stderr for the
+ *      first `http(s)://…` it prints ({@link normalizeUrl} rewrites `0.0.0.0`/
+ *      `[::]` to `localhost`); falls back to `http://localhost:<port>` only if
+ *      nothing is printed before `readyTimeoutMs`,
  *   4. hands back a {@link RunningPreview} you can later `stop()`.
  *
- * What it deliberately does NOT do yet: expose the server *online*. That is the
- * open design question — see {@link PreviewPublisher} and the README. A preview
- * here is reachable at a `http://localhost:<port>` URL on the Member host; how
- * that becomes a public URL (tunnel, reverse proxy, Household-side proxy …) is
- * pluggable and decided later.
+ * Exposing the URL *online* is layered on top, not here: the runner turns the
+ * detected local URL into the published one (local as-is, or a Household-domain
+ * redirect link), and Household resolves it — see {@link PreviewPublisher},
+ * `household/src/preview/proxy.ts`, and the README.
  *
- * Scope: this is intentionally a skeleton. Framework detection, port
- * allocation and readiness probing are deliberately simple — enough to run the
- * common `npm run dev` case and give us something to iterate on.
+ * Deliberately simple, with room to grow: framework detection picks one start
+ * command, and only the primary port's readiness is probed (URL detection) —
+ * additional ports a preview exposes are declared via `PREVIEW_PORTS`, not
+ * auto-discovered.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
