@@ -410,6 +410,16 @@ export class Dispatcher {
 		}
 	}
 
+	/**
+	 * A `preview` task reported the URL its dev server is live at. Stash it in
+	 * the task metadata so the dashboard can surface a clickable link while the
+	 * preview runs; rendered only for active tasks, so no clear is needed when
+	 * the task ends.
+	 */
+	onPreviewReady(id: string, url: string): void {
+		this.deps.taskStore.mergeMetadata(id, { preview_url: url })
+	}
+
 	onCompleted(id: string, result: unknown, prUrl: string | null): void {
 		if (this.pendingJobAck.has(id) || this.deps.jobStore.get(id)) {
 			this.onJobCompleted(id, result)

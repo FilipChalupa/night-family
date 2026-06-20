@@ -375,6 +375,23 @@ function TasksTable({
 										</Stack>
 									)
 								})()}
+								{(() => {
+									const url = previewUrlOf(t)
+									return url && OPEN_STATUSES.includes(t.status) ? (
+										<Box>
+											<Link
+												href={url}
+												target="_blank"
+												rel="noopener noreferrer"
+												underline="hover"
+												variant="caption"
+												color="success.main"
+											>
+												▶ Preview ↗
+											</Link>
+										</Box>
+									) : null
+								})()}
 								{t.failureReason ? (
 									<Typography variant="caption" color="error">
 										✗ {t.failureReason}
@@ -820,6 +837,16 @@ export function ReviewWaitBadge({ jobs }: { jobs: ReviewJobsSummary | null }) {
 function githubIssueRef(task: TaskRecord): { number: number | null; url: string | null } | null {
 	if (task.githubIssueNumber === null && task.githubIssueUrl === null) return null
 	return { number: task.githubIssueNumber, url: task.githubIssueUrl }
+}
+
+/**
+ * Live preview URL, stashed in task metadata by the Member's `preview ready`
+ * event. Only meaningful while the task is active — a stopped preview keeps the
+ * key but the URL is no longer reachable, so callers gate on task status.
+ */
+function previewUrlOf(task: TaskRecord): string | null {
+	const u = task.metadata?.['preview_url']
+	return typeof u === 'string' && u.length > 0 ? u : null
 }
 
 function useTaskTokens(): Record<string, number> {

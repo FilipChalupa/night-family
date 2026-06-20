@@ -345,6 +345,15 @@ function routeMemberMessage(
 					'event dropped (duplicate from replay)',
 				)
 			}
+			// A live preview announces its URL via a `preview ready` log event.
+			// Surface it on the task so the dashboard can link to the running
+			// server (only relevant on the first, non-replayed delivery).
+			if (inserted && msg.kind === 'log') {
+				const p = msg.payload as { message?: unknown; url?: unknown } | null
+				if (p?.message === 'preview ready' && typeof p.url === 'string') {
+					deps.dispatcher.onPreviewReady(msg.task_id, p.url)
+				}
+			}
 			break
 		}
 		case 'handshake':

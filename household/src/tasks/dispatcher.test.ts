@@ -979,3 +979,27 @@ describe('Dispatcher repos.refresh triggers', () => {
 		expect(snap.lastReposError).toBeNull()
 	})
 })
+
+describe('Dispatcher preview URL', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	it('onPreviewReady stashes the URL in task metadata, preserving existing keys', () => {
+		const task = rig.taskStore.create({
+			kind: 'preview',
+			title: 'preview x',
+			description: '',
+			repo: 'o/r',
+			metadata: { branch: 'feature-x' },
+		})
+
+		rig.dispatcher.onPreviewReady(task.id, 'http://localhost:4321')
+
+		const updated = rig.taskStore.get(task.id)!
+		expect(updated.metadata?.['preview_url']).toBe('http://localhost:4321')
+		expect(updated.metadata?.['branch']).toBe('feature-x')
+	})
+})
