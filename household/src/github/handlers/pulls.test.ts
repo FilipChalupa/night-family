@@ -16,6 +16,7 @@ import {
 	handlePullRequestEvent,
 	handlePullRequestReviewEvent,
 	handlePushEvent,
+	restartPreviewsForBranch,
 	sweepStalePrsForRebase,
 } from './pulls.ts'
 
@@ -469,5 +470,69 @@ describe('sweepStalePrsForRebase — time-driven freshness', () => {
 		seedOpenPr(7)
 		const enqueued = sweepStalePrsForRebase(deps(rig), 60 * 60 * 1000, Date.now())
 		expect(enqueued).toBe(0)
+	})
+})
+
+describe('restartPreviewsForBranch — preview branch advance', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	const seedRunningPreview = (branch: string) => {
+		const t = rig.taskStore.create({
+			kind: 'preview',
+			title: `Preview ${branch}`,
+			description: '',
+			repo: REPO,
+			metadata: { branch },
+		})
+		rig.taskStore.transition(t.id, ['queued'], 'in-progress')
+		return rig.taskStore.get(t.id)!
+	}
+
+	it('cancels the running preview and queues a fresh one for the branch', () => {
+		const running = seedRunningPreview('feature-x')
+
+		const restarted = restartPreviewsForBranch(ctxFor(rig, REPO, {}), 'feature-x')
+
+		expect(restarted).toBe(1)
+		// No live connection in the test rig → the running preview is failed out.
+		expect(rig.taskStore.get(running.id)!.status).toBe('failed')
+		// A fresh queued preview now targets the same branch.
+		const queued = rig.taskStore
+			.list({ status: ['queued'] })
+			.filter((t) => t.kind === 'preview' && t.metadata?.['branch'] === 'feature-x')
+		expect(queued).toHaveLength(1)
+		expect(rig.tryDispatchAll).toHaveBeenCalled()
+	})
+
+	it('is a no-op when no preview targets the pushed branch', () => {
+		seedRunningPreview('feature-x')
+		const restarted = restartPreviewsForBranch(ctxFor(rig, REPO, {}), 'other-branch')
+		expect(restarted).toBe(0)
+		expect(rig.taskStore.list({ status: ['queued'] })).toHaveLength(0)
+	})
+
+	it('does not queue a second preview when one is already queued for the branch', () => {
+		seedRunningPreview('feature-x')
+		// A previously-queued restart that hasn't been picked up yet.
+		rig.taskStore.create({
+			kind: 'preview',
+			title: 'Preview feature-x',
+			description: '',
+			repo: REPO,
+			metadata: { branch: 'feature-x' },
+		})
+
+		restartPreviewsForBranch(ctxFor(rig, REPO, {}), 'feature-x')
+
+		const queued = rig.taskStore
+			.list({ status: ['queued'] })
+			.filter((t) => t.kind === 'preview' && t.metadata?.['branch'] === 'feature-x')
+		expect(queued).toHaveLength(1)
 	})
 })

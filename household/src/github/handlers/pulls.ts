@@ -369,6 +369,11 @@ export async function handlePushEvent(ctx: PullsEventCtx): Promise<void> {
 		.list({ repo: ctx.repo, status: [...OPEN_PR_STATUSES] })
 		.filter((t) => t.kind !== 'rebase' && (t.metadata?.['base_ref'] ?? null) === branch)
 
+	// A push to a branch that has a live preview makes that preview stale —
+	// restart it on the new commit (independent of the rebase path below, which
+	// keys off the *base* branch).
+	restartPreviewsForBranch(ctx, branch)
+
 	if (openPrs.length === 0) return
 	ctx.logger.info(
 		{ repo: ctx.repo, branch, candidates: openPrs.length },
@@ -377,6 +382,72 @@ export async function handlePushEvent(ctx: PullsEventCtx): Promise<void> {
 	for (const task of openPrs) {
 		enqueueRebaseForTask(ctx, task, 'push')
 	}
+}
+
+/** Branch a preview task targets, from its metadata (`branch`, then `ref`). */
+function previewBranchOf(task: TaskRecord): string | null {
+	const meta = task.metadata ?? {}
+	const branch = meta['branch']
+	if (typeof branch === 'string' && branch.length > 0) return branch
+	const ref = meta['ref']
+	if (typeof ref === 'string' && ref.length > 0) return ref
+	return null
+}
+
+/**
+ * Restart any live preview for `branch`: cancel the running preview task (the
+ * Member tears its server down and the task completes via the normal path) and
+ * queue a fresh one so it re-checks-out the new commit. Only running previews
+ * (`assigned`/`in-progress`) are restarted — a still-`queued` preview already
+ * picks up the latest commit when it starts. A new preview is queued at most
+ * once per branch to avoid piling up under a burst of pushes.
+ *
+ * Returns the number of running previews that were cancelled.
+ */
+export function restartPreviewsForBranch(ctx: PullsEventCtx, branch: string): number {
+	const running = ctx.taskStore
+		.list({ repo: ctx.repo, status: ['assigned', 'in-progress'] })
+		.filter((t) => t.kind === 'preview' && previewBranchOf(t) === branch)
+	if (running.length === 0) return 0
+
+	const alreadyQueued = ctx.taskStore
+		.list({ repo: ctx.repo, status: ['queued'] })
+		.some((t) => t.kind === 'preview' && previewBranchOf(t) === branch)
+
+	for (const task of running) {
+		const conn = ctx.registry.findConnectionForTask(
+			task.assignedSessionId,
+			task.assignedMemberId,
+		)
+		if (conn) {
+			conn.send({ type: 'task.cancel', task_id: task.id, reason: 'preview_branch_pushed' })
+		} else {
+			// No live owner to tear it down — mark it failed so it leaves the
+			// active set and the fresh preview below can take over.
+			ctx.taskStore.transition(task.id, [task.status], 'failed', {
+				failureReason: 'preview_branch_pushed',
+			})
+			ctx.taskStore.clearAssignment(task.id)
+		}
+	}
+
+	if (!alreadyQueued) {
+		const base = running[0]!
+		ctx.taskStore.create({
+			kind: 'preview',
+			title: base.title,
+			description: base.description,
+			repo: ctx.repo,
+			metadata: { branch },
+		})
+		ctx.dispatcher.tryDispatchAll()
+	}
+
+	ctx.logger.info(
+		{ repo: ctx.repo, branch, restarted: running.length, requeued: !alreadyQueued },
+		'preview branch pushed — restarting preview on new commit',
+	)
+	return running.length
 }
 
 export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<void> {
