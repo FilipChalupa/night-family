@@ -1000,6 +1000,7 @@ describe('Dispatcher preview URL', () => {
 
 		const updated = rig.taskStore.get(task.id)!
 		expect(updated.metadata?.['preview_url']).toBe('http://localhost:4321')
+		expect(updated.metadata?.['preview_target']).toBe('http://localhost:4321')
 		expect(updated.metadata?.['branch']).toBe('feature-x')
 	})
 })

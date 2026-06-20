@@ -416,8 +416,11 @@ export class Dispatcher {
 	 * preview runs; rendered only for active tasks, so no clear is needed when
 	 * the task ends.
 	 */
-	onPreviewReady(id: string, url: string): void {
-		this.deps.taskStore.mergeMetadata(id, { preview_url: url })
+	onPreviewReady(id: string, url: string, target: string = url): void {
+		// `preview_url` is the link we surface (a Household-domain redirect URL
+		// in `household` publish mode); `preview_target` is the live server it
+		// resolves to. They're equal in `local` mode.
+		this.deps.taskStore.mergeMetadata(id, { preview_url: url, preview_target: target })
 	}
 
 	onCompleted(id: string, result: unknown, prUrl: string | null): void {

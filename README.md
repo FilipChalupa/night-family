@@ -183,13 +183,24 @@ The Member then (see `member/src/tasks/preview.ts`):
 `http://localhost:<PREVIEW_BASE_PORT>` on the Member host. The publishing step is
 pluggable (`PreviewPublisher` in `preview.ts`, default `LocalPublisher`).
 
-Chosen direction: **Household reverse proxy.** A Member registers
-`preview-<id>.previews.<domain>` with the Household — which is already partially
-internet-exposed for GitHub webhooks — and it proxies inbound traffic to the
-Member's local port. Keeps preview URLs on our own domain. Still to solve:
-wildcard DNS/TLS and Member reachability from the Household. (Fallbacks kept in
-mind: an outbound tunnel — cloudflared/ngrok/tailscale funnel — or a per-preview
-container + ingress.)
+Chosen direction: **Household reverse proxy.** A Member publishes a stable
+Household-domain link and the Household resolves it to the live server.
+
+**First slice (shipped): redirect.** Set `PREVIEW_PUBLISH_MODE=household` on the
+Member and previews are reported as `<household>/previews/<task-id>`. Household's
+`GET /previews/:taskId` route (`household/src/preview/proxy.ts`) 302-redirects to
+the live server recorded on the task. It's a redirect, not a true proxy, so the
+browser talks to the dev server directly — HMR/WebSocket and streaming Just Work,
+and Household never fetches Member URLs server-side (no SSRF). The cost: the
+target must be reachable from the viewer's browser.
+
+**Next step: reach NAT'd Members.** Tunnel the preview over the Member's existing
+WebSocket (so Household is the only inbound surface), swapping the 302 for a real
+proxy under the same URL scheme. Fallbacks kept in mind: an outbound tunnel
+(cloudflared/ngrok/tailscale funnel) or a per-preview container + ingress.
+
+With `PREVIEW_PUBLISH_MODE=local` (default) previews are reported as the
+Member-local `http://localhost:<port>` URL — fine for same-host dev.
 
 ## Repo layout
 

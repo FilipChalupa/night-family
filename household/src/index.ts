@@ -11,6 +11,7 @@ import { loadConfig } from './config.ts'
 import { SecretCipher, resolveSecretsKey } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
+import { mountPreviewProxy } from './preview/proxy.ts'
 import { RepoBindingStore } from './github/bindings.ts'
 import { sweepStalePrsForRebase } from './github/handlers/pulls.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
@@ -301,6 +302,7 @@ mountTasksApi(app, {
 })
 
 mountRepoBindingsApi(app, { bindings: repoBindings, registry, guard })
+mountPreviewProxy(app, { taskStore })
 mountStatsApi(app, { sqlite: dbHandles.sqlite, guard })
 mountTokensApi(app, { tokens, guard, notifSender })
 mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })

@@ -63,6 +63,14 @@ export interface MemberConfig {
 	readonly preview: {
 		readonly basePort: number
 		readonly readyTimeoutMs: number
+		/**
+		 * How a running preview is exposed:
+		 *   - `local`: report the Member-local `http://localhost:<port>` URL.
+		 *   - `household`: report a stable `<household>/previews/<task>` URL that
+		 *     the Household redirects to the live server. Keeps preview links on
+		 *     the Household's domain.
+		 */
+		readonly publishMode: 'local' | 'household'
 	}
 	readonly logLevel: string
 }
@@ -103,6 +111,13 @@ function parseSkills(raw: string): Skill[] {
 function parseProvider(raw: string): Provider {
 	if (raw !== 'anthropic' && raw !== 'gemini' && raw !== 'openai') {
 		throw new Error(`AI_PROVIDER must be anthropic|gemini|openai, got: ${raw}`)
+	}
+	return raw
+}
+
+function parsePreviewPublishMode(raw: string): 'local' | 'household' {
+	if (raw !== 'local' && raw !== 'household') {
+		throw new Error(`PREVIEW_PUBLISH_MODE must be local|household, got: ${raw}`)
 	}
 	return raw
 }
@@ -252,6 +267,7 @@ function loadEnvConfig(): PartialConfig {
 		preview: {
 			basePort: optionalNumber('PREVIEW_BASE_PORT') ?? 4321,
 			readyTimeoutMs: optionalNumber('PREVIEW_READY_TIMEOUT_MS') ?? 120_000,
+			publishMode: parsePreviewPublishMode(optional('PREVIEW_PUBLISH_MODE', 'local')),
 		},
 		logLevel: optional('LOG_LEVEL', 'info'),
 	}

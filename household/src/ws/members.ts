@@ -349,9 +349,14 @@ function routeMemberMessage(
 			// Surface it on the task so the dashboard can link to the running
 			// server (only relevant on the first, non-replayed delivery).
 			if (inserted && msg.kind === 'log') {
-				const p = msg.payload as { message?: unknown; url?: unknown } | null
+				const p = msg.payload as {
+					message?: unknown
+					url?: unknown
+					localUrl?: unknown
+				} | null
 				if (p?.message === 'preview ready' && typeof p.url === 'string') {
-					deps.dispatcher.onPreviewReady(msg.task_id, p.url)
+					const target = typeof p.localUrl === 'string' ? p.localUrl : p.url
+					deps.dispatcher.onPreviewReady(msg.task_id, p.url, target)
 				}
 			}
 			break

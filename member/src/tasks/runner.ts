@@ -36,12 +36,8 @@ import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { gh, GitError } from './git.ts'
 import { checkoutBranch, RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
-import {
-	annotatePrWithPreview,
-	LocalPublisher,
-	PreviewServer,
-	type RunningPreview,
-} from './preview.ts'
+import { annotatePrWithPreview, PreviewServer, type RunningPreview } from './preview.ts'
+import { toHttpScheme } from '@night/shared'
 
 export interface AssignedTaskInput {
 	taskId: string
@@ -71,7 +67,7 @@ export interface TaskRunnerDeps {
 	logger: Logger
 	wsSend: (msg: MsgEvent) => boolean
 	stubMode: boolean
-	preview: { basePort: number; readyTimeoutMs: number }
+	preview: { basePort: number; readyTimeoutMs: number; publishMode: 'local' | 'household' }
 }
 
 export interface TaskOutcome {
@@ -609,7 +605,6 @@ export class TaskRunner {
 
 		const previewLogger = this.deps.logger.child({ component: 'preview' })
 		let preview: RunningPreview | null = null
-		let published: { publicUrl: string; stop(): Promise<void> } | null = null
 		let annotatedPr = false
 		try {
 			preview = await PreviewServer.start({
@@ -622,15 +617,18 @@ export class TaskRunner {
 				onLog: (line) => previewLogger.debug({ component: 'preview' }, line),
 			})
 
-			// Local URL for now; swap LocalPublisher for the Household reverse
-			// proxy once that lands.
-			published = await LocalPublisher.publish(preview)
+			// `localUrl` is where the server actually listens on this host;
+			// `publicUrl` is what we show (Household-domain link in `household`
+			// mode, the local URL otherwise). Household stores both — it
+			// redirects the public URL to the local one.
+			const localUrl = preview.url
+			const publicUrl = this.previewPublicUrl(task.taskId, localUrl)
 			await emit('log', {
 				message: 'preview ready',
 				ref,
 				sha: checkout.sha,
-				localUrl: preview.url,
-				url: published.publicUrl,
+				localUrl,
+				url: publicUrl,
 			})
 
 			// Record where it's running in the PR opened for this branch (if any).
@@ -643,7 +641,7 @@ export class TaskRunner {
 						ref,
 						memberName: this.deps.memberName,
 						status: 'running',
-						url: published.publicUrl,
+						url: publicUrl,
 						sha: checkout.sha,
 					},
 					previewLogger,
@@ -660,7 +658,7 @@ export class TaskRunner {
 
 			return {
 				type: 'completed',
-				result: { url: published.publicUrl, localUrl: preview.url, ref, sha: checkout.sha },
+				result: { url: publicUrl, localUrl, ref, sha: checkout.sha },
 			}
 		} catch (err) {
 			return await this.fail(emit, null, 'preview_failed', {
@@ -682,10 +680,22 @@ export class TaskRunner {
 					previewLogger,
 				).catch(() => undefined)
 			}
-			await published?.stop().catch(() => undefined)
 			await preview?.stop().catch(() => undefined)
 			await checkout.cleanup().catch(() => undefined)
 		}
+	}
+
+	/**
+	 * Where to tell the world a preview lives. In `household` mode this is a
+	 * stable `<household>/previews/<task>` URL that the Household redirects to
+	 * the live server; in `local` mode it's the Member-local URL as-is.
+	 */
+	private previewPublicUrl(taskId: string, localUrl: string): string {
+		if (this.deps.preview.publishMode === 'household') {
+			const base = toHttpScheme(this.deps.householdUrl).replace(/\/$/, '')
+			return `${base}/previews/${encodeURIComponent(taskId)}`
+		}
+		return localUrl
 	}
 
 	private enforceLimits(usage: TokenUsage): void {

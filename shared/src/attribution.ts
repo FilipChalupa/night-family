@@ -29,7 +29,7 @@ export interface AttributionInputs {
  * human-readable links in this footer. Markdown renderers won't open
  * `wss://` links, so swap the scheme to its HTTP counterpart for display.
  */
-function toHttpScheme(url: string): string {
+export function toHttpScheme(url: string): string {
 	return url.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://')
 }
 
