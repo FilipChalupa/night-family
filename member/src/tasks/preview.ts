@@ -232,7 +232,7 @@ function makeHandle(
 }
 
 /** Rewrite `0.0.0.0`/`127.0.0.1` hosts to `localhost` and trust our port. */
-function normalizeUrl(raw: string, port: number): string {
+export function normalizeUrl(raw: string, port: number): string {
 	try {
 		const u = new URL(raw)
 		if (u.hostname === '0.0.0.0' || u.hostname === '[::]') u.hostname = 'localhost'
@@ -394,7 +394,7 @@ function renderPreviewSection(a: PreviewAnnotation): string {
 }
 
 /** Replace the marked section if present, otherwise append it. */
-function upsertPreviewSection(body: string, section: string): string {
+export function upsertPreviewSection(body: string, section: string): string {
 	const start = body.indexOf(PREVIEW_MARK_START)
 	const end = body.indexOf(PREVIEW_MARK_END)
 	if (start !== -1 && end !== -1 && end > start) {
