@@ -143,6 +143,25 @@ export interface AssignedTask {
 	metadata?: Record<string, unknown>
 }
 
+// ---------------- Preview ----------------
+
+/**
+ * One exposed port of a running `preview` task. A preview may expose several
+ * (e.g. a web dev server + an API), so previews carry a *list* of these even
+ * though today the Member only ever reports one. Sent inside the `preview
+ * ready` event payload and persisted on the task as `metadata.preview_ports`.
+ */
+export interface PreviewPort {
+	/** Port the dev server listens on, Member-side. */
+	port: number
+	/** Human label for the service on this port (e.g. `app`, `api`). */
+	label: string
+	/** Public/shown URL — a Household-domain link in `household` publish mode. */
+	url: string
+	/** The live server URL the public URL ultimately resolves to. */
+	target: string
+}
+
 // ---------------- Schedule ----------------
 
 export type Day = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'

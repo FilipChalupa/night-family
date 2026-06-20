@@ -15,24 +15,52 @@ function task(partial: Partial<TaskRecord>): TaskRecord {
 	} as TaskRecord
 }
 
+const port = (p: number, label: string, url: string, target = url) => ({
+	port: p,
+	label,
+	url,
+	target,
+})
+
 describe('resolvePreviewRedirect', () => {
-	it('redirects an active preview to its target', () => {
+	it('redirects an active preview to its primary port target', () => {
 		const r = resolvePreviewRedirect(
 			task({
 				metadata: {
-					preview_target: 'http://localhost:4321',
-					preview_url: 'http://h/previews/t1',
+					preview_ports: [
+						port(4321, 'app', 'http://h/previews/t1', 'http://localhost:4321'),
+					],
 				},
 			}),
 		)
 		expect(r).toEqual({ kind: 'redirect', location: 'http://localhost:4321' })
 	})
 
-	it('falls back to preview_url when no separate target is recorded (local mode)', () => {
-		const r = resolvePreviewRedirect(
-			task({ metadata: { preview_url: 'http://localhost:4321' } }),
-		)
-		expect(r).toEqual({ kind: 'redirect', location: 'http://localhost:4321' })
+	it('redirects to a specific port when one is requested', () => {
+		const t = task({
+			metadata: {
+				preview_ports: [
+					port(5173, 'web', 'http://h/previews/t1', 'http://localhost:5173'),
+					port(3000, 'api', 'http://h/previews/t1/3000', 'http://localhost:3000'),
+				],
+			},
+		})
+		expect(resolvePreviewRedirect(t, 3000)).toEqual({
+			kind: 'redirect',
+			location: 'http://localhost:3000',
+		})
+		// No port → primary (first).
+		expect(resolvePreviewRedirect(t, null)).toEqual({
+			kind: 'redirect',
+			location: 'http://localhost:5173',
+		})
+	})
+
+	it('reports not_found for an unknown port', () => {
+		const t = task({
+			metadata: { preview_ports: [port(5173, 'web', 'http://localhost:5173')] },
+		})
+		expect(resolvePreviewRedirect(t, 9999)).toEqual({ kind: 'not_found' })
 	})
 
 	it('reports not_found for a missing task', () => {
@@ -42,12 +70,15 @@ describe('resolvePreviewRedirect', () => {
 	it('reports gone once the task is no longer active', () => {
 		expect(
 			resolvePreviewRedirect(
-				task({ status: 'done', metadata: { preview_target: 'http://x' } }),
+				task({
+					status: 'done',
+					metadata: { preview_ports: [port(4321, 'app', 'http://x')] },
+				}),
 			),
 		).toEqual({ kind: 'gone' })
 	})
 
-	it('reports not_ready for an active task that has not reported a URL yet', () => {
+	it('reports not_ready for an active task that has not reported ports yet', () => {
 		expect(
 			resolvePreviewRedirect(task({ status: 'assigned', metadata: { branch: 'x' } })),
 		).toEqual({ kind: 'not_ready' })

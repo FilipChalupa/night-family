@@ -18,8 +18,8 @@
  * task — not an open redirect to arbitrary input.
  */
 
-import type { Hono } from 'hono'
-import type { TaskStatus } from '@night/shared'
+import type { Context, Hono } from 'hono'
+import type { PreviewPort, TaskStatus } from '@night/shared'
 import type { TaskRecord, TaskStore } from '../tasks/store.ts'
 
 export interface PreviewProxyDeps {
@@ -41,35 +41,55 @@ export type PreviewRedirect =
 	| { kind: 'gone' }
 	| { kind: 'not_ready' }
 
+/** The exposed ports a preview task reported, normalised to a typed list. */
+export function previewPortsOf(task: TaskRecord): PreviewPort[] {
+	const raw = task.metadata?.['preview_ports']
+	if (!Array.isArray(raw)) return []
+	return raw.filter(
+		(p): p is PreviewPort =>
+			!!p && typeof p === 'object' && typeof (p as PreviewPort).url === 'string',
+	)
+}
+
 /**
- * Decide what `/previews/:taskId` should do for a given task. Pure, so the
- * routing in {@link mountPreviewProxy} stays a thin shell over it.
+ * Decide what `/previews/:taskId(/:port)` should do for a task. Pure, so the
+ * routing in {@link mountPreviewProxy} stays a thin shell over it. With no
+ * `port`, resolves the primary (first) port; with a `port`, the matching one.
  */
-export function resolvePreviewRedirect(task: TaskRecord | null): PreviewRedirect {
+export function resolvePreviewRedirect(
+	task: TaskRecord | null,
+	port: number | null = null,
+): PreviewRedirect {
 	if (!task) return { kind: 'not_found' }
 	if (!ACTIVE_STATUSES.has(task.status)) return { kind: 'gone' }
-	const meta = task.metadata ?? {}
-	const target =
-		(typeof meta['preview_target'] === 'string' && meta['preview_target']) ||
-		(typeof meta['preview_url'] === 'string' && meta['preview_url']) ||
-		null
-	if (!target) return { kind: 'not_ready' }
-	return { kind: 'redirect', location: target }
+	const ports = previewPortsOf(task)
+	if (ports.length === 0) return { kind: 'not_ready' }
+	const chosen = port === null ? ports[0]! : ports.find((p) => p.port === port)
+	if (!chosen) return { kind: 'not_found' }
+	return { kind: 'redirect', location: chosen.target || chosen.url }
 }
 
 export function mountPreviewProxy(app: Hono, deps: PreviewProxyDeps): void {
-	app.get('/previews/:taskId', (c) => {
-		const task = deps.taskStore.get(c.req.param('taskId'))
-		const result = resolvePreviewRedirect(task)
+	const handle = (taskId: string, port: number | null) => {
+		const task = deps.taskStore.get(taskId)
+		return resolvePreviewRedirect(task, port)
+	}
+	const respond = (c: Context, result: PreviewRedirect) => {
 		switch (result.kind) {
 			case 'redirect':
 				return c.redirect(result.location, 302)
 			case 'not_found':
-				return c.text('No such task.', 404)
+				return c.text('No such preview.', 404)
 			case 'gone':
 				return c.text('This preview has ended.', 410)
 			case 'not_ready':
 				return c.text('Preview is starting — try again shortly.', 503)
 		}
+	}
+	app.get('/previews/:taskId', (c) => respond(c, handle(c.req.param('taskId'), null)))
+	app.get('/previews/:taskId/:port', (c) => {
+		const raw = Number.parseInt(c.req.param('port'), 10)
+		const port = Number.isFinite(raw) ? raw : null
+		return respond(c, handle(c.req.param('taskId'), port))
 	})
 }

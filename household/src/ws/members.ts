@@ -9,6 +9,7 @@ import {
 	type HouseholdToMember,
 	type MemberToHousehold,
 	type MsgHandshake,
+	type PreviewPort,
 } from '@night/shared'
 import type { Logger } from 'pino'
 import type { MemberRegistry } from '../members/registry.ts'
@@ -345,19 +346,12 @@ function routeMemberMessage(
 					'event dropped (duplicate from replay)',
 				)
 			}
-			// A live preview announces its URL via a `preview ready` log event.
-			// Surface it on the task so the dashboard can link to the running
-			// server (only relevant on the first, non-replayed delivery).
+			// A live preview announces its exposed ports via a `preview ready`
+			// log event. Surface them on the task so the dashboard can link to
+			// the running server(s) (only on the first, non-replayed delivery).
 			if (inserted && msg.kind === 'log') {
-				const p = msg.payload as {
-					message?: unknown
-					url?: unknown
-					localUrl?: unknown
-				} | null
-				if (p?.message === 'preview ready' && typeof p.url === 'string') {
-					const target = typeof p.localUrl === 'string' ? p.localUrl : p.url
-					deps.dispatcher.onPreviewReady(msg.task_id, p.url, target)
-				}
+				const ports = parsePreviewReadyPorts(msg.payload)
+				if (ports) deps.dispatcher.onPreviewReady(msg.task_id, ports)
 			}
 			break
 		}
@@ -369,4 +363,45 @@ function routeMemberMessage(
 			void _exhaustive
 		}
 	}
+}
+
+/**
+ * Extract the exposed-port list from a `preview ready` log event payload.
+ * Returns `null` for any other event. Tolerates a Member that only reported the
+ * flat `url`/`localUrl` form (pre-multi-port) by synthesising a single port.
+ */
+function parsePreviewReadyPorts(payload: unknown): PreviewPort[] | null {
+	if (!payload || typeof payload !== 'object') return null
+	const p = payload as { message?: unknown; ports?: unknown; url?: unknown; localUrl?: unknown }
+	if (p.message !== 'preview ready') return null
+
+	if (Array.isArray(p.ports)) {
+		const ports = p.ports
+			.map((raw): PreviewPort | null => {
+				if (!raw || typeof raw !== 'object') return null
+				const e = raw as Record<string, unknown>
+				if (typeof e['url'] !== 'string') return null
+				return {
+					port: typeof e['port'] === 'number' ? e['port'] : 0,
+					label: typeof e['label'] === 'string' ? e['label'] : 'app',
+					url: e['url'],
+					target: typeof e['target'] === 'string' ? e['target'] : e['url'],
+				}
+			})
+			.filter((x): x is PreviewPort => x !== null)
+		return ports.length > 0 ? ports : null
+	}
+
+	// Legacy flat form.
+	if (typeof p.url === 'string') {
+		return [
+			{
+				port: 0,
+				label: 'app',
+				url: p.url,
+				target: typeof p.localUrl === 'string' ? p.localUrl : p.url,
+			},
+		]
+	}
+	return null
 }

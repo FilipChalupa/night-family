@@ -996,11 +996,24 @@ describe('Dispatcher preview URL', () => {
 			metadata: { branch: 'feature-x' },
 		})
 
-		rig.dispatcher.onPreviewReady(task.id, 'http://localhost:4321')
+		rig.dispatcher.onPreviewReady(task.id, [
+			{
+				port: 4321,
+				label: 'app',
+				url: 'http://localhost:4321',
+				target: 'http://localhost:4321',
+			},
+		])
 
 		const updated = rig.taskStore.get(task.id)!
-		expect(updated.metadata?.['preview_url']).toBe('http://localhost:4321')
-		expect(updated.metadata?.['preview_target']).toBe('http://localhost:4321')
+		expect(updated.metadata?.['preview_ports']).toEqual([
+			{
+				port: 4321,
+				label: 'app',
+				url: 'http://localhost:4321',
+				target: 'http://localhost:4321',
+			},
+		])
 		expect(updated.metadata?.['branch']).toBe('feature-x')
 	})
 })

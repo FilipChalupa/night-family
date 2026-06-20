@@ -194,6 +194,17 @@ browser talks to the dev server directly — HMR/WebSocket and streaming Just Wo
 and Household never fetches Member URLs server-side (no SSRF). The cost: the
 target must be reachable from the viewer's browser.
 
+**Multi-port-ready.** A preview can expose more than one port (a web dev server
+plus an API, say), so a preview carries a _list_ of ports end-to-end —
+`metadata.preview_ports: [{ port, label, url, target }]`, surfaced as one link
+each in the dashboard and PR section. Additional ports resolve at
+`<household>/previews/<task-id>/<port>`. Today the Member only reports one port
+(`app`); detecting several (and, for the eventual subdomain-based proxy,
+`<port>-<id>.previews.<domain>` wildcard routing so each dev server sees itself
+at an origin root) is the next step. Note the harder half is app-side: a frontend
+that hardcodes `http://localhost:<api-port>` still needs its API's public URL
+injected — inherently per-project.
+
 **Next step: reach NAT'd Members.** Tunnel the preview over the Member's existing
 WebSocket (so Household is the only inbound surface), swapping the 302 for a real
 proxy under the same URL scheme. Fallbacks kept in mind: an outbound tunnel

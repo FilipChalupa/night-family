@@ -37,7 +37,7 @@ import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { gh, GitError } from './git.ts'
 import { checkoutBranch, RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
 import { annotatePrWithPreview, PreviewServer, type RunningPreview } from './preview.ts'
-import { toHttpScheme } from '@night/shared'
+import { toHttpScheme, type PreviewPort } from '@night/shared'
 
 export interface AssignedTaskInput {
 	taskId: string
@@ -617,18 +617,29 @@ export class TaskRunner {
 				onLog: (line) => previewLogger.debug({ component: 'preview' }, line),
 			})
 
-			// `localUrl` is where the server actually listens on this host;
-			// `publicUrl` is what we show (Household-domain link in `household`
-			// mode, the local URL otherwise). Household stores both — it
-			// redirects the public URL to the local one.
-			const localUrl = preview.url
-			const publicUrl = this.previewPublicUrl(task.taskId, localUrl)
+			// A preview exposes a *list* of ports (today just the one dev server).
+			// `target` is where the server actually listens on this host; `url`
+			// is what we show (Household-domain link in `household` mode, the
+			// local URL otherwise). Household stores the list and redirects each
+			// public URL to its target.
+			const ports: PreviewPort[] = [
+				{
+					port: preview.port,
+					label: 'app',
+					target: preview.url,
+					url: this.previewPublicUrl(task.taskId, preview.url, preview.port, true),
+				},
+			]
+			const primary = ports[0]!
 			await emit('log', {
 				message: 'preview ready',
 				ref,
 				sha: checkout.sha,
-				localUrl,
-				url: publicUrl,
+				ports,
+				// Primary port mirrored at top level for event-log readability and
+				// tolerance of any older reader.
+				localUrl: primary.target,
+				url: primary.url,
 			})
 
 			// Record where it's running in the PR opened for this branch (if any).
@@ -641,7 +652,7 @@ export class TaskRunner {
 						ref,
 						memberName: this.deps.memberName,
 						status: 'running',
-						url: publicUrl,
+						ports: ports.map((p) => ({ label: p.label, url: p.url })),
 						sha: checkout.sha,
 					},
 					previewLogger,
@@ -658,7 +669,13 @@ export class TaskRunner {
 
 			return {
 				type: 'completed',
-				result: { url: publicUrl, localUrl, ref, sha: checkout.sha },
+				result: {
+					ports,
+					url: primary.url,
+					localUrl: primary.target,
+					ref,
+					sha: checkout.sha,
+				},
 			}
 		} catch (err) {
 			return await this.fail(emit, null, 'preview_failed', {
@@ -686,14 +703,21 @@ export class TaskRunner {
 	}
 
 	/**
-	 * Where to tell the world a preview lives. In `household` mode this is a
-	 * stable `<household>/previews/<task>` URL that the Household redirects to
-	 * the live server; in `local` mode it's the Member-local URL as-is.
+	 * Where to tell the world a preview port lives. In `household` mode this is
+	 * a stable `<household>/previews/<task>` URL (the primary port) or
+	 * `…/previews/<task>/<port>` (additional ports) that the Household redirects
+	 * to the live server; in `local` mode it's the Member-local URL as-is.
 	 */
-	private previewPublicUrl(taskId: string, localUrl: string): string {
+	private previewPublicUrl(
+		taskId: string,
+		localUrl: string,
+		port: number,
+		isPrimary: boolean,
+	): string {
 		if (this.deps.preview.publishMode === 'household') {
 			const base = toHttpScheme(this.deps.householdUrl).replace(/\/$/, '')
-			return `${base}/previews/${encodeURIComponent(taskId)}`
+			const path = `${base}/previews/${encodeURIComponent(taskId)}`
+			return isPrimary ? path : `${path}/${port}`
 		}
 		return localUrl
 	}

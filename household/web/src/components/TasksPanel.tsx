@@ -376,21 +376,23 @@ function TasksTable({
 									)
 								})()}
 								{(() => {
-									const url = previewUrlOf(t)
-									return url && OPEN_STATUSES.includes(t.status) ? (
-										<Box>
+									const ports = OPEN_STATUSES.includes(t.status)
+										? previewPortsOf(t)
+										: []
+									return ports.map((p) => (
+										<Box key={p.port}>
 											<Link
-												href={url}
+												href={p.url}
 												target="_blank"
 												rel="noopener noreferrer"
 												underline="hover"
 												variant="caption"
 												color="success.main"
 											>
-												▶ Preview ↗
+												▶ Preview{ports.length > 1 ? ` ${p.label}` : ''} ↗
 											</Link>
 										</Box>
-									) : null
+									))
 								})()}
 								{t.failureReason ? (
 									<Typography variant="caption" color="error">
@@ -839,14 +841,33 @@ function githubIssueRef(task: TaskRecord): { number: number | null; url: string 
 	return { number: task.githubIssueNumber, url: task.githubIssueUrl }
 }
 
+export interface PreviewPortLink {
+	port: number
+	label: string
+	url: string
+}
+
 /**
- * Live preview URL, stashed in task metadata by the Member's `preview ready`
- * event. Only meaningful while the task is active — a stopped preview keeps the
- * key but the URL is no longer reachable, so callers gate on task status.
+ * Exposed preview ports, stashed in task metadata by the Member's `preview
+ * ready` event. A preview can expose several (web + api …); today it's usually
+ * one. Only meaningful while the task is active — a stopped preview keeps the
+ * key but the URLs are no longer reachable, so callers gate on task status.
  */
-export function previewUrlOf(task: TaskRecord): string | null {
-	const u = task.metadata?.['preview_url']
-	return typeof u === 'string' && u.length > 0 ? u : null
+export function previewPortsOf(task: TaskRecord): PreviewPortLink[] {
+	const raw = task.metadata?.['preview_ports']
+	if (!Array.isArray(raw)) return []
+	return raw.flatMap((p): PreviewPortLink[] => {
+		if (!p || typeof p !== 'object') return []
+		const e = p as Record<string, unknown>
+		if (typeof e['url'] !== 'string') return []
+		return [
+			{
+				port: typeof e['port'] === 'number' ? e['port'] : 0,
+				label: typeof e['label'] === 'string' ? e['label'] : 'app',
+				url: e['url'],
+			},
+		]
+	})
 }
 
 function useTaskTokens(): Record<string, number> {

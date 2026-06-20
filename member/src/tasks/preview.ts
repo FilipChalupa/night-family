@@ -325,7 +325,8 @@ export interface PreviewAnnotation {
 	ref: string // branch being previewed
 	memberName: string
 	status: 'running' | 'stopped'
-	url?: string
+	/** Exposed ports to link, one line each. Omitted/empty when stopped. */
+	ports?: Array<{ label: string; url: string }>
 	sha?: string
 }
 
@@ -382,8 +383,13 @@ export async function annotatePrWithPreview(
 
 function renderPreviewSection(a: PreviewAnnotation): string {
 	const lines = [PREVIEW_MARK_START, '## 🔎 Preview', '']
-	if (a.status === 'running' && a.url) {
-		lines.push(`▶ **Running** at ${a.url}`)
+	const ports = a.ports ?? []
+	if (a.status === 'running' && ports.length > 0) {
+		// One bullet per exposed port; a single-port preview reads as one line.
+		for (const p of ports) {
+			const label = ports.length > 1 ? ` **${p.label}**` : ''
+			lines.push(`▶ Running${label}: ${p.url}`)
+		}
 	} else {
 		lines.push('⏹ **Stopped**')
 	}

@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { Markdown } from '../components/Markdown.tsx'
-import { previewUrlOf, ReviewWaitBadge } from '../components/TasksPanel.tsx'
+import { previewPortsOf, ReviewWaitBadge } from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -233,18 +233,19 @@ function TaskDetailCard({
 					}
 				/>
 				{(() => {
-					const previewUrl = previewUrlOf(task)
-					return previewUrl && ACTIVE_STATUSES.has(task.status) ? (
+					const ports = ACTIVE_STATUSES.has(task.status) ? previewPortsOf(task) : []
+					return ports.length > 0 ? (
 						<Field
 							label="Preview"
 							value={
 								<MuiLink
-									href={previewUrl}
+									href={ports[0]!.url}
 									target="_blank"
 									rel="noopener noreferrer"
 									underline="hover"
 								>
-									▶ {previewUrl}
+									▶ {ports.length > 1 ? `${ports[0]!.label}: ` : ''}
+									{ports[0]!.url}
 								</MuiLink>
 							}
 						/>

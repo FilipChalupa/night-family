@@ -26,6 +26,7 @@ import type { Logger } from 'pino'
 import {
 	TASK_ACK_TIMEOUT_MS,
 	acceptableTaskKinds,
+	type PreviewPort,
 	type TaskKind,
 	type TaskStatus,
 } from '@night/shared'
@@ -416,11 +417,15 @@ export class Dispatcher {
 	 * preview runs; rendered only for active tasks, so no clear is needed when
 	 * the task ends.
 	 */
-	onPreviewReady(id: string, url: string, target: string = url): void {
-		// `preview_url` is the link we surface (a Household-domain redirect URL
-		// in `household` publish mode); `preview_target` is the live server it
-		// resolves to. They're equal in `local` mode.
-		this.deps.taskStore.mergeMetadata(id, { preview_url: url, preview_target: target })
+	/**
+	 * A `preview` task reported the list of ports its dev server(s) expose.
+	 * Persist it on the task so the dashboard can link to each and the
+	 * `/previews/:taskId(/:port)` redirect can resolve them. Each entry's `url`
+	 * is the link we surface (a Household-domain redirect URL in `household`
+	 * publish mode); `target` is the live server it resolves to.
+	 */
+	onPreviewReady(id: string, ports: PreviewPort[]): void {
+		this.deps.taskStore.mergeMetadata(id, { preview_ports: ports })
 	}
 
 	onCompleted(id: string, result: unknown, prUrl: string | null): void {
