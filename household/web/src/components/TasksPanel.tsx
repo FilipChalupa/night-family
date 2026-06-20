@@ -61,6 +61,7 @@ interface Props {
 		title: string
 		description: string
 		repo: string | null
+		metadata?: Record<string, unknown>
 	}) => Promise<void>
 	onCancel: (id: string) => Promise<void>
 	onRetry: (id: string) => Promise<void>
@@ -70,7 +71,15 @@ interface Props {
 
 // Filter order roughly mirrors the typical lifecycle: triage runs first,
 // then implement, then rebase / review / respond. Summarize is standalone.
-const KINDS: TaskKind[] = ['triage', 'implement', 'rebase', 'review', 'respond', 'summarize']
+const KINDS: TaskKind[] = [
+	'triage',
+	'implement',
+	'rebase',
+	'review',
+	'respond',
+	'summarize',
+	'preview',
+]
 
 export function TasksPanel({
 	tasks,
@@ -127,8 +136,11 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 	const [title, setTitle] = useState('')
 	const [description, setDescription] = useState('')
 	const [repo, setRepo] = useState('')
+	const [branch, setBranch] = useState('')
 	const [submitting, setSubmitting] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+
+	const isPreview = kind === 'preview'
 
 	const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
 		e.preventDefault()
@@ -140,6 +152,7 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 				title: title.trim(),
 				description: description.trim(),
 				repo: repo.trim() || null,
+				...(isPreview && branch.trim() ? { metadata: { branch: branch.trim() } } : {}),
 			})
 			setTitle('')
 			setDescription('')
@@ -179,24 +192,44 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 						fullWidth
 					/>
 					<TextField
-						label="Repository (optional)"
+						label={isPreview ? 'Repository' : 'Repository (optional)'}
 						placeholder="org/name"
 						value={repo}
 						onChange={(e) => setRepo(e.target.value)}
+						required={isPreview}
 						size="small"
 						fullWidth
 					/>
+					{isPreview ? (
+						<TextField
+							label="Branch to preview"
+							placeholder="feature/my-branch"
+							value={branch}
+							onChange={(e) => setBranch(e.target.value)}
+							required
+							size="small"
+							fullWidth
+						/>
+					) : null}
 				</Stack>
-				<TextField
-					label="Description"
-					placeholder="What should the agent do?"
-					value={description}
-					onChange={(e) => setDescription(e.target.value)}
-					multiline
-					rows={3}
-					size="small"
-					fullWidth
-				/>
+				{isPreview ? (
+					<Alert severity="info" variant="outlined">
+						Checks out the branch, starts the project's dev server, and reports where
+						it's live — also written into the branch's PR, if one is open. The preview
+						stays up until the task is cancelled.
+					</Alert>
+				) : (
+					<TextField
+						label="Description"
+						placeholder="What should the agent do?"
+						value={description}
+						onChange={(e) => setDescription(e.target.value)}
+						multiline
+						rows={3}
+						size="small"
+						fullWidth
+					/>
+				)}
 				<Stack
 					direction="row"
 					spacing={2}
@@ -210,7 +243,11 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 					<Button
 						type="submit"
 						variant="contained"
-						disabled={submitting || !title.trim()}
+						disabled={
+							submitting ||
+							!title.trim() ||
+							(isPreview && (!repo.trim() || !branch.trim()))
+						}
 					>
 						{submitting ? 'Creating…' : 'Create task'}
 					</Button>

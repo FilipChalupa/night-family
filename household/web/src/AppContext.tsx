@@ -24,6 +24,7 @@ export interface AppData {
 		title: string
 		description: string
 		repo: string | null
+		metadata?: Record<string, unknown>
 	}) => Promise<void>
 	cancelTask: (id: string) => Promise<void>
 	retryTask: (id: string) => Promise<void>

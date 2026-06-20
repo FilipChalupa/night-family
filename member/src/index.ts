@@ -65,6 +65,7 @@ const taskRunner = new TaskRunner({
 	logger: logger.child({ component: 'runner' }),
 	wsSend: (msg: MsgEvent) => connection?.send(msg) ?? false,
 	stubMode,
+	preview: config.preview,
 })
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {

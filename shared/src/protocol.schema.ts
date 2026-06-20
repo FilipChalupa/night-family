@@ -29,6 +29,7 @@ const SkillSchema = v.picklist([
 	'triage',
 	'respond',
 	'summarize',
+	'preview',
 ] satisfies Skill[])
 
 const ProviderSchema = v.picklist(['anthropic', 'gemini', 'openai'] satisfies Provider[])
@@ -44,6 +45,7 @@ const TaskKindSchema = v.picklist([
 	'respond',
 	'summarize',
 	'rebase',
+	'preview',
 ] satisfies TaskKind[])
 
 const DaySchema = v.picklist(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] satisfies Day[])

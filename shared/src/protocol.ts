@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '3.1.0'
+export const PROTOCOL_VERSION = '3.2.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -63,7 +63,7 @@ export function compareProtocolVersions(a: string, b: string): ProtocolCompat {
  * workspace, same PR-write authority). The dispatcher knows the
  * mapping; the wire surface stays small.
  */
-export type Skill = 'implement' | 'review' | 'triage' | 'respond' | 'summarize'
+export type Skill = 'implement' | 'review' | 'triage' | 'respond' | 'summarize' | 'preview'
 
 export const ALL_SKILLS: readonly Skill[] = [
 	'implement',
@@ -71,6 +71,7 @@ export const ALL_SKILLS: readonly Skill[] = [
 	'triage',
 	'respond',
 	'summarize',
+	'preview',
 ]
 
 export type Provider = 'anthropic' | 'gemini' | 'openai'
@@ -81,7 +82,14 @@ export type MemberStatus = 'idle' | 'busy'
 
 export type EventKind = 'tool_call' | 'file_edited' | 'commit' | 'usage' | 'log' | 'rebase'
 
-export type TaskKind = 'implement' | 'review' | 'triage' | 'respond' | 'summarize' | 'rebase'
+export type TaskKind =
+	| 'implement'
+	| 'review'
+	| 'triage'
+	| 'respond'
+	| 'summarize'
+	| 'rebase'
+	| 'preview'
 
 /**
  * Which `TaskKind` values is a Member with the given `Skill` willing to
@@ -96,6 +104,7 @@ export const TASK_KINDS_BY_SKILL: Record<Skill, readonly TaskKind[]> = {
 	triage: ['triage'],
 	respond: ['respond'],
 	summarize: ['summarize'],
+	preview: ['preview'],
 }
 
 /**

@@ -156,6 +156,41 @@ Admins can also push a temporary override ("Implement-only for the next 2h") fro
 
 A Member only works on repos its PAT can push to — at startup it pulls `/user/repos` (filtered by `permissions.push`) and ships the list to Household, which uses it as the allowlist when dispatching repo-scoped tasks. Newly granted collaborator access doesn't require a Member restart: Household asks Members to re-fetch the list when (a) a day↔night schedule edge fires, (b) a queued task arrives for a repo no Member's allowlist covers, or (c) an admin clicks "Refresh repos" on the Members panel. Members also run a slow 6-hour safety-net refresh on their own. Failures are reported back (`member.repos_error`) and surface in the Household log; the previous list is kept until the next refresh succeeds.
 
+## Preview skill (work in progress)
+
+A Member with the `preview` skill can spin up a project's dev server on a given
+branch so changes can be looked at live. Create a `preview` task with the branch
+in `metadata.branch` (the Tasks panel shows a **Branch to preview** field when
+you pick the `preview` kind):
+
+```bash
+curl -X POST http://localhost:8080/api/tasks \
+  -H 'content-type: application/json' \
+  -d '{"kind":"preview","title":"Preview feature-x","repo":"org/name","metadata":{"branch":"feature-x"}}'
+```
+
+The Member then (see `member/src/tasks/preview.ts`):
+
+1. checks out the branch into a throwaway worktree (`checkoutBranch` in `workspace.ts`),
+2. installs deps + starts the dev server, detected from `package.json` (`dev` → `preview` → `start`),
+3. reports the URL via a `preview ready` event, and writes a **🔎 Preview**
+   section into the PR opened for that branch (if any), flipping it to _Stopped_
+   on teardown (`annotatePrWithPreview`),
+4. holds the server open until the task is cancelled (or the wallclock limit hits),
+   then tears down the server and the worktree.
+
+**Online exposure is not wired yet** — for now the reported URL is
+`http://localhost:<PREVIEW_BASE_PORT>` on the Member host. The publishing step is
+pluggable (`PreviewPublisher` in `preview.ts`, default `LocalPublisher`).
+
+Chosen direction: **Household reverse proxy.** A Member registers
+`preview-<id>.previews.<domain>` with the Household — which is already partially
+internet-exposed for GitHub webhooks — and it proxies inbound traffic to the
+Member's local port. Keeps preview URLs on our own domain. Still to solve:
+wildcard DNS/TLS and Member reachability from the Household. (Fallbacks kept in
+mind: an outbound tunnel — cloudflared/ngrok/tailscale funnel — or a per-preview
+container + ingress.)
+
 ## Repo layout
 
 ```

@@ -35,7 +35,13 @@ import { createDefaultTools } from '../agent/tools.ts'
 import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { gh, GitError } from './git.ts'
-import { RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
+import { checkoutBranch, RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
+import {
+	annotatePrWithPreview,
+	LocalPublisher,
+	PreviewServer,
+	type RunningPreview,
+} from './preview.ts'
 
 export interface AssignedTaskInput {
 	taskId: string
@@ -65,6 +71,7 @@ export interface TaskRunnerDeps {
 	logger: Logger
 	wsSend: (msg: MsgEvent) => boolean
 	stubMode: boolean
+	preview: { basePort: number; readyTimeoutMs: number }
 }
 
 export interface TaskOutcome {
@@ -143,6 +150,12 @@ export class TaskRunner {
 			// deterministic git operation. Run it inline and return.
 			if (task.kind === 'rebase') {
 				return await this.runRebaseTask(task, emit)
+			}
+
+			// `preview` is also non-agent: it runs the project's dev server on a
+			// branch and stays alive until the task is cancelled. Run it inline.
+			if (task.kind === 'preview') {
+				return await this.runPreview(task, emit, ac.signal)
 			}
 
 			// Smoke-test the GitHub token against the originating issue by
@@ -558,6 +571,123 @@ export class TaskRunner {
 		})
 	}
 
+	/**
+	 * Preview path — no LLM. Check out the requested branch, start its dev
+	 * server, report the URL (and write it into the branch's PR, if any), then
+	 * hold the server open until the task is cancelled or the wallclock limit
+	 * fires. Teardown stops the server and removes the worktree.
+	 *
+	 * The branch to preview comes from `task.metadata.branch` (or `.ref`); a
+	 * preview always targets a repo.
+	 */
+	private async runPreview(
+		task: AssignedTaskInput,
+		emit: (kind: EventKind, payload: unknown) => Promise<void>,
+		signal: AbortSignal,
+	): Promise<TaskOutcome> {
+		if (!task.repo) {
+			return await this.fail(emit, null, 'preview_no_repo', {
+				message: 'preview tasks require a repo',
+			})
+		}
+		const ref = previewRef(task.metadata)
+		if (!ref) {
+			return await this.fail(emit, null, 'preview_no_branch', {
+				message: 'preview tasks require metadata.branch (or metadata.ref)',
+			})
+		}
+
+		const checkout = await checkoutBranch({
+			taskId: task.taskId,
+			repo: task.repo,
+			ref,
+			githubToken: task.githubToken,
+			workspaceDir: this.deps.workspaceDir,
+			logger: this.deps.logger.child({ component: 'preview-checkout' }),
+		})
+		await emit('log', { message: 'preview checkout ready', ref, sha: checkout.sha })
+
+		const previewLogger = this.deps.logger.child({ component: 'preview' })
+		let preview: RunningPreview | null = null
+		let published: { publicUrl: string; stop(): Promise<void> } | null = null
+		let annotatedPr = false
+		try {
+			preview = await PreviewServer.start({
+				cwd: checkout.path,
+				logger: previewLogger,
+				port: this.deps.preview.basePort,
+				readyTimeoutMs: this.deps.preview.readyTimeoutMs,
+				// Dev servers are chatty (HMR etc.) — keep their output in the
+				// Member log, not the Household event stream.
+				onLog: (line) => previewLogger.debug({ component: 'preview' }, line),
+			})
+
+			// Local URL for now; swap LocalPublisher for the Household reverse
+			// proxy once that lands.
+			published = await LocalPublisher.publish(preview)
+			await emit('log', {
+				message: 'preview ready',
+				ref,
+				sha: checkout.sha,
+				localUrl: preview.url,
+				url: published.publicUrl,
+			})
+
+			// Record where it's running in the PR opened for this branch (if any).
+			if (task.githubToken) {
+				const prUrl = await annotatePrWithPreview(
+					{
+						cwd: checkout.path,
+						githubToken: task.githubToken,
+						repo: task.repo,
+						ref,
+						memberName: this.deps.memberName,
+						status: 'running',
+						url: published.publicUrl,
+						sha: checkout.sha,
+					},
+					previewLogger,
+				)
+				if (prUrl) {
+					annotatedPr = true
+					await emit('log', { message: 'preview annotated PR', url: prUrl })
+				}
+			}
+
+			// Hold the preview open until cancelled / wallclock-aborted.
+			await waitForAbort(signal)
+			await emit('log', { message: 'preview stopping', ref })
+
+			return {
+				type: 'completed',
+				result: { url: published.publicUrl, localUrl: preview.url, ref, sha: checkout.sha },
+			}
+		} catch (err) {
+			return await this.fail(emit, null, 'preview_failed', {
+				message: (err as Error).message,
+			})
+		} finally {
+			// Flip the PR's preview section to "stopped" before tearing down.
+			if (annotatedPr && task.githubToken) {
+				await annotatePrWithPreview(
+					{
+						cwd: checkout.path,
+						githubToken: task.githubToken,
+						repo: task.repo,
+						ref,
+						memberName: this.deps.memberName,
+						status: 'stopped',
+						sha: checkout.sha,
+					},
+					previewLogger,
+				).catch(() => undefined)
+			}
+			await published?.stop().catch(() => undefined)
+			await preview?.stop().catch(() => undefined)
+			await checkout.cleanup().catch(() => undefined)
+		}
+	}
+
 	private enforceLimits(usage: TokenUsage): void {
 		const total = usage.input + usage.output
 		const taskLimit = this.deps.limits.maxTokensPerTask
@@ -750,6 +880,23 @@ export function bashTimeoutMsForKind(kind: TaskKind): number {
 		default:
 			return 5 * 60_000
 	}
+}
+
+/** Branch/ref a preview task should check out, from its metadata. */
+export function previewRef(metadata: Record<string, unknown> | null): string | null {
+	const branch = metadata?.['branch']
+	if (typeof branch === 'string' && branch.length > 0) return branch
+	const ref = metadata?.['ref']
+	if (typeof ref === 'string' && ref.length > 0) return ref
+	return null
+}
+
+/** Resolve once the signal aborts (used to hold a preview open). */
+function waitForAbort(signal: AbortSignal): Promise<void> {
+	if (signal.aborted) return Promise.resolve()
+	return new Promise((resolve) => {
+		signal.addEventListener('abort', () => resolve(), { once: true })
+	})
 }
 
 export function summarizeForCommit(title: string, summary: string): string {

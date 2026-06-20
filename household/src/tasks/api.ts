@@ -7,7 +7,14 @@ import type { Dispatcher } from './dispatcher.ts'
 import type { TaskEventLog } from './eventLog.ts'
 import type { TaskStore } from './store.ts'
 
-const VALID_KINDS = new Set<TaskKind>(['triage', 'implement', 'review', 'respond', 'summarize'])
+const VALID_KINDS = new Set<TaskKind>([
+	'triage',
+	'implement',
+	'review',
+	'respond',
+	'summarize',
+	'preview',
+])
 
 export interface TasksApiDeps {
 	taskStore: TaskStore

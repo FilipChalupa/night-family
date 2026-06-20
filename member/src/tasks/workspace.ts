@@ -502,6 +502,77 @@ export class Workspace {
 	}
 }
 
+// ─── Read-only checkout (preview skill) ─────────────────────────────────────
+
+export interface CheckoutOpts {
+	taskId: string
+	repo: string // org/name
+	ref: string // existing branch / tag / sha to check out (NOT created)
+	githubToken: string
+	workspaceDir: string
+	logger: Logger
+}
+
+export interface Checkout {
+	/** Absolute path of the checked-out worktree. */
+	path: string
+	/** The ref that was checked out. */
+	ref: string
+	/** Resolved commit SHA. */
+	sha: string
+	/** Remove the worktree (keeps the shared bare-clone cache). */
+	cleanup(): Promise<void>
+}
+
+/**
+ * Check out an *existing* ref into a throwaway worktree. Unlike
+ * {@link Workspace.create} (which branches off the default branch to author a
+ * PR), this is for read-only / run-only use such as the `preview` skill —
+ * spin a server up on someone else's branch without committing anything.
+ *
+ * Reuses the same per-Member bare-clone cache, so repeated previews of the
+ * same repo are cheap.
+ */
+export async function checkoutBranch(opts: CheckoutOpts): Promise<Checkout> {
+	const { taskId, repo, ref, githubToken, workspaceDir, logger } = opts
+	const cachePath = join(workspaceDir, '.cache', repo + '.git')
+	await ensureBareClone(cachePath, repo, githubToken, logger)
+	await touch(cachePath)
+
+	const checkoutPath = join(workspaceDir, taskId, 'preview')
+	await rm(checkoutPath, { recursive: true, force: true })
+	await mkdir(dirname(checkoutPath), { recursive: true })
+
+	// Fetch the requested ref explicitly so branches, tags and raw SHAs all work.
+	await git(['fetch', 'origin', ref], { cwd: cachePath, timeoutMs: 120_000 })
+	// Detached worktree at the fetched commit — no local branch, nothing to push.
+	await git(['worktree', 'add', '--detach', checkoutPath, 'FETCH_HEAD'], {
+		cwd: cachePath,
+	})
+
+	const sha = (await git(['rev-parse', 'HEAD'], { cwd: checkoutPath })).trim()
+	logger.info({ taskId, repo, ref, sha: sha.slice(0, 8) }, 'preview checkout ready')
+
+	return {
+		path: checkoutPath,
+		ref,
+		sha,
+		async cleanup() {
+			try {
+				await git(['worktree', 'remove', '--force', checkoutPath], { cwd: cachePath })
+			} catch (err) {
+				if (err instanceof GitError) {
+					logger.warn(
+						{ stderr: err.stderr.slice(0, 200) },
+						'preview worktree remove failed',
+					)
+				}
+			}
+			await rm(checkoutPath, { recursive: true, force: true })
+		},
+	}
+}
+
 async function ensureBareClone(
 	path: string,
 	repo: string,

@@ -59,6 +59,11 @@ export interface MemberConfig {
 		readonly maxTokensPerDay: number | null
 		readonly maxTaskDurationMinutes: number
 	}
+	/** Settings for the `preview` skill (runs a project's dev server). */
+	readonly preview: {
+		readonly basePort: number
+		readonly readyTimeoutMs: number
+	}
 	readonly logLevel: string
 }
 
@@ -243,6 +248,10 @@ function loadEnvConfig(): PartialConfig {
 			maxTokensPerTask: optionalNumber('MAX_TOKENS_PER_TASK'),
 			maxTokensPerDay: optionalNumber('MAX_TOKENS_PER_DAY'),
 			maxTaskDurationMinutes: optionalNumber('MAX_TASK_DURATION_MINUTES') ?? 120,
+		},
+		preview: {
+			basePort: optionalNumber('PREVIEW_BASE_PORT') ?? 4321,
+			readyTimeoutMs: optionalNumber('PREVIEW_READY_TIMEOUT_MS') ?? 120_000,
 		},
 		logLevel: optional('LOG_LEVEL', 'info'),
 	}

@@ -81,6 +81,7 @@ export function RootLayout() {
 		title: string
 		description: string
 		repo: string | null
+		metadata?: Record<string, unknown>
 	}) => {
 		const res = await fetch('/api/tasks', {
 			method: 'POST',
