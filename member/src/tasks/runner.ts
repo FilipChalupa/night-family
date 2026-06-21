@@ -170,7 +170,7 @@ export class TaskRunner {
 			// `rebase` short-circuits the LLM agent loop entirely: it's a
 			// deterministic git operation. Run it inline and return.
 			if (task.kind === 'rebase') {
-				return await this.runRebaseTask(task, emit)
+				return await this.runRebaseTask(task, emit, ac.signal)
 			}
 
 			// `preview` is also non-agent: it runs the project's dev server on a
@@ -454,16 +454,16 @@ export class TaskRunner {
 	}
 
 	/**
-	 * Deterministic rebase path — no LLM. Reads `head_ref` / `base_ref`
-	 * out of the task metadata, sets up a fresh worktree on the head
-	 * branch, runs `git rebase`, and pushes with lease. On conflict
-	 * fails fast with a `rebase_conflict` reason so humans can resolve
-	 * by hand. (Future enhancement: hand off to the LLM with the conflict
-	 * context as a fallback.)
+	 * Rebase path. Reads `head_ref` / `base_ref` out of the task metadata, sets
+	 * up a fresh worktree on the head branch, runs `git rebase`, and pushes with
+	 * lease. A clean rebase needs no LLM; on conflict it hands the paused rebase
+	 * to the agent ({@link attemptRebaseRescue}) to resolve and `--continue`, and
+	 * only fails (`rebase_conflict`, for a human) if the agent can't finish it.
 	 */
 	private async runRebaseTask(
 		task: AssignedTaskInput,
 		emit: (kind: EventKind, payload: unknown) => Promise<void>,
+		signal: AbortSignal,
 	): Promise<TaskOutcome> {
 		if (!task.repo) {
 			return await this.fail(emit, null, 'rebase_missing_repo', {})
@@ -530,28 +530,33 @@ export class TaskRunner {
 
 		let rebaseResult
 		try {
-			rebaseResult = await workspace.rebaseOntoBase()
+			// Keep the rebase paused on conflict so the agent can resolve it.
+			rebaseResult = await workspace.rebaseOntoBase({ leaveConflictInPlace: true })
 		} catch (err) {
 			if (err instanceof RebaseConflictError) {
-				// TODO(rebase): LLM rescue path. v1 fails fast and lets a human
-				// resolve; eventually we'd hand the conflict context (paths +
-				// markers) to the agent loop and let it produce a resolution
-				// commit before retrying the push.
 				await emit('rebase', {
 					outcome: 'conflict',
 					stderr: err.gitStderr.slice(0, 1000),
 				})
+				// LLM rescue: hand the paused rebase (conflict markers in the tree)
+				// to the agent loop and let it resolve + `git rebase --continue`.
+				const rescued = await this.attemptRebaseRescue(task, workspace, emit, err, signal)
+				if (!rescued) {
+					await workspace.abortRebase()
+					return await cleanupAfter(
+						await this.fail(emit, workspace, 'rebase_conflict', {
+							stderr: err.gitStderr.slice(0, 1000),
+						}),
+					)
+				}
+				rebaseResult = rescued
+			} else {
 				return await cleanupAfter(
-					await this.fail(emit, workspace, 'rebase_conflict', {
-						stderr: err.gitStderr.slice(0, 1000),
+					await this.fail(emit, workspace, 'rebase_failed', {
+						message: (err as Error).message,
 					}),
 				)
 			}
-			return await cleanupAfter(
-				await this.fail(emit, workspace, 'rebase_failed', {
-					message: (err as Error).message,
-				}),
-			)
 		}
 
 		await emit('rebase', {
@@ -590,6 +595,95 @@ export class TaskRunner {
 			},
 			...(task.prUrl ? { prUrl: task.prUrl } : {}),
 		})
+	}
+
+	/**
+	 * Hand a paused (conflicted) rebase to the agent loop: it edits the
+	 * conflicted files, stages them and runs `git rebase --continue` until the
+	 * rebase finishes. Returns the resulting head on success, or null if the
+	 * agent couldn't complete it — in which case the caller aborts the rebase
+	 * and fails the task for a human to resolve. We re-verify the rebase
+	 * actually landed on base (not still paused, not still behind) before
+	 * trusting it enough to force-push.
+	 */
+	private async attemptRebaseRescue(
+		task: AssignedTaskInput,
+		workspace: Workspace,
+		emit: (kind: EventKind, payload: unknown) => Promise<void>,
+		conflict: RebaseConflictError,
+		signal: AbortSignal,
+	): Promise<{ rewroteCommits: boolean; newSha: string } | null> {
+		const conflicted = await workspace.conflictedFiles()
+		const beforeSha = await workspace.headSha()
+		await emit('rebase', { outcome: 'rescue-started', conflicted })
+
+		const projectInstructions = await workspace.readProjectInstructions()
+		const tools = createDefaultTools({
+			root: workspace.path,
+			githubToken: task.githubToken || undefined,
+			attribution: {
+				memberName: this.deps.memberName,
+				memberId: this.deps.memberId,
+				taskId: task.taskId,
+				householdUrl: this.deps.householdUrl,
+			},
+			bashTimeoutMs: 120_000,
+		})
+		const systemPrompt = buildSystemPrompt({
+			memberName: this.deps.memberName,
+			repo: task.repo,
+			projectInstructions,
+			tokenBudgetHint: formatTokenBudgetHint(
+				this.deps.limits,
+				this.deps.dailyUsage.tokensToday(),
+			),
+		})
+		const agentTask: AgentTask = {
+			taskId: task.taskId,
+			kind: 'rebase',
+			title: `Resolve rebase conflicts: ${task.title}`,
+			description: rebaseRescuePrompt(conflicted, conflict.gitStderr),
+			repo: task.repo,
+			prUrl: task.prUrl,
+			metadata: task.metadata ?? null,
+			systemPromptAddition: projectInstructions,
+		}
+
+		const onEvent = async (event: AgentEvent): Promise<void> => {
+			if (event.kind === 'usage') this.enforceLimits(event.payload as TokenUsage)
+			await emit(event.kind as EventKind, event.payload)
+		}
+
+		try {
+			const result = await this.deps.provider.runAgent({
+				task: agentTask,
+				tools,
+				systemPrompt,
+				onEvent,
+				abortSignal: signal,
+				maxIterations: maxIterationsForKind('rebase'),
+			})
+			this.deps.dailyUsage.record(result.usage)
+		} catch (err) {
+			await emit('rebase', {
+				outcome: 'rescue-failed',
+				message: (err as Error).message,
+			})
+			return null
+		}
+
+		if (await workspace.rebaseInProgress()) {
+			await emit('rebase', { outcome: 'rescue-failed', reason: 'rebase-still-in-progress' })
+			return null
+		}
+		if ((await workspace.countBehindBase()) !== 0) {
+			await emit('rebase', { outcome: 'rescue-failed', reason: 'still-behind-base' })
+			return null
+		}
+
+		const newSha = await workspace.headSha()
+		await emit('rebase', { outcome: 'rescued', newSha, conflicted })
+		return { rewroteCommits: newSha !== beforeSha, newSha }
 	}
 
 	/**
@@ -1019,6 +1113,44 @@ export function bashTimeoutMsForKind(kind: TaskKind): number {
 		default:
 			return 5 * 60_000
 	}
+}
+
+/**
+ * Task description handed to the agent for a conflicted rebase: tells it the
+ * rebase is paused, lists the conflicted files, and constrains it to resolving
+ * and continuing (never aborting, never pushing — the runner verifies + pushes).
+ */
+export function rebaseRescuePrompt(conflicted: string[], gitStderr: string): string {
+	const files =
+		conflicted.length > 0 ? conflicted.map((f) => `  - ${f}`).join('\n') : '  (none reported)'
+	return [
+		'A `git rebase` onto the base branch stopped on a conflict. The rebase is',
+		'PAUSED in this working tree — the conflicted files contain `<<<<<<<` /',
+		'`=======` / `>>>>>>>` markers.',
+		'',
+		"Your job: resolve every conflict so the branch's changes are preserved on",
+		'top of the base branch, then complete the rebase. Concretely:',
+		'',
+		'  1. Inspect the state with `git status` and `git diff`.',
+		'  2. Edit each conflicted file to a correct, marker-free resolution that',
+		"     keeps both sides' intent where they don't actually collide.",
+		'  3. `git add` the resolved files, then run `git rebase --continue`.',
+		'  4. Repeat for any further conflicts until the rebase finishes.',
+		'',
+		'Rules:',
+		'  - Do NOT run `git rebase --abort`.',
+		'  - Do NOT push — the runner pushes after verifying the result.',
+		'  - Do NOT touch unrelated files or invent changes; only resolve conflicts.',
+		'  - If a conflict is genuinely unresolvable, stop and explain why.',
+		'',
+		'Conflicted files:',
+		files,
+		'',
+		'git reported:',
+		'```',
+		gitStderr.slice(0, 1000),
+		'```',
+	].join('\n')
 }
 
 /** Branch/ref a preview task should check out, from its metadata. */

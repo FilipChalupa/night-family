@@ -12,7 +12,7 @@
 
 import { existsSync } from 'node:fs'
 import { mkdir, rm, stat, utimes, writeFile, readdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { Logger } from 'pino'
 import { isTransientGhError, retryWithBackoff } from '../retry.ts'
 import { authenticatedRemoteUrl, gh, git, GitError } from './git.ts'
@@ -231,27 +231,64 @@ export class Workspace {
 	}
 
 	/**
-	 * Run `git rebase <baseBranch>` in this workspace. Aborts the rebase
-	 * on conflict and throws {@link RebaseConflictError}; the caller is
-	 * expected to fail the task and surface the message to humans (who
-	 * will resolve the conflict by hand).
+	 * Run `git rebase <baseBranch>` in this workspace. On conflict throws
+	 * {@link RebaseConflictError}. By default the rebase is aborted first so the
+	 * worktree isn't left half-rebased; pass `leaveConflictInPlace` to keep the
+	 * rebase paused (conflict markers in the tree) so the LLM rescue path can
+	 * resolve it and `git rebase --continue`.
 	 */
-	async rebaseOntoBase(): Promise<{ rewroteCommits: boolean; newSha: string }> {
+	async rebaseOntoBase(
+		opts: { leaveConflictInPlace?: boolean } = {},
+	): Promise<{ rewroteCommits: boolean; newSha: string }> {
 		const beforeSha = (await git(['rev-parse', 'HEAD'], { cwd: this.path })).trim()
 		try {
 			await git(['rebase', this.baseBranch], { cwd: this.path, timeoutMs: 120_000 })
 		} catch (err) {
-			// Best-effort cleanup so the worktree isn't left in a half-rebased state.
-			try {
-				await git(['rebase', '--abort'], { cwd: this.path })
-			} catch {
-				/* ignore */
+			if (!opts.leaveConflictInPlace) {
+				try {
+					await git(['rebase', '--abort'], { cwd: this.path })
+				} catch {
+					/* ignore */
+				}
 			}
 			const stderr = err instanceof GitError ? err.stderr : ''
 			throw new RebaseConflictError(stderr.slice(0, 2000) || (err as Error).message)
 		}
 		const afterSha = (await git(['rev-parse', 'HEAD'], { cwd: this.path })).trim()
 		return { rewroteCommits: beforeSha !== afterSha, newSha: afterSha }
+	}
+
+	/** True while a rebase is paused (e.g. stopped on a conflict) in this tree. */
+	async rebaseInProgress(): Promise<boolean> {
+		for (const ref of ['rebase-merge', 'rebase-apply']) {
+			const p = (await git(['rev-parse', '--git-path', ref], { cwd: this.path })).trim()
+			if (!p) continue
+			if (existsSync(isAbsolute(p) ? p : join(this.path, p))) return true
+		}
+		return false
+	}
+
+	/** Abort an in-progress rebase, best-effort. */
+	async abortRebase(): Promise<void> {
+		try {
+			await git(['rebase', '--abort'], { cwd: this.path })
+		} catch {
+			/* ignore */
+		}
+	}
+
+	/** Paths still in a conflicted (unmerged) state. */
+	async conflictedFiles(): Promise<string[]> {
+		const out = await git(['diff', '--name-only', '--diff-filter=U'], { cwd: this.path })
+		return out
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean)
+	}
+
+	/** Current HEAD sha in this worktree. */
+	async headSha(): Promise<string> {
+		return (await git(['rev-parse', 'HEAD'], { cwd: this.path })).trim()
 	}
 
 	/**

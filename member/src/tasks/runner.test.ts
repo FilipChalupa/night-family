@@ -12,6 +12,7 @@ import {
 	parseReviewOutput,
 	parseTriageOutput,
 	prTitleFor,
+	rebaseRescuePrompt,
 	summarizeForCommit,
 	TaskRunner,
 	type AssignedTaskInput,
@@ -134,6 +135,27 @@ describe('maxIterationsForKind', () => {
 		expect(maxIterationsForKind('implement')).toBe(30)
 		expect(maxIterationsForKind('summarize')).toBe(30)
 		expect(maxIterationsForKind('rebase')).toBe(30)
+	})
+})
+
+describe('rebaseRescuePrompt', () => {
+	it('lists the conflicted files and the hard constraints', () => {
+		const p = rebaseRescuePrompt(['src/a.ts', 'src/b.ts'], 'CONFLICT (content): Merge conflict')
+		expect(p).toContain('src/a.ts')
+		expect(p).toContain('src/b.ts')
+		expect(p).toContain('git rebase --continue')
+		// The constraints the runner relies on for safety.
+		expect(p).toContain('Do NOT run `git rebase --abort`')
+		expect(p).toContain('Do NOT push')
+		expect(p).toContain('CONFLICT (content): Merge conflict')
+	})
+
+	it('handles an empty conflict list and truncates very long git output', () => {
+		const p = rebaseRescuePrompt([], 'Z'.repeat(5000))
+		expect(p).toContain('(none reported)')
+		// gitStderr is sliced to 1000 chars.
+		expect(p.includes('Z'.repeat(1000))).toBe(true)
+		expect(p.includes('Z'.repeat(1001))).toBe(false)
 	})
 })
 
