@@ -220,6 +220,7 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 				ports: [{ port: 4321, label: 'app' }],
 				readyTimeoutMs: 120_000,
 				publishMode: 'local',
+				domain: null,
 			},
 		})
 		return { runner, sent, usageRecords }
@@ -325,6 +326,7 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 				ports: [{ port: 4321, label: 'app' }],
 				readyTimeoutMs: 120_000,
 				publishMode: 'local',
+				domain: null,
 			},
 		})
 
@@ -373,6 +375,7 @@ describe('TaskRunner — end-to-end (summarize, no workspace)', () => {
 				ports: [{ port: 4321, label: 'app' }],
 				readyTimeoutMs: 120_000,
 				publishMode: 'local',
+				domain: null,
 			},
 		})
 
@@ -478,6 +481,7 @@ describe('TaskRunner — end-to-end (implement, with stubbed Workspace)', () => 
 				ports: [{ port: 4321, label: 'app' }],
 				readyTimeoutMs: 120_000,
 				publishMode: 'local',
+				domain: null,
 			},
 		})
 		return { runner, sent }
@@ -689,6 +693,7 @@ describe('TaskRunner — end-to-end (rebase, with stubbed Workspace)', () => {
 				ports: [{ port: 4321, label: 'app' }],
 				readyTimeoutMs: 120_000,
 				publishMode: 'local',
+				domain: null,
 			},
 		})
 		return { runner, sent }

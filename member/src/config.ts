@@ -72,11 +72,15 @@ export interface MemberConfig {
 		/**
 		 * How a running preview is exposed:
 		 *   - `local`: report the Member-local `http://localhost:<port>` URL.
-		 *   - `household`: report a stable `<household>/previews/<task>` URL that
-		 *     the Household redirects to the live server. Keeps preview links on
-		 *     the Household's domain.
+		 *   - `household`: report a stable `<household>/previews/<task>` URL the
+		 *     Household redirects to the live server.
+		 *   - `subdomain`: report `https://p<port>-<task>.<domain>`; the Household
+		 *     proxies it to the live server over the Member's preview tunnel.
+		 *     Requires `domain` (`PREVIEWS_DOMAIN`); falls back to `local` without.
 		 */
-		readonly publishMode: 'local' | 'household'
+		readonly publishMode: 'local' | 'household' | 'subdomain'
+		/** Preview subdomain base (`PREVIEWS_DOMAIN`), or null. */
+		readonly domain: string | null
 	}
 	readonly logLevel: string
 }
@@ -149,9 +153,9 @@ export function parsePreviewPorts(
 	return out
 }
 
-function parsePreviewPublishMode(raw: string): 'local' | 'household' {
-	if (raw !== 'local' && raw !== 'household') {
-		throw new Error(`PREVIEW_PUBLISH_MODE must be local|household, got: ${raw}`)
+function parsePreviewPublishMode(raw: string): 'local' | 'household' | 'subdomain' {
+	if (raw !== 'local' && raw !== 'household' && raw !== 'subdomain') {
+		throw new Error(`PREVIEW_PUBLISH_MODE must be local|household|subdomain, got: ${raw}`)
 	}
 	return raw
 }
@@ -305,6 +309,7 @@ function loadEnvConfig(): PartialConfig {
 			),
 			readyTimeoutMs: optionalNumber('PREVIEW_READY_TIMEOUT_MS') ?? 120_000,
 			publishMode: parsePreviewPublishMode(optional('PREVIEW_PUBLISH_MODE', 'local')),
+			domain: process.env.PREVIEWS_DOMAIN?.trim() || null,
 		},
 		logLevel: optional('LOG_LEVEL', 'info'),
 	}

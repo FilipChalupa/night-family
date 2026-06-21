@@ -237,9 +237,17 @@ Traefik stays static (one wildcard router → Household); the Household owns the
 dynamic `(task, port) → live Member session` mapping it already has from
 `metadata.preview_ports` + `task.assignedSessionId`.
 
-**Status:** the TLS/routing layer below is ready to configure; the Household-side
-WS-tunnel proxy is **not implemented yet** — today only the redirect slice above
-runs (`PREVIEW_PUBLISH_MODE=household`).
+**Status:** the HTTP tunnel is **implemented** (phase 1). Set
+`PREVIEW_PUBLISH_MODE=subdomain` + `PREVIEWS_DOMAIN` on the Member and
+`PREVIEWS_DOMAIN` on the Household, deploy behind Traefik (below), and previews
+load over the tunnel. **HMR / WebSocket upgrades are not tunnelled yet** (phase 2) — the page loads and assets stream, but live-reload won't reconnect until
+that lands; manual refresh works. The `household` redirect mode above still
+exists as the same-network alternative.
+
+How it's wired: the Member (preview skill) opens a second WS `/ws/preview`
+(`member/src/tasks/preview-tunnel.ts`); the Household intercepts preview-subdomain
+Hosts and multiplexes the request/response over it
+(`household/src/preview/tunnel.ts`).
 
 #### Deploying behind Traefik
 
@@ -265,13 +273,14 @@ labels:
 ```
 
 (Traefik v2 uses the named form `HostRegexp(`{sub:[a-z0-9-]+}.previews.night.example.com`)`.)
-Traefik forwards `Upgrade` headers on HTTP routers by default, so HMR WebSockets
-pass straight through to the Household, which tunnels them on to the Member —
-nothing extra to configure there.
+Traefik forwards `Upgrade` headers on HTTP routers by default, so once the
+Household tunnels WebSockets (phase 2) HMR will pass straight through — no extra
+Traefik config needed.
 
-The Household will need its previews base domain (e.g. `PREVIEWS_DOMAIN=previews.night.example.com`)
-to build/validate the Host and to advertise the scheme to Members
-(`PREVIEW_PUBLISH_MODE=subdomain`). Both land with the proxy implementation.
+Set `PREVIEWS_DOMAIN=previews.night.example.com` on **both** the Household (to
+match/validate the Host) and the Member (to build the URL), and
+`PREVIEW_PUBLISH_MODE=subdomain` on the Member. Without `PREVIEWS_DOMAIN` the
+Household skips the proxy entirely and the Member falls back to `local`.
 
 ## Repo layout
 

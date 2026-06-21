@@ -37,7 +37,7 @@ import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { gh, GitError } from './git.ts'
 import { checkoutBranch, RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
 import { annotatePrWithPreview, PreviewServer, type RunningPreview } from './preview.ts'
-import { toHttpScheme, type PreviewPort } from '@night/shared'
+import { buildPreviewSubdomainUrl, toHttpScheme, type PreviewPort } from '@night/shared'
 
 export interface AssignedTaskInput {
 	taskId: string
@@ -70,7 +70,8 @@ export interface TaskRunnerDeps {
 	preview: {
 		ports: ReadonlyArray<{ port: number; label: string }>
 		readyTimeoutMs: number
-		publishMode: 'local' | 'household'
+		publishMode: 'local' | 'household' | 'subdomain'
+		domain: string | null
 	}
 }
 
@@ -725,7 +726,13 @@ export class TaskRunner {
 		port: number,
 		isPrimary: boolean,
 	): string {
-		if (this.deps.preview.publishMode === 'household') {
+		const mode = this.deps.preview.publishMode
+		// Subdomain: each port gets its own `p<port>-<task>.<domain>`, proxied by
+		// the Household over the tunnel. Needs the domain; otherwise fall through.
+		if (mode === 'subdomain' && this.deps.preview.domain) {
+			return buildPreviewSubdomainUrl(this.deps.preview.domain, taskId, port)
+		}
+		if (mode === 'household') {
 			const base = toHttpScheme(this.deps.householdUrl).replace(/\/$/, '')
 			const path = `${base}/previews/${encodeURIComponent(taskId)}`
 			return isPrimary ? path : `${path}/${port}`

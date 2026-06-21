@@ -3,6 +3,7 @@ import { HouseholdConnection } from './connection.ts'
 import { logger } from './logger.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
 import { gcStaleCaches, gcStaleTaskDirs } from './tasks/workspace.ts'
+import { PreviewTunnel } from './tasks/preview-tunnel.ts'
 import type { MsgEvent } from '@night/shared'
 
 const config = await loadConfig()
@@ -72,9 +73,26 @@ connection = new HouseholdConnection(config, logger.child({ component: 'connecti
 	taskRunner,
 })
 
+// Preview members open a second, dedicated tunnel WS so Household can proxy
+// inbound preview HTTP to their local dev servers (NAT-friendly: Member-opened).
+const previewTunnel = config.skills.includes('preview')
+	? new PreviewTunnel({
+			householdUrl: config.householdUrl,
+			accessToken: config.householdAccessToken,
+			memberId: config.memberId,
+			logger: logger.child({ component: 'preview-tunnel' }),
+		})
+	: null
+if (previewTunnel) {
+	previewTunnel.run().catch((err) => {
+		logger.error({ err }, 'preview tunnel loop crashed')
+	})
+}
+
 const shutdown = (signal: string) => {
 	logger.info({ signal }, 'shutting down')
 	connection?.stop()
+	previewTunnel?.stop()
 	setTimeout(() => process.exit(0), 1500).unref()
 }
 

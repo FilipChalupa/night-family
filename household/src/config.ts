@@ -14,6 +14,13 @@ export interface HouseholdConfig {
 		clientSecret: string
 	} | null
 	secretsKey: string | null
+	/**
+	 * Base domain for preview subdomains (`PREVIEWS_DOMAIN`, e.g.
+	 * `previews.night.example.com`). When set, the Household serves preview
+	 * traffic for `p<port>-<task>.<domain>` Hosts by tunnelling to the owning
+	 * Member over `/ws/preview`. `null` disables preview proxying.
+	 */
+	previewsDomain: string | null
 	logLevel: string
 	/**
 	 * How many parallel review jobs the dispatcher creates per `implement`
@@ -92,6 +99,7 @@ export function loadConfig(): HouseholdConfig {
 		configDir: optional('CONFIG_DIR', '/config'),
 		githubOauth,
 		secretsKey: process.env['SECRETS_KEY'] ?? null,
+		previewsDomain: process.env['PREVIEWS_DOMAIN']?.trim() || null,
 		logLevel: optional('LOG_LEVEL', 'info'),
 		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2),
 		selfReviewFallbackMs: optionalPositiveInt('SELF_REVIEW_FALLBACK_MS', 10 * 60_000),

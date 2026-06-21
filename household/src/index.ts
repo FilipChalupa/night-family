@@ -12,6 +12,11 @@ import { SecretCipher, resolveSecretsKey } from './crypto/secrets.ts'
 import { openDb } from './db/index.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
 import { mountPreviewProxy } from './preview/proxy.ts'
+import {
+	PreviewTunnelHub,
+	createPreviewTunnelHandler,
+	previewHostMiddleware,
+} from './preview/tunnel.ts'
 import { RepoBindingStore } from './github/bindings.ts'
 import { sweepStalePrsForRebase } from './github/handlers/pulls.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
@@ -152,6 +157,23 @@ const app = new Hono()
 
 const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app })
 
+// Preview subdomain proxy. Registered first so a `p<port>-<task>.<domain>`
+// request is tunnelled to the owning Member before any normal route or the
+// static UI sees it. No-op (pass-through) unless PREVIEWS_DOMAIN is set.
+const previewTunnelHub = new PreviewTunnelHub(logger.child({ component: 'preview.tunnel' }))
+if (config.previewsDomain) {
+	app.use(
+		'*',
+		previewHostMiddleware({
+			hub: previewTunnelHub,
+			taskStore,
+			previewsDomain: config.previewsDomain,
+			logger: logger.child({ component: 'preview.host' }),
+		}),
+	)
+	logger.info({ previewsDomain: config.previewsDomain }, 'preview subdomain proxy enabled')
+}
+
 app.get('/health', (c) => {
 	let dbOk = false
 	try {
@@ -198,6 +220,16 @@ const uiHandler = createUiWsHandler({
 
 app.get('/ws/member', upgradeWebSocket(memberHandler))
 app.get('/ws/ui', upgradeWebSocket(uiHandler))
+app.get(
+	'/ws/preview',
+	upgradeWebSocket(
+		createPreviewTunnelHandler({
+			hub: previewTunnelHub,
+			tokens,
+			logger: logger.child({ component: 'ws.preview' }),
+		}),
+	),
+)
 
 const guard = new AdminGuard(sessionStore, config.requireUiLogin, !!config.githubOauth)
 
