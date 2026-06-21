@@ -63,6 +63,8 @@ export interface RunningPreview {
 	pid: number
 	/** The command that was run. */
 	command: string
+	/** False once the server process has exited (crashed or was stopped). */
+	alive(): boolean
 	/** Stop the server (SIGTERM → SIGKILL) and resolve when it has exited. */
 	stop(): Promise<void>
 }
@@ -291,6 +293,7 @@ function makeHandle(
 		port: opts.port,
 		pid: child.pid ?? -1,
 		command,
+		alive: () => child.exitCode === null && child.signalCode === null,
 		stop: () => killTree(child, opts.logger),
 	}
 }

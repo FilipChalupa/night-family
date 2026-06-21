@@ -23,8 +23,10 @@ export interface SleepablePreviewOpts {
 	start: () => Promise<RunningPreview>
 	/** Sleep after this long with no traffic. `<= 0` never sleeps. */
 	idleMs: number
-	/** Notified when the preview sleeps or wakes — wired to events/metrics. */
-	onTransition?: (event: { state: 'slept' } | { state: 'woke'; wakeMs: number }) => void
+	/** Notified when the preview sleeps, wakes, or is found dead — events/metrics. */
+	onTransition?: (
+		event: { state: 'slept' } | { state: 'woke'; wakeMs: number } | { state: 'crashed' },
+	) => void
 	logger: Logger
 }
 
@@ -52,8 +54,18 @@ export class SleepablePreview {
 		// Let an in-flight sleep finish releasing the port before we rebind it.
 		if (this.sleeping) await this.sleeping
 		if (this.running) {
-			this.touch()
-			return
+			// The process can die on its own (crash/OOM) while we still hold a
+			// handle. Detect that and fall through to a restart instead of
+			// proxying the next request to a dead port.
+			if (this.running.alive()) {
+				this.touch()
+				return
+			}
+			this.opts.logger.warn('preview: process died, restarting on demand')
+			this.opts.onTransition?.({ state: 'crashed' })
+			const dead = this.running
+			this.running = null
+			void dead.stop().catch(() => undefined)
 		}
 		if (this.waking) return this.waking
 		this.waking = (async () => {

@@ -11,11 +11,15 @@ const silentLogger = {
 	child: () => silentLogger,
 } as unknown as Logger
 
-const fakePreview = (stop = vi.fn(async () => {})): RunningPreview => ({
+const fakePreview = (
+	stop = vi.fn(async () => {}),
+	alive: () => boolean = () => true,
+): RunningPreview => ({
 	url: 'http://localhost:4321',
 	port: 4321,
 	pid: 1,
 	command: 'npm run dev',
+	alive,
 	stop,
 })
 
@@ -60,6 +64,34 @@ describe('SleepablePreview', () => {
 		const wokeEvent = events.find((e) => e.state === 'woke') as { wakeMs: number }
 		expect(typeof wokeEvent.wakeMs).toBe('number')
 		expect(wokeEvent.wakeMs).toBeGreaterThanOrEqual(0)
+	})
+
+	it('restarts a crashed preview on the next ensureAwake', async () => {
+		let live = true
+		const initial = fakePreview(
+			vi.fn(async () => {}),
+			() => live,
+		)
+		const restarted = fakePreview()
+		const start = vi.fn(async () => restarted)
+		const states: string[] = []
+		const s = new SleepablePreview({
+			initial,
+			start,
+			idleMs: 0, // never sleeps; the process dies on its own
+			logger: silentLogger,
+			onTransition: (e) => states.push(e.state),
+		})
+
+		live = false // simulate a crash
+		await s.ensureAwake()
+
+		expect(start).toHaveBeenCalledTimes(1)
+		expect(states).toContain('crashed')
+		expect(initial.stop).toHaveBeenCalledTimes(1) // dead handle cleaned up
+
+		await s.dispose()
+		expect(restarted.stop).toHaveBeenCalledTimes(1)
 	})
 
 	it('never sleeps when idleMs is 0', async () => {

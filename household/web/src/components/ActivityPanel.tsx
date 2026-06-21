@@ -42,6 +42,7 @@ interface PreviewStats {
 		failed: number
 		wakes: number
 		sleeps: number
+		crashes: number
 		avgWakeMs: number | null
 	}
 }
@@ -121,6 +122,13 @@ export function ActivityPanel() {
 									: `${(preview.recent.avgWakeMs / 1000).toFixed(1)}s`
 							}
 						/>
+						{preview.recent.crashes > 0 ? (
+							<Stat
+								label={`Crashes · ${preview.recent.days}d`}
+								value={preview.recent.crashes}
+								color="error.main"
+							/>
+						) : null}
 					</Stack>
 				</Paper>
 			) : null}

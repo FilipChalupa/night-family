@@ -199,6 +199,7 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 				`SELECT
 				   SUM(CASE WHEN json_extract(payload, '$.state') = 'woke' THEN 1 ELSE 0 END) AS wakes,
 				   SUM(CASE WHEN json_extract(payload, '$.state') = 'slept' THEN 1 ELSE 0 END) AS sleeps,
+				   SUM(CASE WHEN json_extract(payload, '$.state') = 'crashed' THEN 1 ELSE 0 END) AS crashes,
 				   AVG(CASE WHEN json_extract(payload, '$.state') = 'woke'
 				            THEN json_extract(payload, '$.wakeMs') END) AS avgWakeMs
 				 FROM task_events
@@ -207,6 +208,7 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			.get(cutoffMs) as {
 			wakes: number | null
 			sleeps: number | null
+			crashes: number | null
 			avgWakeMs: number | null
 		}
 
@@ -221,6 +223,7 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 				failed: Number(recent.failed) || 0,
 				wakes: Number(lifecycle.wakes) || 0,
 				sleeps: Number(lifecycle.sleeps) || 0,
+				crashes: Number(lifecycle.crashes) || 0,
 				avgWakeMs: lifecycle.avgWakeMs === null ? null : Math.round(lifecycle.avgWakeMs),
 			},
 		})
