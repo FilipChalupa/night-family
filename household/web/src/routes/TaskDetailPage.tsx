@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { Markdown } from '../components/Markdown.tsx'
-import { previewPortsOf, ReviewWaitBadge } from '../components/TasksPanel.tsx'
+import { previewPortsOf, previewState, ReviewWaitBadge } from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -253,6 +253,15 @@ function TaskDetailCard({
 									))}
 								</Stack>
 							}
+						/>
+					) : null
+				})()}
+				{(() => {
+					const state = previewState(task)
+					return state === 'starting' || state === 'queued' ? (
+						<Field
+							label="Preview"
+							value={`⏳ ${state === 'queued' ? 'queued — waiting for a member' : 'starting — checking out, installing, booting…'}`}
 						/>
 					) : null
 				})()}

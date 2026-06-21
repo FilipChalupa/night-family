@@ -376,23 +376,34 @@ function TasksTable({
 									)
 								})()}
 								{(() => {
-									const ports = OPEN_STATUSES.includes(t.status)
-										? previewPortsOf(t)
-										: []
-									return ports.map((p) => (
-										<Box key={p.port}>
-											<Link
-												href={p.url}
-												target="_blank"
-												rel="noopener noreferrer"
-												underline="hover"
-												variant="caption"
-												color="success.main"
-											>
-												▶ Preview{ports.length > 1 ? ` ${p.label}` : ''} ↗
-											</Link>
-										</Box>
-									))
+									const state = previewState(t)
+									if (state === 'ready') {
+										const ports = previewPortsOf(t)
+										return ports.map((p) => (
+											<Box key={p.port}>
+												<Link
+													href={p.url}
+													target="_blank"
+													rel="noopener noreferrer"
+													underline="hover"
+													variant="caption"
+													color="success.main"
+												>
+													▶ Preview{ports.length > 1 ? ` ${p.label}` : ''}{' '}
+													↗
+												</Link>
+											</Box>
+										))
+									}
+									if (state === 'starting' || state === 'queued') {
+										return (
+											<Typography variant="caption" color="text.secondary">
+												⏳ Preview{' '}
+												{state === 'queued' ? 'queued' : 'starting…'}
+											</Typography>
+										)
+									}
+									return null
 								})()}
 								{t.failureReason ? (
 									<Typography variant="caption" color="error">
@@ -868,6 +879,27 @@ export function previewPortsOf(task: TaskRecord): PreviewPortLink[] {
 			},
 		]
 	})
+}
+
+export type PreviewUiState = 'queued' | 'starting' | 'ready' | 'failed' | 'ended'
+
+/**
+ * Lifecycle state of a `preview` task for the dashboard. `null` for non-preview
+ * tasks. `starting` = claimed but hasn't reported its URL(s) yet (checkout /
+ * install / boot); `ready` = links are live.
+ */
+export function previewState(task: TaskRecord): PreviewUiState | null {
+	if (task.kind !== 'preview') return null
+	switch (task.status) {
+		case 'failed':
+			return 'failed'
+		case 'done':
+			return 'ended'
+		case 'queued':
+			return 'queued'
+		default:
+			return previewPortsOf(task).length > 0 ? 'ready' : 'starting'
+	}
 }
 
 function useTaskTokens(): Record<string, number> {
