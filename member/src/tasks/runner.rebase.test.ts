@@ -11,10 +11,17 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Logger } from 'pino'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Provider, RunAgentOptions, RunAgentResult, TokenUsage } from '../agent/types.ts'
-import { git } from './git.ts'
+import { gh, git } from './git.ts'
 import { TaskRunner, type AssignedTaskInput, type TaskRunnerDeps } from './runner.ts'
+
+// Keep `git` real (the local-repo setup needs it); stub only `gh` so the PR
+// comment posted on a rescue is observable instead of hitting GitHub.
+vi.mock('./git.ts', async (orig) => {
+	const actual = await orig<typeof import('./git.ts')>()
+	return { ...actual, gh: vi.fn(async () => '') }
+})
 
 const silentLogger = {
 	info: () => {},
@@ -188,6 +195,26 @@ describe('TaskRunner rebase rescue (local bare repo)', () => {
 		expect(outcome.type).toBe('failed')
 		expect(outcome.reason).toBe('rebase_verify_failed')
 		expect(await featureSha()).toBe(before) // resolved locally, never pushed
+	})
+
+	it('comments on the PR when a rescue lands', async () => {
+		vi.mocked(gh).mockClear()
+		const task: AssignedTaskInput = {
+			...rebaseTask(),
+			prUrl: 'https://github.com/owner/name/pull/7',
+		}
+		const { runner } = buildRunner(new ScriptedProvider(RESOLVE_CMD))
+
+		const outcome = await runner.run(task)
+
+		expect(outcome.type).toBe('completed')
+		const comment = vi
+			.mocked(gh)
+			.mock.calls.find((c) => c[0][0] === 'pr' && c[0][1] === 'comment')
+		expect(comment).toBeTruthy()
+		expect(String(comment![0][4])).toContain('resolved automatically')
+		// Attribution marker keeps Household from treating it as a human reply.
+		expect(String(comment![0][4])).toContain('night-family:member=')
 	})
 
 	it('passes the verify command and pushes when it succeeds', async () => {

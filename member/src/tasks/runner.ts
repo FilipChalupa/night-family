@@ -531,6 +531,7 @@ export class TaskRunner {
 		}
 
 		let rebaseResult
+		let wasRescued = false
 		try {
 			// Keep the rebase paused on conflict so the agent can resolve it.
 			rebaseResult = await workspace.rebaseOntoBase({ leaveConflictInPlace: true })
@@ -545,12 +546,18 @@ export class TaskRunner {
 				const rescued = await this.attemptRebaseRescue(task, workspace, emit, err, signal)
 				if (!rescued) {
 					await workspace.abortRebase()
+					await this.commentOnPr(
+						task,
+						workspace,
+						'⚠️ **Rebase needs a hand.** This branch had conflicts with the base that I could not resolve automatically — please rebase it manually.',
+					)
 					return await cleanupAfter(
 						await this.fail(emit, workspace, 'rebase_conflict', {
 							stderr: err.gitStderr.slice(0, 1000),
 						}),
 					)
 				}
+				wasRescued = true
 				rebaseResult = rescued
 			} else {
 				return await cleanupAfter(
@@ -584,6 +591,11 @@ export class TaskRunner {
 					command: verifyCommand,
 					output: verify.output.slice(-1500),
 				})
+				await this.commentOnPr(
+					task,
+					workspace,
+					`⚠️ **Rebase not pushed.** The rebased tree failed the verify command \`${verifyCommand}\`, so I left the branch untouched. Fix the breakage and rebase manually.`,
+				)
 				return await cleanupAfter(
 					await this.fail(emit, workspace, 'rebase_verify_failed', {
 						command: verifyCommand,
@@ -601,6 +613,13 @@ export class TaskRunner {
 				headRef,
 				newSha: rebaseResult.newSha,
 			})
+			if (wasRescued) {
+				await this.commentOnPr(
+					task,
+					workspace,
+					'♻️ **Rebase conflicts resolved automatically.** This branch had conflicts with the base; I resolved them and force-pushed the rebased branch. Please skim the result.',
+				)
+			}
 		} catch (err) {
 			return await cleanupAfter(
 				await this.fail(emit, workspace, 'rebase_push_failed', {
@@ -707,6 +726,36 @@ export class TaskRunner {
 		const newSha = await workspace.headSha()
 		await emit('rebase', { outcome: 'rescued', newSha, conflicted })
 		return { rewroteCommits: newSha !== beforeSha, newSha }
+	}
+
+	/**
+	 * Post a comment on the task's PR (best-effort, non-fatal). Carries the Night
+	 * attribution marker so Household doesn't mistake it for a human reply and
+	 * re-trigger triage. No-op when the task has no PR.
+	 */
+	private async commentOnPr(
+		task: AssignedTaskInput,
+		workspace: Workspace,
+		body: string,
+	): Promise<void> {
+		if (!task.prUrl) return
+		const attributed = appendAttribution(body, {
+			memberName: this.deps.memberName,
+			memberId: this.deps.memberId,
+			taskId: task.taskId,
+			householdUrl: this.deps.householdUrl,
+		})
+		try {
+			await gh(['pr', 'comment', task.prUrl, '--body', attributed], {
+				cwd: workspace.path,
+				token: task.githubToken,
+			})
+		} catch (err) {
+			this.deps.logger.warn(
+				{ err: (err as Error).message },
+				'rebase PR comment failed (non-fatal)',
+			)
+		}
 	}
 
 	/**
