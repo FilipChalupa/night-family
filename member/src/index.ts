@@ -71,6 +71,7 @@ const taskRunner = new TaskRunner({
 	logger: logger.child({ component: 'runner' }),
 	wsSend: (msg: MsgEvent) => connection?.send(msg) ?? false,
 	stubMode,
+	rebaseVerifyCommand: config.rebaseVerifyCommand,
 	preview: config.preview,
 	previewWaker,
 })

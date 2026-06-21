@@ -79,6 +79,8 @@ export interface TaskRunnerDeps {
 	logger: Logger
 	wsSend: (msg: MsgEvent) => boolean
 	stubMode: boolean
+	/** Optional command run on a rebased tree before pushing (build/typecheck). */
+	rebaseVerifyCommand?: string | null
 	preview: {
 		ports: ReadonlyArray<{ port: number; label: string }>
 		readyTimeoutMs: number
@@ -567,10 +569,31 @@ export class TaskRunner {
 			baseRef,
 		})
 
-		// TODO(rebase): post-rebase repo sanity-checks. Today we trust the
-		// project's CI to catch breakage; ideally the runner would best-effort
-		// invoke `npm test` / lint / build before pushing and bail (or warn
-		// loudly) if the rebase silently broke things on top of green main.
+		// Post-rebase sanity check: if the operator configured a verify command
+		// (e.g. a build/typecheck), run it on the rebased tree before pushing so
+		// a silently-broken rebase — most likely after an LLM conflict rescue —
+		// doesn't force-push over green and dismiss reviews. Opt-in: the command
+		// should normally be green on the branch.
+		const verifyCommand = this.deps.rebaseVerifyCommand
+		if (verifyCommand) {
+			await emit('rebase', { outcome: 'verify-started', command: verifyCommand })
+			const verify = await workspace.runVerify(verifyCommand)
+			if (!verify.ok) {
+				await emit('rebase', {
+					outcome: 'verify-failed',
+					command: verifyCommand,
+					output: verify.output.slice(-1500),
+				})
+				return await cleanupAfter(
+					await this.fail(emit, workspace, 'rebase_verify_failed', {
+						command: verifyCommand,
+						output: verify.output.slice(-1500),
+					}),
+				)
+			}
+			await emit('rebase', { outcome: 'verify-passed', command: verifyCommand })
+		}
+
 		try {
 			await workspace.pushWithLease()
 			await emit('log', {

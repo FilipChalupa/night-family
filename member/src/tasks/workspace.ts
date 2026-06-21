@@ -10,6 +10,7 @@
  * Stale caches GC after CACHE_TTL_MS without use.
  */
 
+import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, rm, stat, utimes, writeFile, readdir, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -55,6 +56,8 @@ export interface WorkspaceOpts {
 	githubToken: string
 	workspaceDir: string
 	logger: Logger
+	/** Override the origin URL (default: authenticated GitHub). For tests. */
+	remoteUrl?: string
 }
 
 export class Workspace {
@@ -76,12 +79,15 @@ export class Workspace {
 		readonly baseBranch: string,
 		private readonly token: string,
 		private readonly logger: Logger,
+		/** Authenticated origin URL; overridable so tests can use a local bare repo. */
+		private readonly remoteUrl: string,
 	) {}
 
 	static async create(opts: WorkspaceOpts): Promise<Workspace> {
 		const { taskId, taskTitle, repo, githubToken, workspaceDir, logger } = opts
+		const remoteUrl = opts.remoteUrl ?? authenticatedRemoteUrl(repo, githubToken)
 		const cachePath = join(workspaceDir, '.cache', repo + '.git')
-		await ensureBareClone(cachePath, repo, githubToken, logger)
+		await ensureBareClone(cachePath, repo, remoteUrl, logger)
 		await touch(cachePath)
 
 		const baseBranch = await detectDefaultBranch(cachePath)
@@ -126,6 +132,7 @@ export class Workspace {
 			baseBranch,
 			githubToken,
 			logger,
+			remoteUrl,
 		)
 	}
 
@@ -141,10 +148,9 @@ export class Workspace {
 	 * and dispatch); the caller should mark the task failed.
 	 *
 	 * TODO(rebase): integration test against a real git remote. The unit
-	 * tests cover the Household-side enqueue + dispatch routing, but this
-	 * fetch/worktree/rebase/push sequence is only validated end-to-end on
-	 * a live PR. A test harness with a local bare-repo fixture (or a
-	 * GitHub fixture repo) would catch regressions before they hit prod.
+	 * The fetch/worktree/rebase/push sequence is exercised end-to-end against a
+	 * local bare-repo fixture in `workspace.rebase.test.ts` (via the `remoteUrl`
+	 * override), so regressions are caught without a live PR.
 	 */
 	static async createForRebase(opts: {
 		taskId: string
@@ -154,10 +160,13 @@ export class Workspace {
 		githubToken: string
 		workspaceDir: string
 		logger: Logger
+		/** Override the origin URL (default: authenticated GitHub). For tests. */
+		remoteUrl?: string
 	}): Promise<Workspace> {
 		const { taskId, repo, headRef, baseRef, githubToken, workspaceDir, logger } = opts
+		const remoteUrl = opts.remoteUrl ?? authenticatedRemoteUrl(repo, githubToken)
 		const cachePath = join(workspaceDir, '.cache', repo + '.git')
-		await ensureBareClone(cachePath, repo, githubToken, logger)
+		await ensureBareClone(cachePath, repo, remoteUrl, logger)
 		await touch(cachePath)
 
 		// Fetch both refs into local heads. `+ref:ref` forces overwrite if a
@@ -201,6 +210,7 @@ export class Workspace {
 			baseRef,
 			githubToken,
 			logger,
+			remoteUrl,
 		)
 		ws.leaseShaBeforeRebase = (await git(['rev-parse', 'HEAD'], { cwd: taskPath })).trim()
 
@@ -292,6 +302,40 @@ export class Workspace {
 	}
 
 	/**
+	 * Run an arbitrary shell command in the worktree (e.g. a build/typecheck to
+	 * sanity-check a rebase before pushing). Returns the exit status and a tail
+	 * of combined stdout+stderr; never throws on a non-zero exit.
+	 */
+	async runVerify(
+		command: string,
+		timeoutMs = 10 * 60_000,
+	): Promise<{ ok: boolean; output: string }> {
+		return await new Promise((resolve) => {
+			const child = spawn(command, { cwd: this.path, shell: true, env: { ...process.env } })
+			let out = ''
+			const cap = (b: Buffer) => {
+				out += b.toString()
+				if (out.length > 8000) out = out.slice(-8000)
+			}
+			child.stdout?.on('data', cap)
+			child.stderr?.on('data', cap)
+			const timer = setTimeout(() => {
+				out += '\n[verify command timed out]'
+				child.kill('SIGKILL')
+			}, timeoutMs)
+			timer.unref()
+			child.on('error', (err) => {
+				clearTimeout(timer)
+				resolve({ ok: false, output: `${out}\n${err.message}` })
+			})
+			child.on('exit', (code) => {
+				clearTimeout(timer)
+				resolve({ ok: code === 0, output: out })
+			})
+		})
+	}
+
+	/**
 	 * Push the rebased branch with `--force-with-lease=<branch>:<sha>`,
 	 * where `<sha>` is the head ref's value at fetch time (captured by
 	 * {@link createForRebase}). Bare clones don't track
@@ -303,7 +347,7 @@ export class Workspace {
 		if (this.leaseShaBeforeRebase === null) {
 			throw new Error('pushWithLease: workspace was not set up via createForRebase')
 		}
-		const remote = authenticatedRemoteUrl(this.repo, this.token)
+		const remote = this.remoteUrl
 		const lease = `--force-with-lease=${this.branch}:${this.leaseShaBeforeRebase}`
 		try {
 			await retryWithBackoff(
@@ -351,7 +395,7 @@ export class Workspace {
 	}
 
 	async push(): Promise<void> {
-		const remote = authenticatedRemoteUrl(this.repo, this.token)
+		const remote = this.remoteUrl
 		// `--force` not `--force-with-lease`: the bare cache only fetches the
 		// base branch (workspace.create), so we have no remote-tracking ref for
 		// `pr/night/...` to lease against. Without a lease the push errors as
@@ -613,14 +657,12 @@ export async function checkoutBranch(opts: CheckoutOpts): Promise<Checkout> {
 async function ensureBareClone(
 	path: string,
 	repo: string,
-	token: string,
+	remoteUrl: string,
 	logger: Logger,
 ): Promise<void> {
 	if (existsSync(join(path, 'config'))) {
 		// Existing cache; refresh remote URL (token may have rotated) and fetch.
-		await git(['remote', 'set-url', 'origin', authenticatedRemoteUrl(repo, token)], {
-			cwd: path,
-		})
+		await git(['remote', 'set-url', 'origin', remoteUrl], { cwd: path })
 		try {
 			await git(['fetch', '--prune', 'origin'], { cwd: path, timeoutMs: 120_000 })
 		} catch (err) {
@@ -633,7 +675,7 @@ async function ensureBareClone(
 	}
 	await mkdir(dirname(path), { recursive: true })
 	logger.info({ repo, path }, 'bare clone (fresh)')
-	await git(['clone', '--bare', authenticatedRemoteUrl(repo, token), path], {
+	await git(['clone', '--bare', remoteUrl, path], {
 		cwd: dirname(path),
 		timeoutMs: 300_000,
 	})

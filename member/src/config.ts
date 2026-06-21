@@ -59,6 +59,12 @@ export interface MemberConfig {
 		readonly maxTokensPerDay: number | null
 		readonly maxTaskDurationMinutes: number
 	}
+	/**
+	 * Optional command (e.g. `npm run build`) run on a rebased tree before the
+	 * rebase task force-pushes; a non-zero exit fails the task instead. Null =
+	 * trust CI. `REBASE_VERIFY_COMMAND`.
+	 */
+	readonly rebaseVerifyCommand: string | null
 	/** Settings for the `preview` skill (runs a project's dev server). */
 	readonly preview: {
 		/**
@@ -308,6 +314,7 @@ function loadEnvConfig(): PartialConfig {
 			maxTokensPerDay: optionalNumber('MAX_TOKENS_PER_DAY'),
 			maxTaskDurationMinutes: optionalNumber('MAX_TASK_DURATION_MINUTES') ?? 120,
 		},
+		rebaseVerifyCommand: process.env.REBASE_VERIFY_COMMAND?.trim() || null,
 		preview: {
 			ports: parsePreviewPorts(
 				process.env.PREVIEW_PORTS,
