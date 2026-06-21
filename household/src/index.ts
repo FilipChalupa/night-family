@@ -156,7 +156,14 @@ setInterval(guardPeriodic('rebase_sweep', sweepStaleRebases), REBASE_SWEEP_INTER
 
 const app = new Hono()
 
-const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app })
+const nodeWs = createNodeWebSocket({ app })
+const { upgradeWebSocket, injectWebSocket } = nodeWs
+// Echo the first subprotocol a client offers back in the handshake — what
+// `ws` does by default, pinned here so it's explicit and survives a default
+// change. Only fires when a client actually offers one (preview HMR, e.g.
+// Vite's `vite-hmr`); the member/ui control sockets offer none and are
+// untouched.
+nodeWs.wss.options.handleProtocols = (protocols) => protocols.values().next().value ?? false
 
 // Preview subdomain proxy. Registered first so a `p<port>-<task>.<domain>`
 // request is tunnelled to the owning Member before any normal route or the

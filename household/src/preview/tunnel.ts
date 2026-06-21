@@ -372,11 +372,10 @@ export function previewHostMiddleware(deps: PreviewHostDeps): MiddlewareHandler 
  * bridges the browser socket to the Member's local dev-server socket over the
  * tunnel; anything else (or a non-preview host) is closed immediately.
  *
- * Note: the Household accepts the browser upgrade without echoing a
- * subprotocol (the framework doesn't expose that), but forwards the requested
- * subprotocols to the Member's local connection — so Vite-style `vite-hmr`
- * negotiation succeeds on the dev-server side. Subprotocol-strict browser
- * clients may still warn; webpack/Next HMR (no subprotocol) is unaffected.
+ * Subprotocols negotiate on both hops: the WS server echoes the first the
+ * browser offers (see `handleProtocols` in `index.ts`), and the offered list is
+ * forwarded here to the Member's local connection — so Vite's `vite-hmr` is
+ * selected end-to-end. Webpack/Next HMR (no subprotocol) is unaffected.
  */
 export function createPreviewWsTunnelHandler(deps: PreviewHostDeps) {
 	return (c: Context) => {

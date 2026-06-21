@@ -252,11 +252,10 @@ dynamic `(task, port) → live Member session` mapping it already has from
 load — assets and live-reload — over the tunnel. The `household` redirect mode
 above still exists as the same-network alternative.
 
-Caveat: the Household accepts the browser's HMR upgrade without echoing a
-subprotocol (the framework doesn't expose that), but forwards the offered
-subprotocols to the dev server. Webpack/Next HMR (no subprotocol) is unaffected;
-a subprotocol-strict client (Vite's `vite-hmr`) may warn — fix is a small
-`handleProtocols` patch if it bites.
+HMR subprotocols negotiate end-to-end: the Household echoes the first
+subprotocol the browser offers (pinned via `handleProtocols` on the WS server)
+and forwards it to the dev server — so Vite's `vite-hmr` is selected on both
+hops. Webpack/Next HMR (no subprotocol) is unaffected.
 
 How it's wired: the Member (preview skill) opens a second WS `/ws/preview`
 (`member/src/tasks/preview-tunnel.ts`); the Household intercepts preview-subdomain
