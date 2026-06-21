@@ -623,4 +623,21 @@ describe('syncPrPreview — preview-on-PR via label', () => {
 
 		expect(rig.taskStore.get(t.id)!.status).toBe('failed')
 	})
+
+	it('re-ensures the preview on a push (synchronize) to a labelled PR', async () => {
+		await handlePullRequestEvent(
+			ctxFor(rig, REPO, {
+				action: 'synchronize',
+				pull_request: {
+					number: 5,
+					html_url: `https://github.com/${REPO}/pull/5`,
+					state: 'open',
+					labels: [{ name: 'preview' }],
+					head: { ref: 'feature-x', sha: 'abc', repo: { full_name: REPO } },
+					base: { ref: 'main' },
+				},
+			}),
+		)
+		expect(previews()).toHaveLength(1)
+	})
 })

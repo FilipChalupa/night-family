@@ -194,10 +194,13 @@ The Member then (see `member/src/tasks/preview.ts`):
 Unlike other tasks a preview has **no wallclock limit** — it's long-lived by
 design and lives until cancelled (label removed, PR closed, branch pushed, or
 idle teardown). It's torn down after `PREVIEW_IDLE_TTL_MINUTES` (Household,
-default 30; `0` disables) with no proxied traffic — freeing the Member; re-open
-it by re-pushing or re-applying the label (a lazy sleep/wake on next request is a
-possible future step). A failed startup surfaces a tail of the dev-server output
-in the task's events, so you can see _why_ it didn't boot.
+default 30; `0` disables) with no proxied traffic — freeing the Member. Bring it
+back any of three ways: **push** to the PR branch, re-apply the `preview` label,
+or hit **Restart preview** on the task's detail page (which enqueues a fresh
+preview for the same branch). A lazy sleep/wake on next request — so the link
+itself revives it — is a possible future step. A failed startup surfaces a tail
+of the dev-server output in the task's events, so you can see _why_ it didn't
+boot.
 
 A preview occupies the Member for its lifetime (one preview per Member, enforced
 by the busy state). To serve several previews at once, run more Members with the

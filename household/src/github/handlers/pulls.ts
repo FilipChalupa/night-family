@@ -108,12 +108,15 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 
 	// Preview-on-PR (label-driven) is independent of whether a Night task owns
 	// this PR — a human's PR has none — so handle it before the task lookup
-	// below short-circuits.
+	// below short-circuits. `synchronize` (a push to the PR branch) re-ensures
+	// the preview too, so a labelled PR whose preview was torn down (idle) comes
+	// back on the next push — not only on re-labelling.
 	if (
 		action === 'opened' ||
 		action === 'reopened' ||
 		action === 'labeled' ||
 		action === 'unlabeled' ||
+		action === 'synchronize' ||
 		action === 'closed'
 	) {
 		syncPrPreview(ctx, pr)

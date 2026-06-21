@@ -21,7 +21,7 @@ interface TaskEvent {
 
 export function TaskDetailPage() {
 	const { taskId } = taskDetailRoute.useParams()
-	const { tasks, isAdmin, cancelTask, retryTask } = useAppData()
+	const { tasks, isAdmin, cancelTask, retryTask, createTask } = useAppData()
 
 	const fromStream = tasks.find((t) => t.id === taskId) ?? null
 	// Tasks aren't time-windowed in the UI snapshot today, so the fallback fetch
@@ -40,7 +40,7 @@ export function TaskDetailPage() {
 	const task = fromStream ?? fetched ?? null
 
 	const [actionError, setActionError] = useState<string | null>(null)
-	const [busy, setBusy] = useState<'cancel' | 'retry' | null>(null)
+	const [busy, setBusy] = useState<'cancel' | 'retry' | 'restart' | null>(null)
 	const handleCancel = async () => {
 		if (!task) return
 		setBusy('cancel')
@@ -59,6 +59,28 @@ export function TaskDetailPage() {
 		setActionError(null)
 		try {
 			await retryTask(task.id)
+		} catch (err) {
+			setActionError(err instanceof Error ? err.message : String(err))
+		} finally {
+			setBusy(null)
+		}
+	}
+	// Restart a finished/failed preview by enqueuing a fresh preview task for the
+	// same branch (the original task is immutable once it's `done`).
+	const handleRestart = async () => {
+		if (!task) return
+		const branch = previewBranchOf(task)
+		if (!branch) return
+		setBusy('restart')
+		setActionError(null)
+		try {
+			await createTask({
+				kind: 'preview',
+				title: task.title,
+				description: '',
+				repo: task.repo,
+				metadata: { branch },
+			})
 		} catch (err) {
 			setActionError(err instanceof Error ? err.message : String(err))
 		} finally {
@@ -104,6 +126,7 @@ export function TaskDetailPage() {
 							busy={busy}
 							onCancel={handleCancel}
 							onRetry={handleRetry}
+							onRestart={handleRestart}
 							actionError={actionError}
 						/>
 					</Section>
@@ -122,17 +145,21 @@ function TaskDetailCard({
 	busy,
 	onCancel,
 	onRetry,
+	onRestart,
 	actionError,
 }: {
 	task: TaskRecord
 	canManage: boolean
-	busy: 'cancel' | 'retry' | null
+	busy: 'cancel' | 'retry' | 'restart' | null
 	onCancel: () => void
 	onRetry: () => void
+	onRestart: () => void
 	actionError: string | null
 }) {
 	const cancellable = ACTIVE_STATUSES.has(task.status)
 	const retryable = task.status === 'failed'
+	// A finished/failed preview can be spun up again for the same branch.
+	const restartable = task.kind === 'preview' && !cancellable && !!previewBranchOf(task)
 	return (
 		<Paper variant="outlined" sx={{ p: 2 }}>
 			<Stack spacing={2}>
@@ -310,7 +337,7 @@ function TaskDetailCard({
 					</Box>
 				) : null}
 
-				{canManage && (cancellable || retryable) ? (
+				{canManage && (cancellable || retryable || restartable) ? (
 					<Stack direction="row" spacing={1}>
 						{cancellable ? (
 							<Button
@@ -329,6 +356,15 @@ function TaskDetailCard({
 								onClick={onRetry}
 							>
 								{busy === 'retry' ? 'Retrying…' : 'Retry'}
+							</Button>
+						) : null}
+						{restartable ? (
+							<Button
+								variant="outlined"
+								disabled={busy === 'restart'}
+								onClick={onRestart}
+							>
+								{busy === 'restart' ? 'Restarting…' : 'Restart preview'}
 							</Button>
 						) : null}
 					</Stack>
@@ -423,6 +459,12 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
 			</Typography>
 		</Stack>
 	)
+}
+
+/** Branch a preview task targets, from its metadata. */
+function previewBranchOf(task: TaskRecord): string | null {
+	const b = task.metadata?.['branch']
+	return typeof b === 'string' && b.length > 0 ? b : null
 }
 
 function planLabel(task: TaskRecord): string {
