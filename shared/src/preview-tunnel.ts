@@ -1,16 +1,18 @@
 /**
- * Preview tunnel — frame protocol for proxying preview HTTP traffic from the
+ * Preview tunnel — frame protocol for proxying preview traffic from the
  * Household to a Member over a dedicated `/ws/preview` WebSocket the Member
  * opens (so NAT'd Members stay reachable: only the Household is ever inbound).
  *
- * This rides its own socket, NOT the control-plane `/ws/member` connection, so
- * it doesn't touch the versioned wire protocol or the event log. Bodies are
- * base64 in JSON frames — simple and correct; a binary framing optimisation can
- * come later if preview throughput ever warrants it.
+ * Two kinds of WebSocket message ride this socket:
+ *   - **Control frames** are text (JSON) — `req.head`, `res.head`, `ws.open`,
+ *     flow control (`res.pause`/`res.resume`), etc. See {@link TunnelFrame}.
+ *   - **Data frames** are binary — request bodies, response bodies and bridged
+ *     WebSocket messages — framed by {@link encodeDataFrame} with a tiny header
+ *     (no base64; bytes go on the wire as-is).
  *
- * One inbound HTTP request = one `id` (stream). The Household drives `req.*`
- * frames downstream; the Member answers with `res.*` upstream. WebSocket
- * upgrades (HMR) are a later phase — v1 tunnels plain HTTP only.
+ * It rides its own socket, NOT the control-plane `/ws/member` connection, so it
+ * doesn't touch the versioned wire protocol or the event log. One inbound
+ * request/WS = one `id` (stream).
  */
 
 // ─── Household → Member (the inbound request) ───────────────────────────────
@@ -25,12 +27,6 @@ export interface TunnelReqHead {
 	/** Member-local port to proxy to (`localhost:<port>`). */
 	port: number
 }
-export interface TunnelReqData {
-	t: 'req.data'
-	id: string
-	/** base64 request-body chunk. */
-	b64: string
-}
 export interface TunnelReqEnd {
 	t: 'req.end'
 	id: string
@@ -40,8 +36,9 @@ export interface TunnelReqAbort {
 	id: string
 }
 
-// WebSocket upgrades (HMR) — phase 2. The browser↔Household socket is bridged
-// to a Member-local WebSocket. `ws.msg`/`ws.close` flow both directions.
+// WebSocket upgrades (HMR). The browser↔Household socket is bridged to a
+// Member-local WebSocket. Messages flow as binary data frames; open/close as
+// control frames.
 export interface TunnelWsOpen {
 	t: 'ws.open'
 	id: string
@@ -51,13 +48,6 @@ export interface TunnelWsOpen {
 	headers: Record<string, string>
 	/** Subprotocols the browser offered (e.g. `vite-hmr`). */
 	protocols?: string[]
-}
-export interface TunnelWsMsg {
-	t: 'ws.msg'
-	id: string
-	b64: string
-	/** true = binary frame, false = text. */
-	binary: boolean
 }
 export interface TunnelWsClose {
 	t: 'ws.close'
@@ -71,14 +61,24 @@ export interface TunnelWsError {
 	message: string
 }
 
+/** Flow control: Household asks the Member to pause/resume a response stream. */
+export interface TunnelResPause {
+	t: 'res.pause'
+	id: string
+}
+export interface TunnelResResume {
+	t: 'res.resume'
+	id: string
+}
+
 export type HouseholdToMemberTunnel =
 	| TunnelReqHead
-	| TunnelReqData
 	| TunnelReqEnd
 	| TunnelReqAbort
 	| TunnelWsOpen
-	| TunnelWsMsg
 	| TunnelWsClose
+	| TunnelResPause
+	| TunnelResResume
 
 // ─── Member → Household (registration + the response) ───────────────────────
 
@@ -93,11 +93,6 @@ export interface TunnelResHead {
 	status: number
 	headers: Record<string, string>
 }
-export interface TunnelResData {
-	t: 'res.data'
-	id: string
-	b64: string
-}
 export interface TunnelResEnd {
 	t: 'res.end'
 	id: string
@@ -111,10 +106,8 @@ export interface TunnelResError {
 export type MemberToHouseholdTunnel =
 	| TunnelHello
 	| TunnelResHead
-	| TunnelResData
 	| TunnelResEnd
 	| TunnelResError
-	| TunnelWsMsg
 	| TunnelWsClose
 	| TunnelWsError
 
@@ -129,6 +122,54 @@ export function decodeTunnel<T = TunnelFrame>(raw: string): T | null {
 		return JSON.parse(raw) as T
 	} catch {
 		return null
+	}
+}
+
+// ─── Binary data frames ─────────────────────────────────────────────────────
+//
+// Layout: [kind:u8][binary:u8][idLen:u8][id bytes…][payload bytes…]. `id`s are
+// tiny ascii ("1", "w3"). `binary` only matters for `ws` messages (text vs
+// binary); request/response bodies are always raw bytes.
+
+export const DATA_REQ = 1
+export const DATA_RES = 2
+export const DATA_WS = 3
+
+export interface DataFrame {
+	kind: number
+	id: string
+	binary: boolean
+	payload: Uint8Array
+}
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
+
+export function encodeDataFrame(
+	kind: number,
+	id: string,
+	payload: Uint8Array,
+	binary = false,
+): Uint8Array {
+	const idBytes = textEncoder.encode(id)
+	const out = new Uint8Array(3 + idBytes.length + payload.length)
+	out[0] = kind
+	out[1] = binary ? 1 : 0
+	out[2] = idBytes.length
+	out.set(idBytes, 3)
+	out.set(payload, 3 + idBytes.length)
+	return out
+}
+
+export function decodeDataFrame(buf: Uint8Array): DataFrame | null {
+	if (buf.length < 3) return null
+	const idLen = buf[2]!
+	if (buf.length < 3 + idLen) return null
+	return {
+		kind: buf[0]!,
+		binary: buf[1] === 1,
+		id: textDecoder.decode(buf.subarray(3, 3 + idLen)),
+		payload: buf.subarray(3 + idLen),
 	}
 }
 

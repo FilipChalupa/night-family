@@ -8,17 +8,24 @@
  *     and proxies the HTTP request/response over it.
  *
  * The Member opens the socket (NAT-friendly: Household is the only inbound
- * surface). v1 proxies plain HTTP; WebSocket upgrades (HMR) come later.
+ * surface). Control frames are JSON text; bodies and bridged WebSocket
+ * messages are binary data frames. Response bodies honour backpressure: when
+ * the browser-side stream backs up we send `res.pause`, and `res.resume` once
+ * it drains, so a slow client can't make us buffer unboundedly.
  */
 
 import type { Context, MiddlewareHandler } from 'hono'
 import type { WSContext } from 'hono/ws'
 import {
+	DATA_RES,
+	DATA_WS,
+	decodeDataFrame,
 	decodeTunnel,
+	encodeDataFrame,
 	encodeTunnel,
 	parsePreviewHost,
+	DATA_REQ,
 	type MemberToHouseholdTunnel,
-	type TunnelFrame,
 } from '@night/shared'
 import type { Logger } from 'pino'
 import type { TaskStatus } from '@night/shared'
@@ -52,7 +59,8 @@ interface WsStream {
 }
 
 interface MemberTunnel {
-	send: (frame: TunnelFrame) => void
+	/** Raw WS send — a JSON control frame (string) or a binary data frame. */
+	send: (data: string | Uint8Array) => void
 	streams: Map<string, StreamHandlers>
 	wsStreams: Map<string, WsStream>
 }
@@ -67,7 +75,7 @@ export class PreviewTunnelHub {
 
 	constructor(private readonly logger: Logger) {}
 
-	register(memberId: string, send: (frame: TunnelFrame) => void): void {
+	register(memberId: string, send: (data: string | Uint8Array) => void): void {
 		// A re-register (reconnect) supersedes the old socket's streams.
 		this.members.set(memberId, { send, streams: new Map(), wsStreams: new Map() })
 		this.logger.info({ memberId }, 'preview tunnel registered')
@@ -86,7 +94,7 @@ export class PreviewTunnelHub {
 		return this.members.has(memberId)
 	}
 
-	/** Route a frame from a Member back to its waiting HTTP stream or WS bridge. */
+	/** Route a JSON control frame from a Member back to its stream / WS bridge. */
 	handleMemberFrame(memberId: string, frame: MemberToHouseholdTunnel): void {
 		if (frame.t === 'hello') return
 		const tunnel = this.members.get(memberId)
@@ -95,25 +103,12 @@ export class PreviewTunnelHub {
 			case 'res.head':
 				tunnel.streams.get(frame.id)?.onHead(frame.status, frame.headers)
 				break
-			case 'res.data':
-				tunnel.streams
-					.get(frame.id)
-					?.onData(new Uint8Array(Buffer.from(frame.b64, 'base64')))
-				break
 			case 'res.end':
 				tunnel.streams.get(frame.id)?.onEnd()
 				break
 			case 'res.error':
 				tunnel.streams.get(frame.id)?.onError(frame.message)
 				break
-			case 'ws.msg': {
-				const ws = tunnel.wsStreams.get(frame.id)
-				if (!ws) break
-				const buf = Buffer.from(frame.b64, 'base64')
-				if (frame.binary) ws.sendBinary(new Uint8Array(buf))
-				else ws.sendText(buf.toString('utf8'))
-				break
-			}
 			case 'ws.close':
 				tunnel.wsStreams.get(frame.id)?.close(frame.code, frame.reason)
 				tunnel.wsStreams.delete(frame.id)
@@ -122,6 +117,23 @@ export class PreviewTunnelHub {
 				tunnel.wsStreams.get(frame.id)?.close(1011, frame.message.slice(0, 120))
 				tunnel.wsStreams.delete(frame.id)
 				break
+		}
+	}
+
+	/** Route a binary data frame (response body / bridged WS message) from a Member. */
+	handleMemberData(memberId: string, buf: Uint8Array): void {
+		const tunnel = this.members.get(memberId)
+		if (!tunnel) return
+		const frame = decodeDataFrame(buf)
+		if (!frame) return
+		if (frame.kind === DATA_RES) {
+			// Copy out of the receive buffer — the bytes outlive this call in the stream.
+			tunnel.streams.get(frame.id)?.onData(new Uint8Array(frame.payload))
+		} else if (frame.kind === DATA_WS) {
+			const ws = tunnel.wsStreams.get(frame.id)
+			if (!ws) return
+			if (frame.binary) ws.sendBinary(new Uint8Array(frame.payload))
+			else ws.sendText(new TextDecoder().decode(frame.payload))
 		}
 	}
 
@@ -141,14 +153,16 @@ export class PreviewTunnelHub {
 		if (!tunnel) return null
 		const id = `w${this.nextId++}`
 		tunnel.wsStreams.set(id, browser)
-		tunnel.send({
-			t: 'ws.open',
-			id,
-			port: opts.port,
-			path: opts.path,
-			headers: opts.headers,
-			...(opts.protocols.length > 0 ? { protocols: opts.protocols } : {}),
-		})
+		tunnel.send(
+			encodeTunnel({
+				t: 'ws.open',
+				id,
+				port: opts.port,
+				path: opts.path,
+				headers: opts.headers,
+				...(opts.protocols.length > 0 ? { protocols: opts.protocols } : {}),
+			}),
+		)
 		return id
 	}
 
@@ -156,16 +170,12 @@ export class PreviewTunnelHub {
 	wsFromBrowser(memberId: string, id: string, data: string | ArrayBuffer | Uint8Array): void {
 		const tunnel = this.members.get(memberId)
 		if (!tunnel) return
-		let buf: Buffer
-		let binary: boolean
-		if (typeof data === 'string') {
-			buf = Buffer.from(data, 'utf8')
-			binary = false
-		} else {
-			buf = Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data)
-			binary = true
-		}
-		tunnel.send({ t: 'ws.msg', id, b64: buf.toString('base64'), binary })
+		const binary = typeof data !== 'string'
+		const payload =
+			typeof data === 'string'
+				? new TextEncoder().encode(data)
+				: new Uint8Array(data instanceof ArrayBuffer ? data : data)
+		tunnel.send(encodeDataFrame(DATA_WS, id, payload, binary))
 	}
 
 	/** The browser closed its side — tell the Member and drop the bridge. */
@@ -173,7 +183,14 @@ export class PreviewTunnelHub {
 		const tunnel = this.members.get(memberId)
 		if (!tunnel) return
 		tunnel.wsStreams.delete(id)
-		tunnel.send({ t: 'ws.close', id, ...(code ? { code } : {}), ...(reason ? { reason } : {}) })
+		tunnel.send(
+			encodeTunnel({
+				t: 'ws.close',
+				id,
+				...(code ? { code } : {}),
+				...(reason ? { reason } : {}),
+			}),
+		)
 	}
 
 	/**
@@ -196,15 +213,28 @@ export class PreviewTunnelHub {
 
 		const id = String(this.nextId++)
 		let controller: ReadableStreamDefaultController<Uint8Array> | null = null
-		const stream = new ReadableStream<Uint8Array>({
-			start: (c) => {
-				controller = c
+		// Flow control: when the browser-side stream backs up past the high-water
+		// mark we tell the Member to pause its dev-server read; we resume on
+		// `pull` (consumer drained below the mark). Bounded memory, no base64.
+		let paused = false
+		const resume = () => {
+			if (!paused) return
+			paused = false
+			tunnel.send(encodeTunnel({ t: 'res.resume', id }))
+		}
+		const stream = new ReadableStream<Uint8Array>(
+			{
+				start: (c) => {
+					controller = c
+				},
+				pull: () => resume(),
+				cancel: () => {
+					tunnel.streams.delete(id)
+					tunnel.send(encodeTunnel({ t: 'req.abort', id }))
+				},
 			},
-			cancel: () => {
-				tunnel.streams.delete(id)
-				tunnel.send({ t: 'req.abort', id })
-			},
-		})
+			new ByteLengthQueuingStrategy({ highWaterMark: 256 * 1024 }),
+		)
 
 		return new Promise<Response>((resolve) => {
 			let resolved = false
@@ -212,7 +242,7 @@ export class PreviewTunnelHub {
 				if (resolved) return
 				resolved = true
 				tunnel.streams.delete(id)
-				tunnel.send({ t: 'req.abort', id })
+				tunnel.send(encodeTunnel({ t: 'req.abort', id }))
 				resolve(new Response('Preview timed out.', { status: 504 }))
 			}, HEAD_TIMEOUT_MS)
 			timer.unref()
@@ -229,6 +259,10 @@ export class PreviewTunnelHub {
 				onData: (bytes) => {
 					try {
 						controller?.enqueue(bytes)
+						if (!paused && controller && (controller.desiredSize ?? 1) <= 0) {
+							paused = true
+							tunnel.send(encodeTunnel({ t: 'res.pause', id }))
+						}
 					} catch {
 						/* stream already closed/cancelled */
 					}
@@ -257,22 +291,20 @@ export class PreviewTunnelHub {
 				},
 			})
 
-			tunnel.send({
-				t: 'req.head',
-				id,
-				method: req.method,
-				path: req.path,
-				headers: req.headers,
-				port: req.port,
-			})
-			if (req.bodyBytes && req.bodyBytes.length > 0) {
-				tunnel.send({
-					t: 'req.data',
+			tunnel.send(
+				encodeTunnel({
+					t: 'req.head',
 					id,
-					b64: Buffer.from(req.bodyBytes).toString('base64'),
-				})
+					method: req.method,
+					path: req.path,
+					headers: req.headers,
+					port: req.port,
+				}),
+			)
+			if (req.bodyBytes && req.bodyBytes.length > 0) {
+				tunnel.send(encodeDataFrame(DATA_REQ, id, req.bodyBytes))
 			}
-			tunnel.send({ t: 'req.end', id })
+			tunnel.send(encodeTunnel({ t: 'req.end', id }))
 		})
 	}
 }
@@ -300,11 +332,24 @@ export function createPreviewTunnelHandler(deps: PreviewTunnelWsDeps) {
 			},
 			onMessage: (evt: { data: unknown }, ws: WSContext<unknown>) => {
 				if (!valid) return
-				const frame = decodeTunnel<MemberToHouseholdTunnel>(String(evt.data))
+				const data = evt.data
+				// Binary data frames (bodies / bridged WS messages).
+				if (typeof data !== 'string') {
+					if (!memberId) return
+					const bytes =
+						data instanceof ArrayBuffer
+							? new Uint8Array(data)
+							: new Uint8Array(data as unknown as Uint8Array)
+					deps.hub.handleMemberData(memberId, bytes)
+					return
+				}
+				const frame = decodeTunnel<MemberToHouseholdTunnel>(data)
 				if (!frame) return
 				if (frame.t === 'hello') {
 					memberId = frame.member_id
-					deps.hub.register(memberId, (f) => ws.send(encodeTunnel(f)))
+					deps.hub.register(memberId, (out) =>
+						ws.send(typeof out === 'string' ? out : new Uint8Array(out)),
+					)
 					return
 				}
 				if (memberId) deps.hub.handleMemberFrame(memberId, frame)

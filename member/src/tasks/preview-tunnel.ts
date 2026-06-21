@@ -1,19 +1,33 @@
 /**
  * Member side of the preview tunnel. Opens a dedicated `/ws/preview` WebSocket
  * to the Household (Member-initiated, so NAT is a non-issue) and serves the
- * `req.*` frames the Household sends by proxying them to the preview's local
- * dev server (`127.0.0.1:<port>`), streaming the response back as `res.*`.
+ * frames the Household sends by proxying them to the preview's local dev server
+ * (`127.0.0.1:<port>`), streaming the response back.
+ *
+ * Control frames are JSON text; request/response bodies and bridged WebSocket
+ * messages are binary data frames (no base64). The Household applies
+ * backpressure via `res.pause`/`res.resume`, which pause/resume the upstream
+ * dev-server response so a slow client can't make us buffer unboundedly.
  *
  * Only opened by Members that advertise the `preview` skill. Reconnects with
- * backoff like the main connection. v1 handles plain HTTP; WebSocket upgrades
- * (HMR) are a later phase.
+ * backoff like the main connection.
  */
 
-import { request as httpRequest, type ClientRequest, type IncomingHttpHeaders } from 'node:http'
+import {
+	request as httpRequest,
+	type ClientRequest,
+	type IncomingHttpHeaders,
+	type IncomingMessage,
+} from 'node:http'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { WebSocket } from 'ws'
 import {
+	DATA_REQ,
+	DATA_RES,
+	DATA_WS,
+	decodeDataFrame,
 	decodeTunnel,
+	encodeDataFrame,
 	encodeTunnel,
 	type HouseholdToMemberTunnel,
 	type MemberToHouseholdTunnel,
@@ -23,6 +37,11 @@ import {
 import type { Logger } from 'pino'
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
+
+interface Inflight {
+	req: ClientRequest
+	res: IncomingMessage | null
+}
 
 interface WsBridge {
 	socket: WebSocket
@@ -41,8 +60,8 @@ export interface PreviewTunnelOpts {
 export class PreviewTunnel {
 	private ws: WebSocket | null = null
 	private shuttingDown = false
-	/** In-flight proxied requests, by stream id, so body/abort frames can find them. */
-	private readonly inflight = new Map<string, ClientRequest>()
+	/** In-flight proxied requests, by stream id. */
+	private readonly inflight = new Map<string, Inflight>()
 	/** Bridged WebSocket connections (HMR), by stream id. */
 	private readonly wsBridges = new Map<string, WsBridge>()
 
@@ -69,12 +88,16 @@ export class PreviewTunnel {
 
 	stop(): void {
 		this.shuttingDown = true
-		for (const req of this.inflight.values()) req.destroy()
+		this.dropAll()
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, 'shutdown')
+		this.ws = null
+	}
+
+	private dropAll(): void {
+		for (const { req } of this.inflight.values()) req.destroy()
 		this.inflight.clear()
 		for (const bridge of this.wsBridges.values()) bridge.socket.close()
 		this.wsBridges.clear()
-		if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, 'shutdown')
-		this.ws = null
 	}
 
 	private connectOnce(): Promise<void> {
@@ -89,13 +112,13 @@ export class PreviewTunnel {
 				this.opts.logger.info('preview tunnel open')
 				this.send({ t: 'hello', member_id: this.opts.memberId })
 			})
-			ws.on('message', (data) => this.handleFrame(data.toString()))
+			ws.on('message', (data: Buffer, isBinary: boolean) => {
+				if (isBinary) this.handleData(data)
+				else this.handleControl(data.toString())
+			})
 			ws.on('close', () => {
 				this.ws = null
-				for (const req of this.inflight.values()) req.destroy()
-				this.inflight.clear()
-				for (const bridge of this.wsBridges.values()) bridge.socket.close()
-				this.wsBridges.clear()
+				this.dropAll()
 				resolve()
 			})
 			ws.on('error', (err) => {
@@ -109,41 +132,52 @@ export class PreviewTunnel {
 		if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeTunnel(frame))
 	}
 
-	private handleFrame(raw: string): void {
+	private sendData(bytes: Uint8Array): void {
+		const ws = this.ws
+		if (ws && ws.readyState === WebSocket.OPEN) ws.send(bytes, { binary: true })
+	}
+
+	private handleData(buf: Buffer): void {
+		const frame = decodeDataFrame(buf)
+		if (!frame) return
+		if (frame.kind === DATA_REQ) {
+			this.inflight.get(frame.id)?.req.write(Buffer.from(frame.payload))
+		} else if (frame.kind === DATA_WS) {
+			const bridge = this.wsBridges.get(frame.id)
+			if (!bridge) return
+			const body = Buffer.from(frame.payload)
+			if (bridge.open) bridge.socket.send(body, { binary: frame.binary })
+			else bridge.queue.push({ buf: body, binary: frame.binary })
+		}
+	}
+
+	private handleControl(raw: string): void {
 		const frame = decodeTunnel<HouseholdToMemberTunnel>(raw)
 		if (!frame) return
 		switch (frame.t) {
 			case 'req.head':
 				this.startRequest(frame)
 				break
-			case 'req.data': {
-				const req = this.inflight.get(frame.id)
-				req?.write(Buffer.from(frame.b64, 'base64'))
-				break
-			}
 			case 'req.end':
-				this.inflight.get(frame.id)?.end()
+				this.inflight.get(frame.id)?.req.end()
 				break
 			case 'req.abort': {
-				const req = this.inflight.get(frame.id)
-				if (req) {
-					req.destroy()
+				const entry = this.inflight.get(frame.id)
+				if (entry) {
+					entry.req.destroy()
 					this.inflight.delete(frame.id)
 				}
 				break
 			}
+			case 'res.pause':
+				this.inflight.get(frame.id)?.res?.pause()
+				break
+			case 'res.resume':
+				this.inflight.get(frame.id)?.res?.resume()
+				break
 			case 'ws.open':
 				this.openWsBridge(frame)
 				break
-			case 'ws.msg': {
-				const bridge = this.wsBridges.get(frame.id)
-				if (bridge) {
-					const buf = Buffer.from(frame.b64, 'base64')
-					if (bridge.open) bridge.socket.send(buf, { binary: frame.binary })
-					else bridge.queue.push({ buf, binary: frame.binary })
-				}
-				break
-			}
 			case 'ws.close': {
 				const bridge = this.wsBridges.get(frame.id)
 				bridge?.socket.close(frame.code, frame.reason)
@@ -151,6 +185,49 @@ export class PreviewTunnel {
 				break
 			}
 		}
+	}
+
+	private startRequest(frame: TunnelReqHead): void {
+		const headers = { ...frame.headers }
+		// Dev servers (Vite et al.) validate Host; rewrite it to the loopback
+		// origin so the proxied request looks local. Drop hop-by-hop headers
+		// node manages itself.
+		headers['host'] = `127.0.0.1:${frame.port}`
+		delete headers['connection']
+		delete headers['transfer-encoding']
+		delete headers['upgrade']
+
+		const req = httpRequest(
+			{
+				host: '127.0.0.1',
+				port: frame.port,
+				method: frame.method,
+				path: frame.path,
+				headers,
+			},
+			(res) => {
+				const entry = this.inflight.get(frame.id)
+				if (entry) entry.res = res
+				this.send({
+					t: 'res.head',
+					id: frame.id,
+					status: res.statusCode ?? 502,
+					headers: flattenHeaders(res.headers),
+				})
+				res.on('data', (chunk: Buffer) =>
+					this.sendData(encodeDataFrame(DATA_RES, frame.id, chunk)),
+				)
+				res.on('end', () => {
+					this.send({ t: 'res.end', id: frame.id })
+					this.inflight.delete(frame.id)
+				})
+			},
+		)
+		req.on('error', (err) => {
+			this.send({ t: 'res.error', id: frame.id, message: err.message })
+			this.inflight.delete(frame.id)
+		})
+		this.inflight.set(frame.id, { req, res: null })
 	}
 
 	/**
@@ -186,7 +263,7 @@ export class PreviewTunnel {
 				: Buffer.isBuffer(data)
 					? data
 					: Buffer.from(data)
-			this.send({ t: 'ws.msg', id: frame.id, b64: buf.toString('base64'), binary: isBinary })
+			this.sendData(encodeDataFrame(DATA_WS, frame.id, buf, isBinary))
 		})
 		socket.on('close', (code: number, reason: Buffer) => {
 			this.send({ t: 'ws.close', id: frame.id, code, reason: reason.toString() })
@@ -196,47 +273,6 @@ export class PreviewTunnel {
 			this.send({ t: 'ws.error', id: frame.id, message: err.message })
 			this.wsBridges.delete(frame.id)
 		})
-	}
-
-	private startRequest(frame: TunnelReqHead): void {
-		const headers = { ...frame.headers }
-		// Dev servers (Vite et al.) validate Host; rewrite it to the loopback
-		// origin so the proxied request looks local. Drop hop-by-hop headers
-		// node manages itself.
-		headers['host'] = `127.0.0.1:${frame.port}`
-		delete headers['connection']
-		delete headers['transfer-encoding']
-		delete headers['upgrade']
-
-		const req = httpRequest(
-			{
-				host: '127.0.0.1',
-				port: frame.port,
-				method: frame.method,
-				path: frame.path,
-				headers,
-			},
-			(res) => {
-				this.send({
-					t: 'res.head',
-					id: frame.id,
-					status: res.statusCode ?? 502,
-					headers: flattenHeaders(res.headers),
-				})
-				res.on('data', (chunk: Buffer) =>
-					this.send({ t: 'res.data', id: frame.id, b64: chunk.toString('base64') }),
-				)
-				res.on('end', () => {
-					this.send({ t: 'res.end', id: frame.id })
-					this.inflight.delete(frame.id)
-				})
-			},
-		)
-		req.on('error', (err) => {
-			this.send({ t: 'res.error', id: frame.id, message: err.message })
-			this.inflight.delete(frame.id)
-		})
-		this.inflight.set(frame.id, req)
 	}
 }
 

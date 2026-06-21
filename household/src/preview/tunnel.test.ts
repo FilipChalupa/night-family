@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Logger } from 'pino'
-import type { TunnelFrame } from '@night/shared'
+import {
+	DATA_REQ,
+	DATA_RES,
+	DATA_WS,
+	decodeDataFrame,
+	decodeTunnel,
+	encodeDataFrame,
+	type DataFrame,
+	type TunnelFrame,
+} from '@night/shared'
 import { PreviewTunnelHub } from './tunnel.ts'
 
 const silentLogger = {
@@ -11,16 +20,29 @@ const silentLogger = {
 	child: () => silentLogger,
 } as unknown as Logger
 
-function b64(s: string): string {
-	return Buffer.from(s).toString('base64')
+const bytes = (s: string) => new Uint8Array(Buffer.from(s))
+
+/** Registered member that records what the hub sends, split into control / data. */
+function setup() {
+	const hub = new PreviewTunnelHub(silentLogger)
+	const sent: Array<string | Uint8Array> = []
+	hub.register('m1', (d) => sent.push(d))
+	const controls = (): TunnelFrame[] =>
+		sent
+			.filter((s): s is string => typeof s === 'string')
+			.map((s) => decodeTunnel<TunnelFrame>(s))
+			.filter((f): f is TunnelFrame => f !== null)
+	const data = (): DataFrame[] =>
+		sent
+			.filter((s): s is Uint8Array => typeof s !== 'string')
+			.map((s) => decodeDataFrame(s))
+			.filter((f): f is DataFrame => f !== null)
+	return { hub, controls, data }
 }
 
 describe('PreviewTunnelHub', () => {
 	it('proxies a request and streams the response back', async () => {
-		const hub = new PreviewTunnelHub(silentLogger)
-		const sent: TunnelFrame[] = []
-		hub.register('m1', (f) => sent.push(f))
-
+		const { hub, controls } = setup()
 		const respPromise = hub.proxy('m1', {
 			method: 'GET',
 			path: '/index.html',
@@ -29,25 +51,23 @@ describe('PreviewTunnelHub', () => {
 			bodyBytes: null,
 		})
 
-		// Household should have framed the request out to the member.
-		const head = sent.find((f) => f.t === 'req.head')
+		const head = controls().find((f) => f.t === 'req.head')
 		expect(head).toMatchObject({
 			t: 'req.head',
 			method: 'GET',
 			path: '/index.html',
 			port: 3000,
 		})
-		expect(sent.some((f) => f.t === 'req.end')).toBe(true)
+		expect(controls().some((f) => f.t === 'req.end')).toBe(true)
 		const id = (head as { id: string }).id
 
-		// Member answers.
 		hub.handleMemberFrame('m1', {
 			t: 'res.head',
 			id,
 			status: 200,
 			headers: { 'content-type': 'text/html' },
 		})
-		hub.handleMemberFrame('m1', { t: 'res.data', id, b64: b64('<!doctype html>') })
+		hub.handleMemberData('m1', encodeDataFrame(DATA_RES, id, bytes('<!doctype html>')))
 		hub.handleMemberFrame('m1', { t: 'res.end', id })
 
 		const resp = await respPromise
@@ -69,9 +89,7 @@ describe('PreviewTunnelHub', () => {
 	})
 
 	it('maps a member-side error (before head) to 502', async () => {
-		const hub = new PreviewTunnelHub(silentLogger)
-		const sent: TunnelFrame[] = []
-		hub.register('m1', (f) => sent.push(f))
+		const { hub, controls } = setup()
 		const respPromise = hub.proxy('m1', {
 			method: 'GET',
 			path: '/',
@@ -79,32 +97,43 @@ describe('PreviewTunnelHub', () => {
 			port: 3000,
 			bodyBytes: null,
 		})
-		const id = (sent.find((f) => f.t === 'req.head') as { id: string }).id
+		const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
 		hub.handleMemberFrame('m1', { t: 'res.error', id, message: 'ECONNREFUSED' })
-		const resp = await respPromise
-		expect(resp.status).toBe(502)
+		expect((await respPromise).status).toBe(502)
 	})
 
-	it('forwards a request body as a req.data frame', async () => {
-		const hub = new PreviewTunnelHub(silentLogger)
-		const sent: TunnelFrame[] = []
-		hub.register('m1', (f) => sent.push(f))
+	it('forwards a request body as a binary data frame', async () => {
+		const { hub, data } = setup()
 		void hub.proxy('m1', {
 			method: 'POST',
 			path: '/api',
 			headers: {},
 			port: 3000,
-			bodyBytes: new Uint8Array(Buffer.from('hello')),
+			bodyBytes: bytes('hello'),
 		})
-		const data = sent.find((f) => f.t === 'req.data') as { b64: string } | undefined
-		expect(data?.b64).toBe(b64('hello'))
+		const df = data().find((f) => f.kind === DATA_REQ)
+		expect(df && Buffer.from(df.payload).toString()).toBe('hello')
+	})
+
+	it('signals backpressure (res.pause) when the consumer is slow', async () => {
+		const { hub, controls } = setup()
+		const respPromise = hub.proxy('m1', {
+			method: 'GET',
+			path: '/big',
+			headers: {},
+			port: 3000,
+			bodyBytes: null,
+		})
+		const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
+		hub.handleMemberFrame('m1', { t: 'res.head', id, status: 200, headers: {} })
+		await respPromise // resolve the Response; nobody reads its body
+		// Push past the 256 KB high-water mark without consuming.
+		hub.handleMemberData('m1', encodeDataFrame(DATA_RES, id, new Uint8Array(300 * 1024)))
+		expect(controls().some((f) => f.t === 'res.pause' && f.id === id)).toBe(true)
 	})
 
 	it('bridges a WebSocket: opens, relays both directions, and closes', () => {
-		const hub = new PreviewTunnelHub(silentLogger)
-		const sent: TunnelFrame[] = []
-		hub.register('m1', (f) => sent.push(f))
-
+		const { hub, controls, data } = setup()
 		const browser = {
 			text: [] as string[],
 			binary: [] as Uint8Array[],
@@ -122,24 +151,24 @@ describe('PreviewTunnelHub', () => {
 			{ port: 5173, path: '/', headers: {}, protocols: ['vite-hmr'] },
 		)
 		expect(id).not.toBeNull()
-		const open = sent.find((f) => f.t === 'ws.open')
-		expect(open).toMatchObject({ t: 'ws.open', port: 5173, path: '/', protocols: ['vite-hmr'] })
+		expect(controls().find((f) => f.t === 'ws.open')).toMatchObject({
+			t: 'ws.open',
+			port: 5173,
+			path: '/',
+			protocols: ['vite-hmr'],
+		})
 
 		// Dev server → browser (text).
-		hub.handleMemberFrame('m1', {
-			t: 'ws.msg',
-			id: id!,
-			b64: b64('{"type":"connected"}'),
-			binary: false,
-		})
+		hub.handleMemberData(
+			'm1',
+			encodeDataFrame(DATA_WS, id!, bytes('{"type":"connected"}'), false),
+		)
 		expect(browser.text).toEqual(['{"type":"connected"}'])
 
 		// Browser → dev server.
 		hub.wsFromBrowser('m1', id!, 'ping')
-		const up = sent.find((f) => f.t === 'ws.msg') as
-			| { b64: string; binary: boolean }
-			| undefined
-		expect(up).toMatchObject({ b64: b64('ping'), binary: false })
+		const up = data().find((f) => f.kind === DATA_WS)
+		expect(up && Buffer.from(up.payload).toString()).toBe('ping')
 
 		// Dev server closes → browser closed.
 		hub.handleMemberFrame('m1', { t: 'ws.close', id: id!, code: 1001 })

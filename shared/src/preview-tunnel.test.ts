@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
 	buildPreviewSubdomainUrl,
+	DATA_WS,
+	decodeDataFrame,
 	decodeTunnel,
+	encodeDataFrame,
 	encodeTunnel,
 	parsePreviewHost,
 } from './preview-tunnel.ts'
@@ -74,5 +77,24 @@ describe('encodeTunnel / decodeTunnel', () => {
 			protocols: ['vite-hmr'],
 		}
 		expect(decodeTunnel(encodeTunnel(frame))).toEqual(frame)
+	})
+})
+
+describe('binary data frames', () => {
+	it('round-trips kind, id, binary flag and payload', () => {
+		const payload = new Uint8Array([1, 2, 3, 250, 0, 99])
+		const frame = decodeDataFrame(encodeDataFrame(DATA_WS, 'w12', payload, true))
+		expect(frame).not.toBeNull()
+		expect(frame!.kind).toBe(DATA_WS)
+		expect(frame!.id).toBe('w12')
+		expect(frame!.binary).toBe(true)
+		expect([...frame!.payload]).toEqual([...payload])
+	})
+
+	it('handles an empty payload and returns null for a too-short buffer', () => {
+		const f = decodeDataFrame(encodeDataFrame(2, '1', new Uint8Array(0)))
+		expect(f!.id).toBe('1')
+		expect(f!.payload.length).toBe(0)
+		expect(decodeDataFrame(new Uint8Array([1, 0]))).toBeNull()
 	})
 })

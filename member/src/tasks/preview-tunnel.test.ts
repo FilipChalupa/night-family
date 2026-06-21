@@ -1,7 +1,7 @@
 /**
  * End-to-end-ish test of the Member tunnel against real sockets: a real local
  * "dev server" (http + ws), a stand-in Household `/ws/preview` WebSocket server
- * that drives `req.*` / `ws.*` frames, and the real {@link PreviewTunnel}. This
+ * that drives control + data frames, and the real {@link PreviewTunnel}. This
  * exercises the parts that pure unit tests can't — the actual `http.request` to
  * loopback and the WebSocket bridge.
  */
@@ -10,7 +10,17 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { WebSocket, WebSocketServer } from 'ws'
-import { decodeTunnel, encodeTunnel, type MemberToHouseholdTunnel } from '@night/shared'
+import {
+	DATA_RES,
+	DATA_WS,
+	decodeDataFrame,
+	decodeTunnel,
+	encodeDataFrame,
+	encodeTunnel,
+	type DataFrame,
+	type HouseholdToMemberTunnel,
+	type MemberToHouseholdTunnel,
+} from '@night/shared'
 import type { Logger } from 'pino'
 import { PreviewTunnel } from './preview-tunnel.ts'
 
@@ -42,22 +52,28 @@ describe('PreviewTunnel (real sockets)', () => {
 		for (const c of cleanups.splice(0).reverse()) c()
 	})
 
-	/** Spin a Household-side `/ws/preview` server; returns the member's frames + a sender. */
+	/** Spin a Household-side `/ws/preview` server; capture the member's frames. */
 	async function setupTunnel() {
 		const house = new WebSocketServer({ host: '127.0.0.1', port: 0 })
 		cleanups.push(() => house.close())
 		await new Promise<void>((resolve) => house.once('listening', resolve))
 		const housePort = (house.address() as { port: number }).port
 
-		const frames: MemberToHouseholdTunnel[] = []
+		const control: MemberToHouseholdTunnel[] = []
+		const data: DataFrame[] = []
 		let houseWs: WebSocket | null = null
 		const connected = new Promise<void>((resolve) => {
 			house.on('connection', (ws) => {
 				houseWs = ws
-				ws.on('message', (raw) => {
+				ws.on('message', (raw: Buffer, isBinary: boolean) => {
+					if (isBinary) {
+						const f = decodeDataFrame(raw)
+						if (f) data.push(f)
+						return
+					}
 					const f = decodeTunnel<MemberToHouseholdTunnel>(String(raw))
 					if (!f) return
-					frames.push(f)
+					control.push(f)
 					if (f.t === 'hello') resolve()
 				})
 			})
@@ -73,7 +89,12 @@ describe('PreviewTunnel (real sockets)', () => {
 		cleanups.push(() => tunnel.stop())
 
 		await connected
-		return { frames, send: (f: unknown) => houseWs!.send(encodeTunnel(f as never)) }
+		return {
+			control,
+			data,
+			sendControl: (f: HouseholdToMemberTunnel) => houseWs!.send(encodeTunnel(f)),
+			sendData: (b: Uint8Array) => houseWs!.send(b, { binary: true }),
+		}
 	}
 
 	it('proxies an HTTP request to the local dev server', async () => {
@@ -84,34 +105,44 @@ describe('PreviewTunnel (real sockets)', () => {
 		cleanups.push(() => dev.close())
 		const devPort = await listen(dev)
 
-		const { frames, send } = await setupTunnel()
-		send({ t: 'req.head', id: '1', method: 'GET', path: '/page', headers: {}, port: devPort })
-		send({ t: 'req.end', id: '1' })
+		const { control, data, sendControl } = await setupTunnel()
+		sendControl({
+			t: 'req.head',
+			id: '1',
+			method: 'GET',
+			path: '/page',
+			headers: {},
+			port: devPort,
+		})
+		sendControl({ t: 'req.end', id: '1' })
 
-		await waitFor(() => frames.some((f) => f.t === 'res.end' && f.id === '1'))
-		const head = frames.find((f) => f.t === 'res.head') as { status: number } | undefined
+		await waitFor(() => control.some((f) => f.t === 'res.end' && f.id === '1'))
+		const head = control.find((f) => f.t === 'res.head') as { status: number } | undefined
 		expect(head?.status).toBe(200)
 		const body = Buffer.concat(
-			frames
-				.filter(
-					(f): f is Extract<MemberToHouseholdTunnel, { t: 'res.data' }> =>
-						f.t === 'res.data',
-				)
-				.map((f) => Buffer.from(f.b64, 'base64')),
+			data
+				.filter((f) => f.kind === DATA_RES && f.id === '1')
+				.map((f) => Buffer.from(f.payload)),
 		).toString()
 		expect(body).toBe('hi /page')
 	})
 
 	it('reports res.error when the dev server is down', async () => {
-		// A real port we then free, so the connect is refused immediately.
 		const tmp = createServer()
 		const closedPort = await listen(tmp)
 		await new Promise<void>((resolve) => tmp.close(() => resolve()))
 
-		const { frames, send } = await setupTunnel()
-		send({ t: 'req.head', id: '9', method: 'GET', path: '/', headers: {}, port: closedPort })
-		send({ t: 'req.end', id: '9' })
-		await waitFor(() => frames.some((f) => f.t === 'res.error' && f.id === '9'))
+		const { control, sendControl } = await setupTunnel()
+		sendControl({
+			t: 'req.head',
+			id: '9',
+			method: 'GET',
+			path: '/',
+			headers: {},
+			port: closedPort,
+		})
+		sendControl({ t: 'req.end', id: '9' })
+		await waitFor(() => control.some((f) => f.t === 'res.error' && f.id === '9'))
 	})
 
 	it('bridges a WebSocket to the local dev server and relays both ways', async () => {
@@ -124,12 +155,19 @@ describe('PreviewTunnel (real sockets)', () => {
 		cleanups.push(() => dev.close())
 		const devPort = await listen(dev)
 
-		const { frames, send } = await setupTunnel()
-		send({ t: 'ws.open', id: 'w1', port: devPort, path: '/', headers: {}, protocols: [] })
-		send({ t: 'ws.msg', id: 'w1', b64: Buffer.from('ping').toString('base64'), binary: false })
+		const { data, sendControl, sendData } = await setupTunnel()
+		sendControl({
+			t: 'ws.open',
+			id: 'w1',
+			port: devPort,
+			path: '/',
+			headers: {},
+			protocols: [],
+		})
+		sendData(encodeDataFrame(DATA_WS, 'w1', new Uint8Array(Buffer.from('ping')), false))
 
-		await waitFor(() => frames.some((f) => f.t === 'ws.msg'))
-		const msg = frames.find((f) => f.t === 'ws.msg') as { b64: string } | undefined
-		expect(Buffer.from(msg!.b64, 'base64').toString()).toBe('echo:ping')
+		await waitFor(() => data.some((f) => f.kind === DATA_WS))
+		const msg = data.find((f) => f.kind === DATA_WS)
+		expect(msg && Buffer.from(msg.payload).toString()).toBe('echo:ping')
 	})
 })
