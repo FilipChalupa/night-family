@@ -46,6 +46,9 @@ import { SleepablePreview, type PreviewWaker } from './preview-waker.ts'
 
 /** How long to wait for an extra preview port to come up before skipping it. */
 const PREVIEW_PORT_PROBE_MS = 10_000
+
+/** Hard cap on a preview's initial startup (install + first boot). */
+const PREVIEW_STARTUP_TIMEOUT_MS = 15 * 60_000
 import { buildPreviewSubdomainUrl, toHttpScheme, type PreviewPort } from '@night/shared'
 
 export interface AssignedTaskInput {
@@ -634,13 +637,14 @@ export class TaskRunner {
 		const primaryCfg = portCfg[0]!
 		// One start function for both the initial boot and a wake — the wake
 		// skips install (deps are warm from the first run).
-		const startServer = (skipInstall: boolean) =>
+		const startServer = (skipInstall: boolean, startupSignal?: AbortSignal) =>
 			PreviewServer.start({
 				cwd: checkout.path,
 				logger: previewLogger,
 				port: primaryCfg.port,
 				readyTimeoutMs: this.deps.preview.readyTimeoutMs,
 				...(skipInstall ? { installCommand: null } : {}),
+				...(startupSignal ? { signal: startupSignal } : {}),
 				// Dev servers are chatty (HMR etc.) — keep their output in the
 				// Member log, not the Household event stream, but keep a tail.
 				onLog: (line) => {
@@ -657,7 +661,20 @@ export class TaskRunner {
 		const registeredPorts: number[] = []
 		let annotatedPr = false
 		try {
-			preview = await startServer(false)
+			// Bound the initial startup (install + boot). The running preview has
+			// no wallclock, but a stuck `npm ci` must not pin the Member forever; a
+			// task cancel during startup aborts it too.
+			const startupAc = new AbortController()
+			const onTaskAbort = () => startupAc.abort()
+			signal.addEventListener('abort', onTaskAbort, { once: true })
+			const startupTimer = setTimeout(() => startupAc.abort(), PREVIEW_STARTUP_TIMEOUT_MS)
+			startupTimer.unref()
+			try {
+				preview = await startServer(false, startupAc.signal)
+			} finally {
+				clearTimeout(startupTimer)
+				signal.removeEventListener('abort', onTaskAbort)
+			}
 
 			// A preview exposes a *list* of ports (the primary dev server plus any
 			// extra configured ones, e.g. an API). `target` is where each listens

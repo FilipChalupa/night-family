@@ -48,6 +48,12 @@ export interface PreviewOptions {
 	onLog?: (line: string) => void
 	/** Called at each phase boundary (install, start) with the command run. */
 	onPhase?: (phase: 'install' | 'start', command: string) => void
+	/**
+	 * Aborts startup — kills a hung install / boot and rejects. The running
+	 * preview is long-lived (no wallclock), but startup must be bounded so a
+	 * stuck `npm ci` can't pin the Member forever.
+	 */
+	signal?: AbortSignal
 }
 
 export interface RunningPreview {
@@ -79,7 +85,7 @@ export class PreviewServer {
 		if (installCommand) {
 			logger.info({ installCommand }, 'preview: installing dependencies')
 			opts.onPhase?.('install', installCommand)
-			await runToCompletion(installCommand, cwd, opts.env, opts.onLog)
+			await runToCompletion(installCommand, cwd, opts.env, opts.onLog, opts.signal)
 		}
 
 		const command = opts.command ?? detectStartCommand(pkg)
@@ -183,17 +189,29 @@ function runToCompletion(
 	cwd: string,
 	env: Record<string, string> | undefined,
 	onLog?: (line: string) => void,
+	signal?: AbortSignal,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
+		if (signal?.aborted) return reject(new Error('aborted'))
 		const child = spawn(command, {
 			cwd,
 			env: { ...process.env, ...env },
 			shell: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 		})
+		const onAbort = () => {
+			child.kill('SIGKILL')
+			reject(new Error('aborted'))
+		}
+		signal?.addEventListener('abort', onAbort, { once: true })
+		const cleanup = () => signal?.removeEventListener('abort', onAbort)
 		pipeLines(child, onLog)
-		child.on('error', reject)
+		child.on('error', (err) => {
+			cleanup()
+			reject(err)
+		})
 		child.on('exit', (code) => {
+			cleanup()
 			if (code === 0) resolve()
 			else reject(new Error(`command failed (exit ${code}): ${command}`))
 		})
@@ -216,8 +234,18 @@ function spawnServer(command: string, opts: PreviewOptions): Promise<RunningPrev
 			if (settled) return
 			settled = true
 			clearTimeout(timer)
+			opts.signal?.removeEventListener('abort', onAbort)
 			fn()
 		}
+
+		// Startup abort (deadline / task cancel) — kill the booting server and reject.
+		const onAbort = () =>
+			finish(() => killTree(child, opts.logger).finally(() => reject(new Error('aborted'))))
+		if (opts.signal?.aborted) {
+			child.kill('SIGKILL')
+			return reject(new Error('aborted'))
+		}
+		opts.signal?.addEventListener('abort', onAbort, { once: true })
 
 		const timer = setTimeout(() => {
 			// Server never printed a URL — fall back to the assumed local URL

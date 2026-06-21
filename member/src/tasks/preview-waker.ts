@@ -56,7 +56,13 @@ export class SleepablePreview {
 		if (this.waking) return this.waking
 		this.waking = (async () => {
 			this.opts.logger.info('preview: waking on request')
-			this.running = await this.opts.start()
+			const started = await this.opts.start()
+			// Disposed while we were waking — don't leak the freshly-started server.
+			if (this.disposed) {
+				await started.stop().catch(() => undefined)
+				return
+			}
+			this.running = started
 			this.armIdle()
 		})().finally(() => {
 			this.waking = null

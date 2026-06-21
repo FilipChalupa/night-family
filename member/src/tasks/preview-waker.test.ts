@@ -76,6 +76,21 @@ describe('SleepablePreview', () => {
 		expect(start).not.toHaveBeenCalled()
 		await s.dispose()
 	})
+
+	it('does not leak a server that finishes waking after dispose', async () => {
+		const initial = fakePreview()
+		const woke = fakePreview()
+		let resolveStart!: (p: RunningPreview) => void
+		const start = vi.fn(() => new Promise<RunningPreview>((r) => (resolveStart = r)))
+		const s = new SleepablePreview({ initial, start, idleMs: 1000, logger: silentLogger })
+
+		await vi.advanceTimersByTimeAsync(1000) // sleep
+		const waking = s.ensureAwake() // begins waking; start() pending
+		await s.dispose() // disposed mid-wake
+		resolveStart(woke) // wake's start resolves now
+		await waking
+		expect(woke.stop).toHaveBeenCalledTimes(1) // the late server was stopped, not kept
+	})
 })
 
 describe('PreviewWaker', () => {

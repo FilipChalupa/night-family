@@ -3,13 +3,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
+import type { Logger } from 'pino'
 import {
 	detectInstallCommand,
 	detectStartCommand,
 	normalizeUrl,
+	PreviewServer,
 	probePort,
 	upsertPreviewSection,
 } from './preview.ts'
+
+const silentLogger = {
+	info: () => {},
+	warn: () => {},
+	error: () => {},
+	debug: () => {},
+	child: () => silentLogger,
+} as unknown as Logger
 
 const START = '<!-- night-preview:start -->'
 const END = '<!-- night-preview:end -->'
@@ -106,5 +116,40 @@ describe('probePort', () => {
 		expect(await probePort(port, 500)).toBe(true)
 		await new Promise<void>((resolve) => server.close(() => resolve()))
 		expect(await probePort(port, 500)).toBe(false)
+	})
+})
+
+describe('PreviewServer.start startup abort', () => {
+	let dir: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'night-preview-start-'))
+	})
+	afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+	it('aborts a hung install via the signal instead of hanging forever', async () => {
+		const ac = new AbortController()
+		const started = PreviewServer.start({
+			cwd: dir,
+			logger: silentLogger,
+			port: 4321,
+			readyTimeoutMs: 1000,
+			installCommand: 'sleep 30',
+			signal: ac.signal,
+		})
+		setTimeout(() => ac.abort(), 50)
+		await expect(started).rejects.toThrow(/aborted/)
+	})
+
+	it('rejects immediately if the signal is already aborted', async () => {
+		await expect(
+			PreviewServer.start({
+				cwd: dir,
+				logger: silentLogger,
+				port: 4321,
+				readyTimeoutMs: 1000,
+				installCommand: 'sleep 30',
+				signal: AbortSignal.abort(),
+			}),
+		).rejects.toThrow(/aborted/)
 	})
 })
