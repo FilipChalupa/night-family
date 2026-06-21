@@ -45,7 +45,7 @@ const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set([
 const HEAD_TIMEOUT_MS = 30_000
 
 interface StreamHandlers {
-	onHead: (status: number, headers: Record<string, string>) => void
+	onHead: (status: number, headers: Record<string, string>, setCookies: string[]) => void
 	onData: (bytes: Uint8Array) => void
 	onEnd: () => void
 	onError: (message: string) => void
@@ -101,7 +101,9 @@ export class PreviewTunnelHub {
 		if (!tunnel) return
 		switch (frame.t) {
 			case 'res.head':
-				tunnel.streams.get(frame.id)?.onHead(frame.status, frame.headers)
+				tunnel.streams
+					.get(frame.id)
+					?.onHead(frame.status, frame.headers, frame.setCookies ?? [])
 				break
 			case 'res.end':
 				tunnel.streams.get(frame.id)?.onEnd()
@@ -196,7 +198,7 @@ export class PreviewTunnelHub {
 	/**
 	 * Proxy one HTTP request to `memberId`'s preview server on `port`. Resolves
 	 * to a streaming `Response` once the Member sends `res.head` (or an error /
-	 * timeout response). The body streams as `res.data` frames arrive.
+	 * timeout response). The body streams as binary data frames arrive.
 	 */
 	async proxy(
 		memberId: string,
@@ -205,7 +207,7 @@ export class PreviewTunnelHub {
 			path: string
 			headers: Record<string, string>
 			port: number
-			bodyBytes: Uint8Array | null
+			body: ReadableStream<Uint8Array> | null
 		},
 	): Promise<Response> {
 		const tunnel = this.members.get(memberId)
@@ -248,12 +250,15 @@ export class PreviewTunnelHub {
 			timer.unref()
 
 			tunnel.streams.set(id, {
-				onHead: (status, headers) => {
+				onHead: (status, headers, setCookies) => {
 					if (resolved) return
 					resolved = true
 					clearTimeout(timer)
 					resolve(
-						new Response(stream, { status, headers: sanitizeResponseHeaders(headers) }),
+						new Response(stream, {
+							status,
+							headers: buildResponseHeaders(headers, setCookies),
+						}),
 					)
 				},
 				onData: (bytes) => {
@@ -301,10 +306,27 @@ export class PreviewTunnelHub {
 					port: req.port,
 				}),
 			)
-			if (req.bodyBytes && req.bodyBytes.length > 0) {
-				tunnel.send(encodeDataFrame(DATA_REQ, id, req.bodyBytes))
+			if (req.body) {
+				// Stream the request body chunk-by-chunk so a large upload isn't
+				// buffered whole in the Household.
+				void (async () => {
+					const reader = req.body!.getReader()
+					try {
+						for (;;) {
+							const { done, value } = await reader.read()
+							if (done) break
+							if (value && value.length > 0) {
+								tunnel.send(encodeDataFrame(DATA_REQ, id, value))
+							}
+						}
+					} catch {
+						/* client aborted mid-upload */
+					}
+					tunnel.send(encodeTunnel({ t: 'req.end', id }))
+				})()
+			} else {
+				tunnel.send(encodeTunnel({ t: 'req.end', id }))
 			}
-			tunnel.send(encodeTunnel({ t: 'req.end', id }))
 		})
 	}
 }
@@ -398,15 +420,14 @@ export function previewHostMiddleware(deps: PreviewHostDeps): MiddlewareHandler 
 		}
 
 		const method = c.req.method
-		const bodyBytes =
-			method === 'GET' || method === 'HEAD' ? null : new Uint8Array(await c.req.arrayBuffer())
+		const body = method === 'GET' || method === 'HEAD' ? null : c.req.raw.body
 		const url = new URL(c.req.url)
 		return deps.hub.proxy(memberId, {
 			method,
 			path: url.pathname + url.search,
 			headers: headerRecord(c.req.raw.headers),
 			port: parsed.port,
-			bodyBytes,
+			body,
 		})
 	}
 }
@@ -487,14 +508,25 @@ function headerRecord(headers: Headers): Record<string, string> {
 	return out
 }
 
-/** Drop hop-by-hop headers the node server frames itself. */
-function sanitizeResponseHeaders(headers: Record<string, string>): Record<string, string> {
-	const out: Record<string, string> = {}
+/**
+ * Build the response `Headers`, dropping hop-by-hop headers the node server
+ * frames itself and appending each `set-cookie` separately (so several cookies
+ * survive as distinct headers rather than a broken comma-joined one).
+ */
+function buildResponseHeaders(headers: Record<string, string>, setCookies: string[]): Headers {
+	const out = new Headers()
 	for (const [k, v] of Object.entries(headers)) {
 		const lower = k.toLowerCase()
-		if (lower === 'connection' || lower === 'transfer-encoding' || lower === 'keep-alive')
+		if (
+			lower === 'connection' ||
+			lower === 'transfer-encoding' ||
+			lower === 'keep-alive' ||
+			lower === 'set-cookie'
+		) {
 			continue
-		out[k] = v
+		}
+		out.set(k, v)
 	}
+	for (const cookie of setCookies) out.append('set-cookie', cookie)
 	return out
 }

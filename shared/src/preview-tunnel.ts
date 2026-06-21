@@ -92,6 +92,11 @@ export interface TunnelResHead {
 	id: string
 	status: number
 	headers: Record<string, string>
+	/**
+	 * `set-cookie` values kept separate — a `Record` can't hold the several a
+	 * response may set, and joining them with `, ` corrupts `Expires` dates.
+	 */
+	setCookies?: string[]
 }
 export interface TunnelResEnd {
 	t: 'res.end'

@@ -208,11 +208,13 @@ export class PreviewTunnel {
 			(res) => {
 				const entry = this.inflight.get(frame.id)
 				if (entry) entry.res = res
+				const setCookies = res.headers['set-cookie']
 				this.send({
 					t: 'res.head',
 					id: frame.id,
 					status: res.statusCode ?? 502,
 					headers: flattenHeaders(res.headers),
+					...(setCookies && setCookies.length > 0 ? { setCookies } : {}),
 				})
 				res.on('data', (chunk: Buffer) =>
 					this.sendData(encodeDataFrame(DATA_RES, frame.id, chunk)),
@@ -276,11 +278,14 @@ export class PreviewTunnel {
 	}
 }
 
-/** Flatten Node's `IncomingHttpHeaders` (values can be string[]) to a string map. */
+/**
+ * Flatten Node's `IncomingHttpHeaders` to a string map. `set-cookie` is dropped
+ * here — it's carried separately on the frame so its several values survive.
+ */
 function flattenHeaders(h: IncomingHttpHeaders): Record<string, string> {
 	const out: Record<string, string> = {}
 	for (const [k, v] of Object.entries(h)) {
-		if (v === undefined) continue
+		if (v === undefined || k.toLowerCase() === 'set-cookie') continue
 		out[k] = Array.isArray(v) ? v.join(', ') : v
 	}
 	return out

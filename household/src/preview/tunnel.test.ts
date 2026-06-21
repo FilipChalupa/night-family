@@ -21,6 +21,14 @@ const silentLogger = {
 } as unknown as Logger
 
 const bytes = (s: string) => new Uint8Array(Buffer.from(s))
+const streamOf = (s: string): ReadableStream<Uint8Array> =>
+	new ReadableStream({
+		start(c) {
+			c.enqueue(bytes(s))
+			c.close()
+		},
+	})
+const tick = () => new Promise((r) => setTimeout(r, 10))
 
 /** Registered member that records what the hub sends, split into control / data. */
 function setup() {
@@ -48,7 +56,7 @@ describe('PreviewTunnelHub', () => {
 			path: '/index.html',
 			headers: { accept: 'text/html' },
 			port: 3000,
-			bodyBytes: null,
+			body: null,
 		})
 
 		const head = controls().find((f) => f.t === 'req.head')
@@ -83,7 +91,7 @@ describe('PreviewTunnelHub', () => {
 			path: '/',
 			headers: {},
 			port: 3000,
-			bodyBytes: null,
+			body: null,
 		})
 		expect(resp.status).toBe(503)
 	})
@@ -95,24 +103,48 @@ describe('PreviewTunnelHub', () => {
 			path: '/',
 			headers: {},
 			port: 3000,
-			bodyBytes: null,
+			body: null,
 		})
 		const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
 		hub.handleMemberFrame('m1', { t: 'res.error', id, message: 'ECONNREFUSED' })
 		expect((await respPromise).status).toBe(502)
 	})
 
-	it('forwards a request body as a binary data frame', async () => {
-		const { hub, data } = setup()
+	it('streams a request body as binary data frames', async () => {
+		const { hub, controls, data } = setup()
 		void hub.proxy('m1', {
 			method: 'POST',
 			path: '/api',
 			headers: {},
 			port: 3000,
-			bodyBytes: bytes('hello'),
+			body: streamOf('hello'),
 		})
+		await tick() // the body pump is async
 		const df = data().find((f) => f.kind === DATA_REQ)
 		expect(df && Buffer.from(df.payload).toString()).toBe('hello')
+		expect(controls().some((f) => f.t === 'req.end')).toBe(true)
+	})
+
+	it('preserves multiple set-cookie headers on the response', async () => {
+		const { hub, controls } = setup()
+		const respPromise = hub.proxy('m1', {
+			method: 'GET',
+			path: '/',
+			headers: {},
+			port: 3000,
+			body: null,
+		})
+		const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
+		hub.handleMemberFrame('m1', {
+			t: 'res.head',
+			id,
+			status: 200,
+			headers: {},
+			setCookies: ['a=1; Path=/', 'b=2; HttpOnly'],
+		})
+		hub.handleMemberFrame('m1', { t: 'res.end', id })
+		const resp = await respPromise
+		expect(resp.headers.getSetCookie()).toEqual(['a=1; Path=/', 'b=2; HttpOnly'])
 	})
 
 	it('signals backpressure (res.pause) when the consumer is slow', async () => {
@@ -122,7 +154,7 @@ describe('PreviewTunnelHub', () => {
 			path: '/big',
 			headers: {},
 			port: 3000,
-			bodyBytes: null,
+			body: null,
 		})
 		const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
 		hub.handleMemberFrame('m1', { t: 'res.head', id, status: 200, headers: {} })
