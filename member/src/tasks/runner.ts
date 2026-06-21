@@ -833,6 +833,7 @@ export class TaskRunner {
 				initial: preview,
 				start: () => startServer(true),
 				idleMs: this.deps.preview.sleepAfterMs,
+				onTransition: (e) => void emit('preview', e),
 				logger: previewLogger,
 			})
 			if (this.deps.previewWaker) {

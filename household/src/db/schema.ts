@@ -127,7 +127,7 @@ export const taskEvents = sqliteTable(
 		ts: integer('ts', { mode: 'timestamp_ms' }).notNull(),
 		sessionId: text('session_id'),
 		memberId: text('member_id').references(() => members.memberId, { onDelete: 'set null' }),
-		kind: text('kind').notNull(), // tool_call | file_edited | commit | usage | log | rebase
+		kind: text('kind').notNull(), // tool_call | file_edited | commit | usage | log | rebase | preview
 		payload: text('payload').notNull(), // JSON
 	},
 	(table) => ({

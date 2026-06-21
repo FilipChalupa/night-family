@@ -23,6 +23,8 @@ export interface SleepablePreviewOpts {
 	start: () => Promise<RunningPreview>
 	/** Sleep after this long with no traffic. `<= 0` never sleeps. */
 	idleMs: number
+	/** Notified when the preview sleeps or wakes — wired to events/metrics. */
+	onTransition?: (event: { state: 'slept' } | { state: 'woke'; wakeMs: number }) => void
 	logger: Logger
 }
 
@@ -56,6 +58,7 @@ export class SleepablePreview {
 		if (this.waking) return this.waking
 		this.waking = (async () => {
 			this.opts.logger.info('preview: waking on request')
+			const startedAt = Date.now()
 			const started = await this.opts.start()
 			// Disposed while we were waking — don't leak the freshly-started server.
 			if (this.disposed) {
@@ -64,6 +67,7 @@ export class SleepablePreview {
 			}
 			this.running = started
 			this.armIdle()
+			this.opts.onTransition?.({ state: 'woke', wakeMs: Date.now() - startedAt })
 		})().finally(() => {
 			this.waking = null
 		})
@@ -95,6 +99,7 @@ export class SleepablePreview {
 		this.sleeping = r.stop().catch(() => undefined)
 		await this.sleeping
 		this.sleeping = null
+		this.opts.onTransition?.({ state: 'slept' })
 	}
 }
 

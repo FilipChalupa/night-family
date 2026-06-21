@@ -35,7 +35,15 @@ interface PreviewStats {
 	running: number
 	queued: number
 	connectedTunnels: number
-	recent: { days: number; created: number; done: number; failed: number }
+	recent: {
+		days: number
+		created: number
+		done: number
+		failed: number
+		wakes: number
+		sleeps: number
+		avgWakeMs: number | null
+	}
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -100,6 +108,18 @@ export function ActivityPanel() {
 							label={`Failed · ${preview.recent.days}d`}
 							value={preview.recent.failed}
 							color={preview.recent.failed > 0 ? 'error.main' : undefined}
+						/>
+						<Stat
+							label={`Wakes · ${preview.recent.days}d`}
+							value={preview.recent.wakes}
+						/>
+						<Stat
+							label="Avg wake"
+							value={
+								preview.recent.avgWakeMs === null
+									? '—'
+									: `${(preview.recent.avgWakeMs / 1000).toFixed(1)}s`
+							}
 						/>
 					</Stack>
 				</Paper>
@@ -270,7 +290,7 @@ function formatTokens(value: number | null): string {
 	return value.toLocaleString()
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+function Stat({ label, value, color }: { label: string; value: number | string; color?: string }) {
 	return (
 		<Stack spacing={0}>
 			<Typography variant="h6" sx={{ fontWeight: 600, color }}>

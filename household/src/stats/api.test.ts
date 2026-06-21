@@ -342,4 +342,30 @@ describe('GET /api/stats/preview', () => {
 		expect(body.connectedTunnels).toBe(0)
 		expect(body.recent).toMatchObject({ created: 5, done: 1, failed: 1 })
 	})
+
+	it('aggregates wake/sleep activity and average wake latency', async () => {
+		const now = todayUtcNoon()
+		insertTask(rig.sqlite, {
+			id: 'p1',
+			status: 'in-progress',
+			member: 'm',
+			updatedAt: now,
+			kind: 'preview',
+		})
+		const ev = rig.sqlite.prepare(
+			`INSERT INTO task_events (task_id, seq, ts, kind, payload) VALUES (?, ?, ?, 'preview', ?)`,
+		)
+		ev.run('p1', 1, now, JSON.stringify({ state: 'slept' }))
+		ev.run('p1', 2, now, JSON.stringify({ state: 'woke', wakeMs: 1000 }))
+		ev.run('p1', 3, now, JSON.stringify({ state: 'woke', wakeMs: 3000 }))
+		ev.run('p1', 4, now, JSON.stringify({ state: 'slept' }))
+
+		const res = await rig.app.request('/api/stats/preview')
+		const body = (await res.json()) as {
+			recent: { wakes: number; sleeps: number; avgWakeMs: number | null }
+		}
+		expect(body.recent.wakes).toBe(2)
+		expect(body.recent.sleeps).toBe(2)
+		expect(body.recent.avgWakeMs).toBe(2000)
+	})
 })

@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '3.2.0'
+export const PROTOCOL_VERSION = '3.3.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -80,7 +80,14 @@ export type WorkerProfile = 'hard' | 'medium' | 'lazy'
 
 export type MemberStatus = 'idle' | 'busy'
 
-export type EventKind = 'tool_call' | 'file_edited' | 'commit' | 'usage' | 'log' | 'rebase'
+export type EventKind =
+	| 'tool_call'
+	| 'file_edited'
+	| 'commit'
+	| 'usage'
+	| 'log'
+	| 'rebase'
+	| 'preview'
 
 export type TaskKind =
 	| 'implement'

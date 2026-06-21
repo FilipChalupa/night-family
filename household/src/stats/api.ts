@@ -192,6 +192,24 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			)
 			.get(cutoffMs) as { created: number; done: number; failed: number }
 
+		// Sleep/wake activity from `preview` events: how often previews idle out
+		// and how long a lazy wake takes (avg of the reported wakeMs).
+		const lifecycle = deps.sqlite
+			.prepare(
+				`SELECT
+				   SUM(CASE WHEN json_extract(payload, '$.state') = 'woke' THEN 1 ELSE 0 END) AS wakes,
+				   SUM(CASE WHEN json_extract(payload, '$.state') = 'slept' THEN 1 ELSE 0 END) AS sleeps,
+				   AVG(CASE WHEN json_extract(payload, '$.state') = 'woke'
+				            THEN json_extract(payload, '$.wakeMs') END) AS avgWakeMs
+				 FROM task_events
+				 WHERE kind = 'preview' AND ts >= ?`,
+			)
+			.get(cutoffMs) as {
+			wakes: number | null
+			sleeps: number | null
+			avgWakeMs: number | null
+		}
+
 		return c.json({
 			running: count('assigned') + count('in-progress'),
 			queued: count('queued'),
@@ -201,6 +219,9 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 				created: Number(recent.created) || 0,
 				done: Number(recent.done) || 0,
 				failed: Number(recent.failed) || 0,
+				wakes: Number(lifecycle.wakes) || 0,
+				sleeps: Number(lifecycle.sleeps) || 0,
+				avgWakeMs: lifecycle.avgWakeMs === null ? null : Math.round(lifecycle.avgWakeMs),
 			},
 		})
 	})

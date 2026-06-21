@@ -128,7 +128,7 @@ const MsgEventSchema = v.object({
 	task_id: v.string(),
 	seq: v.number(),
 	ts: v.string(),
-	kind: v.picklist(['tool_call', 'file_edited', 'commit', 'usage', 'log', 'rebase']),
+	kind: v.picklist(['tool_call', 'file_edited', 'commit', 'usage', 'log', 'rebase', 'preview']),
 	payload: v.unknown(),
 })
 

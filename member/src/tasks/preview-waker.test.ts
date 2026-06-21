@@ -39,6 +39,29 @@ describe('SleepablePreview', () => {
 		expect(woke.stop).toHaveBeenCalledTimes(1)
 	})
 
+	it('reports slept and woke transitions with a wake latency', async () => {
+		const initial = fakePreview()
+		const woke = fakePreview()
+		const start = vi.fn(async () => woke)
+		const events: Array<{ state: string; wakeMs?: number }> = []
+		const s = new SleepablePreview({
+			initial,
+			start,
+			idleMs: 1000,
+			logger: silentLogger,
+			onTransition: (e) => events.push(e),
+		})
+
+		await vi.advanceTimersByTimeAsync(1000) // sleep
+		await s.ensureAwake() // wake
+		await s.dispose()
+
+		expect(events.map((e) => e.state)).toEqual(['slept', 'woke'])
+		const wokeEvent = events.find((e) => e.state === 'woke') as { wakeMs: number }
+		expect(typeof wokeEvent.wakeMs).toBe('number')
+		expect(wokeEvent.wakeMs).toBeGreaterThanOrEqual(0)
+	})
+
 	it('never sleeps when idleMs is 0', async () => {
 		const initial = fakePreview()
 		const s = new SleepablePreview({ initial, start: vi.fn(), idleMs: 0, logger: silentLogger })
