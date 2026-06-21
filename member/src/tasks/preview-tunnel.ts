@@ -35,16 +35,21 @@ import {
 	type TunnelWsOpen,
 } from '@night/shared'
 import type { Logger } from 'pino'
+import type { PreviewWaker } from './preview-waker.ts'
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
 
 interface Inflight {
-	req: ClientRequest
+	/** null while the preview is being woken — body/end are buffered until then. */
+	req: ClientRequest | null
 	res: IncomingMessage | null
+	ended: boolean
+	bodyQueue: Buffer[]
 }
 
 interface WsBridge {
-	socket: WebSocket
+	/** null while the preview is being woken — messages queue until the socket exists. */
+	socket: WebSocket | null
 	open: boolean
 	queue: Array<{ buf: Buffer; binary: boolean }>
 }
@@ -54,6 +59,8 @@ export interface PreviewTunnelOpts {
 	householdUrl: string
 	accessToken: string
 	memberId: string
+	/** Wakes an idle (sleeping) preview before proxying a request to it. */
+	waker: PreviewWaker
 	logger: Logger
 }
 
@@ -94,9 +101,9 @@ export class PreviewTunnel {
 	}
 
 	private dropAll(): void {
-		for (const { req } of this.inflight.values()) req.destroy()
+		for (const { req } of this.inflight.values()) req?.destroy()
 		this.inflight.clear()
-		for (const bridge of this.wsBridges.values()) bridge.socket.close()
+		for (const bridge of this.wsBridges.values()) bridge.socket?.close()
 		this.wsBridges.clear()
 	}
 
@@ -141,12 +148,16 @@ export class PreviewTunnel {
 		const frame = decodeDataFrame(buf)
 		if (!frame) return
 		if (frame.kind === DATA_REQ) {
-			this.inflight.get(frame.id)?.req.write(Buffer.from(frame.payload))
+			const entry = this.inflight.get(frame.id)
+			if (!entry) return
+			const body = Buffer.from(frame.payload)
+			if (entry.req) entry.req.write(body)
+			else entry.bodyQueue.push(body)
 		} else if (frame.kind === DATA_WS) {
 			const bridge = this.wsBridges.get(frame.id)
 			if (!bridge) return
 			const body = Buffer.from(frame.payload)
-			if (bridge.open) bridge.socket.send(body, { binary: frame.binary })
+			if (bridge.socket && bridge.open) bridge.socket.send(body, { binary: frame.binary })
 			else bridge.queue.push({ buf: body, binary: frame.binary })
 		}
 	}
@@ -156,15 +167,19 @@ export class PreviewTunnel {
 		if (!frame) return
 		switch (frame.t) {
 			case 'req.head':
-				this.startRequest(frame)
+				void this.startRequest(frame)
 				break
-			case 'req.end':
-				this.inflight.get(frame.id)?.req.end()
+			case 'req.end': {
+				const entry = this.inflight.get(frame.id)
+				if (!entry) break
+				if (entry.req) entry.req.end()
+				else entry.ended = true
 				break
+			}
 			case 'req.abort': {
 				const entry = this.inflight.get(frame.id)
 				if (entry) {
-					entry.req.destroy()
+					entry.req?.destroy()
 					this.inflight.delete(frame.id)
 				}
 				break
@@ -176,18 +191,33 @@ export class PreviewTunnel {
 				this.inflight.get(frame.id)?.res?.resume()
 				break
 			case 'ws.open':
-				this.openWsBridge(frame)
+				void this.openWsBridge(frame)
 				break
 			case 'ws.close': {
 				const bridge = this.wsBridges.get(frame.id)
-				bridge?.socket.close(frame.code, frame.reason)
+				bridge?.socket?.close(frame.code, frame.reason)
 				this.wsBridges.delete(frame.id)
 				break
 			}
 		}
 	}
 
-	private startRequest(frame: TunnelReqHead): void {
+	private async startRequest(frame: TunnelReqHead): Promise<void> {
+		// Reserve the stream first so body/end frames that arrive while we wake
+		// the (possibly sleeping) preview are buffered rather than lost.
+		const entry: Inflight = { req: null, res: null, ended: false, bodyQueue: [] }
+		this.inflight.set(frame.id, entry)
+
+		try {
+			await this.opts.waker.ensureAwake(frame.port)
+		} catch (err) {
+			this.send({ t: 'res.error', id: frame.id, message: (err as Error).message })
+			this.inflight.delete(frame.id)
+			return
+		}
+		// Aborted (or the socket dropped) while waking.
+		if (this.inflight.get(frame.id) !== entry) return
+
 		const headers = { ...frame.headers }
 		// Dev servers (Vite et al.) validate Host; rewrite it to the loopback
 		// origin so the proxied request looks local. Drop hop-by-hop headers
@@ -206,8 +236,7 @@ export class PreviewTunnel {
 				headers,
 			},
 			(res) => {
-				const entry = this.inflight.get(frame.id)
-				if (entry) entry.res = res
+				entry.res = res
 				const setCookies = res.headers['set-cookie']
 				this.send({
 					t: 'res.head',
@@ -229,7 +258,11 @@ export class PreviewTunnel {
 			this.send({ t: 'res.error', id: frame.id, message: err.message })
 			this.inflight.delete(frame.id)
 		})
-		this.inflight.set(frame.id, { req, res: null })
+		entry.req = req
+		for (const chunk of entry.bodyQueue) req.write(chunk)
+		entry.bodyQueue = []
+		this.opts.waker.touch(frame.port)
+		if (entry.ended) req.end()
 	}
 
 	/**
@@ -238,7 +271,22 @@ export class PreviewTunnel {
 	 * forwards before the local socket finishes connecting are queued and
 	 * flushed on open.
 	 */
-	private openWsBridge(frame: TunnelWsOpen): void {
+	private async openWsBridge(frame: TunnelWsOpen): Promise<void> {
+		// Reserve the bridge so messages arriving while we wake the preview queue
+		// rather than drop.
+		const bridge: WsBridge = { socket: null, open: false, queue: [] }
+		this.wsBridges.set(frame.id, bridge)
+
+		try {
+			await this.opts.waker.ensureAwake(frame.port)
+		} catch (err) {
+			this.send({ t: 'ws.error', id: frame.id, message: (err as Error).message })
+			this.wsBridges.delete(frame.id)
+			return
+		}
+		if (this.wsBridges.get(frame.id) !== bridge) return // closed while waking
+		this.opts.waker.touch(frame.port)
+
 		const headers = { ...frame.headers }
 		delete headers['host']
 		delete headers['connection']
@@ -251,8 +299,7 @@ export class PreviewTunnel {
 
 		const target = `ws://127.0.0.1:${frame.port}${frame.path}`
 		const socket = new WebSocket(target, frame.protocols ?? [], { headers })
-		const bridge: WsBridge = { socket, open: false, queue: [] }
-		this.wsBridges.set(frame.id, bridge)
+		bridge.socket = socket
 
 		socket.on('open', () => {
 			bridge.open = true

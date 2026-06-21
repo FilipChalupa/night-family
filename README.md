@@ -192,15 +192,22 @@ The Member then (see `member/src/tasks/preview.ts`):
    and the worktree.
 
 Unlike other tasks a preview has **no wallclock limit** — it's long-lived by
-design and lives until cancelled (label removed, PR closed, branch pushed, or
-idle teardown). It's torn down after `PREVIEW_IDLE_TTL_MINUTES` (Household,
-default 30; `0` disables) with no proxied traffic — freeing the Member. Bring it
-back any of three ways: **push** to the PR branch, re-apply the `preview` label,
-or hit **Restart preview** on the task's detail page (which enqueues a fresh
-preview for the same branch). A lazy sleep/wake on next request — so the link
-itself revives it — is a possible future step. A failed startup surfaces a tail
-of the dev-server output in the task's events, so you can see _why_ it didn't
-boot.
+design and lives until cancelled (label removed, PR closed).
+
+**Sleep / lazy wake.** After `PREVIEW_SLEEP_AFTER_MINUTES` (Member, default 15;
+`0` never sleeps) with no proxied traffic, the dev-server **process is stopped**
+but the checkout stays warm and the task stays alive — so the Member's RAM/CPU
+is freed without losing the preview. The **next request wakes it automatically**
+(the Member restarts the dev server, skipping install, and the request waits the
+few seconds it takes) — the preview URL just works again, no button needed.
+
+Optionally the Household can fully tear a preview **down** (freeing the Member's
+task slot entirely) after `PREVIEW_IDLE_TTL_MINUTES` of no traffic (default `0` =
+off). After a full teardown, bring it back by **push**ing the PR branch,
+re-applying the `preview` label, or **Restart preview** on the task detail page.
+
+A failed startup surfaces a tail of the dev-server output in the task's events,
+so you can see _why_ it didn't boot.
 
 A preview occupies the Member for its lifetime (one preview per Member, enforced
 by the busy state). To serve several previews at once, run more Members with the

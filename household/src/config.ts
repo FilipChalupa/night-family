@@ -105,7 +105,7 @@ export function loadConfig(): HouseholdConfig {
 		githubOauth,
 		secretsKey: process.env['SECRETS_KEY'] ?? null,
 		previewsDomain: process.env['PREVIEWS_DOMAIN']?.trim() || null,
-		previewIdleTtlMinutes: optionalPositiveInt('PREVIEW_IDLE_TTL_MINUTES', 30),
+		previewIdleTtlMinutes: optionalPositiveInt('PREVIEW_IDLE_TTL_MINUTES', 0),
 		logLevel: optional('LOG_LEVEL', 'info'),
 		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2),
 		selfReviewFallbackMs: optionalPositiveInt('SELF_REVIEW_FALLBACK_MS', 10 * 60_000),

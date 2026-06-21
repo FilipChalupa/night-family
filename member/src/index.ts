@@ -4,6 +4,7 @@ import { logger } from './logger.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
 import { gcStaleCaches, gcStaleTaskDirs } from './tasks/workspace.ts'
 import { PreviewTunnel } from './tasks/preview-tunnel.ts'
+import { PreviewWaker } from './tasks/preview-waker.ts'
 import type { MsgEvent } from '@night/shared'
 
 const config = await loadConfig()
@@ -55,6 +56,10 @@ let connection: HouseholdConnection | null = null
 
 const usageTracker = new DailyUsageTracker()
 
+// Shared between the runner (which registers a running preview) and the tunnel
+// (which wakes it on a request), so an idle preview can sleep and lazily wake.
+const previewWaker = new PreviewWaker()
+
 const taskRunner = new TaskRunner({
 	memberName: config.memberName,
 	memberId: config.memberId,
@@ -67,6 +72,7 @@ const taskRunner = new TaskRunner({
 	wsSend: (msg: MsgEvent) => connection?.send(msg) ?? false,
 	stubMode,
 	preview: config.preview,
+	previewWaker,
 })
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {
@@ -80,6 +86,7 @@ const previewTunnel = config.skills.includes('preview')
 			householdUrl: config.householdUrl,
 			accessToken: config.householdAccessToken,
 			memberId: config.memberId,
+			waker: previewWaker,
 			logger: logger.child({ component: 'preview-tunnel' }),
 		})
 	: null

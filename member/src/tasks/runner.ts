@@ -42,6 +42,7 @@ import {
 	probePortReady,
 	type RunningPreview,
 } from './preview.ts'
+import { SleepablePreview, type PreviewWaker } from './preview-waker.ts'
 
 /** How long to wait for an extra preview port to come up before skipping it. */
 const PREVIEW_PORT_PROBE_MS = 10_000
@@ -80,7 +81,10 @@ export interface TaskRunnerDeps {
 		readyTimeoutMs: number
 		publishMode: 'local' | 'household' | 'subdomain'
 		domain: string | null
+		sleepAfterMs: number
 	}
+	/** Shared with the preview tunnel so an idle preview can sleep and wake. */
+	previewWaker?: PreviewWaker
 }
 
 export interface TaskOutcome {
@@ -626,16 +630,17 @@ export class TaskRunner {
 		// error) can be surfaced to Household instead of vanishing into the
 		// Member's debug log.
 		const recentOutput: string[] = []
-		let preview: RunningPreview | null = null
-		let annotatedPr = false
-		try {
-			const portCfg = this.deps.preview.ports
-			const primaryCfg = portCfg[0]!
-			preview = await PreviewServer.start({
+		const portCfg = this.deps.preview.ports
+		const primaryCfg = portCfg[0]!
+		// One start function for both the initial boot and a wake — the wake
+		// skips install (deps are warm from the first run).
+		const startServer = (skipInstall: boolean) =>
+			PreviewServer.start({
 				cwd: checkout.path,
 				logger: previewLogger,
 				port: primaryCfg.port,
 				readyTimeoutMs: this.deps.preview.readyTimeoutMs,
+				...(skipInstall ? { installCommand: null } : {}),
 				// Dev servers are chatty (HMR etc.) — keep their output in the
 				// Member log, not the Household event stream, but keep a tail.
 				onLog: (line) => {
@@ -646,6 +651,13 @@ export class TaskRunner {
 				onPhase: (phase, command) =>
 					void emit('log', { message: `preview ${phase}`, command }),
 			})
+
+		let preview: RunningPreview | null = null
+		let sleepable: SleepablePreview | null = null
+		const registeredPorts: number[] = []
+		let annotatedPr = false
+		try {
+			preview = await startServer(false)
 
 			// A preview exposes a *list* of ports (the primary dev server plus any
 			// extra configured ones, e.g. an API). `target` is where each listens
@@ -679,6 +691,23 @@ export class TaskRunner {
 				})
 			}
 			const primary = ports[0]!
+
+			// Wire idle-sleep / lazy-wake: register every exposed port with the
+			// shared waker so the tunnel can wake the (one) dev-server process on
+			// a request to any of them.
+			sleepable = new SleepablePreview({
+				initial: preview,
+				start: () => startServer(true),
+				idleMs: this.deps.preview.sleepAfterMs,
+				logger: previewLogger,
+			})
+			if (this.deps.previewWaker) {
+				for (const p of ports) {
+					this.deps.previewWaker.register(p.port, sleepable)
+					registeredPorts.push(p.port)
+				}
+			}
+
 			await emit('log', {
 				message: 'preview ready',
 				ref,
@@ -746,7 +775,11 @@ export class TaskRunner {
 					previewLogger,
 				).catch(() => undefined)
 			}
-			await preview?.stop().catch(() => undefined)
+			for (const port of registeredPorts) this.deps.previewWaker?.unregister(port)
+			// `dispose` stops the dev server (sleeping or awake); fall back to the
+			// raw handle if the sleepable was never created (early failure).
+			if (sleepable) await sleepable.dispose()
+			else await preview?.stop().catch(() => undefined)
 			await checkout.cleanup().catch(() => undefined)
 		}
 	}

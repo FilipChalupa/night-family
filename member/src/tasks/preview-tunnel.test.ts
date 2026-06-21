@@ -23,6 +23,7 @@ import {
 } from '@night/shared'
 import type { Logger } from 'pino'
 import { PreviewTunnel } from './preview-tunnel.ts'
+import { PreviewWaker } from './preview-waker.ts'
 
 const silentLogger = {
 	info: () => {},
@@ -83,6 +84,7 @@ describe('PreviewTunnel (real sockets)', () => {
 			householdUrl: `ws://127.0.0.1:${housePort}`,
 			accessToken: 'tok',
 			memberId: 'm1',
+			waker: new PreviewWaker(),
 			logger: silentLogger,
 		})
 		void tunnel.run()

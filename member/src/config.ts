@@ -81,6 +81,12 @@ export interface MemberConfig {
 		readonly publishMode: 'local' | 'household' | 'subdomain'
 		/** Preview subdomain base (`PREVIEWS_DOMAIN`), or null. */
 		readonly domain: string | null
+		/**
+		 * Sleep the dev-server process after this many ms with no proxied
+		 * traffic; it wakes lazily on the next request (checkout stays warm).
+		 * 0 = never sleep. From `PREVIEW_SLEEP_AFTER_MINUTES` (default 15).
+		 */
+		readonly sleepAfterMs: number
 	}
 	readonly logLevel: string
 }
@@ -310,6 +316,7 @@ function loadEnvConfig(): PartialConfig {
 			readyTimeoutMs: optionalNumber('PREVIEW_READY_TIMEOUT_MS') ?? 120_000,
 			publishMode: parsePreviewPublishMode(optional('PREVIEW_PUBLISH_MODE', 'local')),
 			domain: process.env.PREVIEWS_DOMAIN?.trim() || null,
+			sleepAfterMs: (optionalNumber('PREVIEW_SLEEP_AFTER_MINUTES') ?? 15) * 60_000,
 		},
 		logLevel: optional('LOG_LEVEL', 'info'),
 	}
