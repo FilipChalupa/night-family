@@ -13,6 +13,8 @@ import type { AdminGuard } from '../auth/guard.ts'
 export interface StatsApiDeps {
 	sqlite: Database.Database
 	guard: AdminGuard
+	/** Live preview-tunnel count for the preview stats snapshot. */
+	previewHub: { connectedCount(): number }
 }
 
 interface DailyRow {
@@ -157,6 +159,49 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			daily,
 			statusBreakdown,
 			byMember,
+		})
+	})
+
+	// Preview snapshot: how many previews are live right now (running or
+	// sleeping — both are `in-progress`), waiting in the queue, how many Members
+	// have a preview tunnel open, and the recent boot success/failure split.
+	app.get('/api/stats/preview', (c) => {
+		const guardResult = deps.guard.requireAuthenticated(c)
+		if (guardResult) return guardResult
+
+		const daysParam = Number.parseInt(c.req.query('days') ?? '', 10)
+		const days =
+			Number.isFinite(daysParam) && daysParam > 0
+				? Math.min(daysParam, MAX_DAYS)
+				: DEFAULT_DAYS
+		const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000
+
+		const byStatus = deps.sqlite
+			.prepare(
+				`SELECT status, COUNT(*) AS count FROM tasks WHERE kind = 'preview' GROUP BY status`,
+			)
+			.all() as StatusRow[]
+		const count = (status: string) => byStatus.find((r) => r.status === status)?.count ?? 0
+
+		const recent = deps.sqlite
+			.prepare(
+				`SELECT COUNT(*) AS created,
+				        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+				        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+				 FROM tasks WHERE kind = 'preview' AND created_at >= ?`,
+			)
+			.get(cutoffMs) as { created: number; done: number; failed: number }
+
+		return c.json({
+			running: count('assigned') + count('in-progress'),
+			queued: count('queued'),
+			connectedTunnels: deps.previewHub.connectedCount(),
+			recent: {
+				days,
+				created: Number(recent.created) || 0,
+				done: Number(recent.done) || 0,
+				failed: Number(recent.failed) || 0,
+			},
 		})
 	})
 

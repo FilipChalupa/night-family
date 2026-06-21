@@ -31,6 +31,13 @@ interface StatsResponse {
 	byMember: MemberRow[]
 }
 
+interface PreviewStats {
+	running: number
+	queued: number
+	connectedTunnels: number
+	recent: { days: number; created: number; done: number; failed: number }
+}
+
 const STATUS_COLOR: Record<string, string> = {
 	new: '#a8b6e6',
 	queued: '#a8b6e6',
@@ -58,6 +65,16 @@ export function ActivityPanel() {
 		refetchInterval: 30_000,
 	})
 
+	const { data: preview } = useQuery<PreviewStats>({
+		queryKey: ['stats', 'preview'],
+		queryFn: async () => {
+			const r = await fetch('/api/stats/preview')
+			if (!r.ok) throw new Error(`HTTP ${r.status}`)
+			return (await r.json()) as PreviewStats
+		},
+		refetchInterval: 15_000,
+	})
+
 	if (isLoading) return <EmptyState>Loading activity…</EmptyState>
 	if (error) return <Alert severity="error">{(error as Error).message}</Alert>
 	if (!data) return <EmptyState>No data.</EmptyState>
@@ -66,6 +83,27 @@ export function ActivityPanel() {
 
 	return (
 		<Stack spacing={2}>
+			{preview ? (
+				<Paper variant="outlined" sx={{ p: 2 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Previews
+					</Typography>
+					<Stack direction="row" spacing={3} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+						<Stat label="Running" value={preview.running} />
+						<Stat label="Queued" value={preview.queued} />
+						<Stat label="Tunnels" value={preview.connectedTunnels} />
+						<Stat
+							label={`Done · ${preview.recent.days}d`}
+							value={preview.recent.done}
+						/>
+						<Stat
+							label={`Failed · ${preview.recent.days}d`}
+							value={preview.recent.failed}
+							color={preview.recent.failed > 0 ? 'error.main' : undefined}
+						/>
+					</Stack>
+				</Paper>
+			) : null}
 			<Paper variant="outlined" sx={{ p: 2 }}>
 				<Typography variant="body2" color="text.secondary" gutterBottom>
 					Tasks per day · last {data.windowDays} days
@@ -230,4 +268,17 @@ function formatTokens(value: number | null): string {
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
 	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
 	return value.toLocaleString()
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+	return (
+		<Stack spacing={0}>
+			<Typography variant="h6" sx={{ fontWeight: 600, color }}>
+				{value}
+			</Typography>
+			<Typography variant="caption" color="text.secondary">
+				{label}
+			</Typography>
+		</Stack>
+	)
 }

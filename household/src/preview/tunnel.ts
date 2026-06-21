@@ -95,6 +95,11 @@ export class PreviewTunnelHub {
 		return this.members.has(memberId)
 	}
 
+	/** How many Members currently have a live preview tunnel. */
+	connectedCount(): number {
+		return this.members.size
+	}
+
 	/** Route a JSON control frame from a Member back to its stream / WS bridge. */
 	handleMemberFrame(memberId: string, frame: MemberToHouseholdTunnel): void {
 		if (frame.t === 'hello') return

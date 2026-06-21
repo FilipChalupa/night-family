@@ -348,7 +348,7 @@ mountTasksApi(app, {
 
 mountRepoBindingsApi(app, { bindings: repoBindings, registry, guard })
 mountPreviewProxy(app, { taskStore })
-mountStatsApi(app, { sqlite: dbHandles.sqlite, guard })
+mountStatsApi(app, { sqlite: dbHandles.sqlite, guard, previewHub: previewTunnelHub })
 mountTokensApi(app, { tokens, guard, notifSender })
 mountNotificationsApi(app, { store: notifStore, sender: notifSender, guard })
 

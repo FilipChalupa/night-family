@@ -46,7 +46,7 @@ function createRig(): Rig {
 
 	const guard = new AdminGuard({} as unknown as SessionStore, false, false)
 	const app = new Hono()
-	mountStatsApi(app, { sqlite, guard })
+	mountStatsApi(app, { sqlite, guard, previewHub: { connectedCount: () => 0 } })
 
 	return {
 		app,
@@ -66,7 +66,13 @@ function todayUtcNoon(): number {
 
 function insertTask(
 	sqlite: Database.Database,
-	opts: { id: string; status: string; member: string | null; updatedAt: number },
+	opts: {
+		id: string
+		status: string
+		member: string | null
+		updatedAt: number
+		kind?: string
+	},
 ): void {
 	let memberId: string | null = null
 	if (opts.member !== null) {
@@ -84,9 +90,16 @@ function insertTask(
 	sqlite
 		.prepare(
 			`INSERT INTO tasks (id, kind, title, description, status, assigned_member_id, created_at, updated_at, retry_count)
-			 VALUES (?, 'implement', 'test', '', ?, ?, ?, ?, 0)`,
+			 VALUES (?, ?, 'test', '', ?, ?, ?, ?, 0)`,
 		)
-		.run(opts.id, opts.status, memberId, opts.updatedAt, opts.updatedAt)
+		.run(
+			opts.id,
+			opts.kind ?? 'implement',
+			opts.status,
+			memberId,
+			opts.updatedAt,
+			opts.updatedAt,
+		)
 }
 
 function insertUsage(
@@ -293,5 +306,40 @@ describe('GET /api/stats/task-tokens', () => {
 		const res = await rig.app.request('/api/stats/task-tokens')
 		const body = (await res.json()) as { tokens: Record<string, number> }
 		expect(body.tokens).toEqual({})
+	})
+})
+
+describe('GET /api/stats/preview', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	it('counts running/queued previews and recent outcomes, ignoring non-previews', async () => {
+		const now = todayUtcNoon()
+		const p = (id: string, status: string, member: string | null) =>
+			insertTask(rig.sqlite, { id, status, member, updatedAt: now, kind: 'preview' })
+		p('p1', 'in-progress', 'm')
+		p('p2', 'assigned', 'm')
+		p('p3', 'queued', null)
+		p('p4', 'done', 'm')
+		p('p5', 'failed', 'm')
+		insertTask(rig.sqlite, { id: 'i1', status: 'in-progress', member: 'm', updatedAt: now })
+
+		const res = await rig.app.request('/api/stats/preview')
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as {
+			running: number
+			queued: number
+			connectedTunnels: number
+			recent: { created: number; done: number; failed: number }
+		}
+		expect(body.running).toBe(2)
+		expect(body.queued).toBe(1)
+		expect(body.connectedTunnels).toBe(0)
+		expect(body.recent).toMatchObject({ created: 5, done: 1, failed: 1 })
 	})
 })
