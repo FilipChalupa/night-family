@@ -191,6 +191,11 @@ The Member then (see `member/src/tasks/preview.ts`):
 5. holds the server open until the task is cancelled (or the wallclock limit hits),
    then tears down the server and the worktree.
 
+A preview occupies the Member for its lifetime (one preview per Member, enforced
+by the busy state). To serve several previews at once, run more Members with the
+`preview` skill — a dedicated `SKILLS=preview` Member, or one that also carries
+other skills and does normal work between previews.
+
 **Online exposure is not wired yet** — for now the reported URL is
 `http://localhost:<PREVIEW_BASE_PORT>` on the Member host. The publishing step is
 pluggable (`PreviewPublisher` in `preview.ts`, default `LocalPublisher`).
