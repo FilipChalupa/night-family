@@ -211,13 +211,67 @@ breaks root-relative assets; the redirect dodges it, a true proxy won't). And th
 harder half is app-side: a frontend that hardcodes `http://localhost:<api-port>`
 still needs its API's public URL injected — inherently per-project.
 
-**Next step: reach NAT'd Members.** Tunnel the preview over the Member's existing
-WebSocket (so Household is the only inbound surface), swapping the 302 for a real
-proxy under the same URL scheme. Fallbacks kept in mind: an outbound tunnel
-(cloudflared/ngrok/tailscale funnel) or a per-preview container + ingress.
-
 With `PREVIEW_PUBLISH_MODE=local` (default) previews are reported as the
 Member-local `http://localhost:<port>` URL — fine for same-host dev.
+
+### Target: subdomain proxy over the Member WebSocket (planned)
+
+Members are laptops behind NAT, not servers — and the Member is the one that
+opens the WebSocket to the Household, so **only the Household is ever reachable
+inbound**. Preview traffic therefore tunnels back over that existing Member WS:
+the Household is the single ingress, no Member reachability or firewall holes
+required. Each `(preview, port)` gets its own subdomain
+`p<port>-<task-id>.previews.<domain>` so every dev server sits at an origin root
+(path routing breaks root-relative assets, HMR `wss://host/`, SW scope, cookies).
+
+Request flow:
+
+```
+p3000-<task>.previews.<domain>
+   └─ Traefik  (wildcard TLS, routes *.previews.<domain> → household:8080)
+        └─ Household  (Host → (task, port) → tunnel frames over the member WS)
+             └─ Member  (proxies to its local http://localhost:3000)
+```
+
+Traefik stays static (one wildcard router → Household); the Household owns the
+dynamic `(task, port) → live Member session` mapping it already has from
+`metadata.preview_ports` + `task.assignedSessionId`.
+
+**Status:** the TLS/routing layer below is ready to configure; the Household-side
+WS-tunnel proxy is **not implemented yet** — today only the redirect slice above
+runs (`PREVIEW_PUBLISH_MODE=household`).
+
+#### Deploying behind Traefik
+
+Assumes you already run Traefik with the `websecure` entrypoint and a DNS-01
+cert resolver (wildcard certs require DNS-01 — HTTP-01 can't issue them). Point a
+wildcard DNS record `*.previews.<domain>` at the Household host, then label the
+Household service (Traefik v3 syntax):
+
+```yaml
+labels:
+    - traefik.enable=true
+    # Main dashboard + API.
+    - traefik.http.routers.household.rule=Host(`night.example.com`)
+    - traefik.http.routers.household.entrypoints=websecure
+    - traefik.http.routers.household.tls.certresolver=dns
+    # Preview subdomains — wildcard, same backend; Household routes by Host header.
+    - traefik.http.routers.previews.rule=HostRegexp(`^[a-z0-9-]+\.previews\.night\.example\.com$`)
+    - traefik.http.routers.previews.entrypoints=websecure
+    - traefik.http.routers.previews.tls.certresolver=dns
+    - traefik.http.routers.previews.tls.domains[0].main=previews.night.example.com
+    - traefik.http.routers.previews.tls.domains[0].sans=*.previews.night.example.com
+    - traefik.http.services.household.loadbalancer.server.port=8080
+```
+
+(Traefik v2 uses the named form `HostRegexp(`{sub:[a-z0-9-]+}.previews.night.example.com`)`.)
+Traefik forwards `Upgrade` headers on HTTP routers by default, so HMR WebSockets
+pass straight through to the Household, which tunnels them on to the Member —
+nothing extra to configure there.
+
+The Household will need its previews base domain (e.g. `PREVIEWS_DOMAIN=previews.night.example.com`)
+to build/validate the Host and to advertise the scheme to Members
+(`PREVIEW_PUBLISH_MODE=subdomain`). Both land with the proxy implementation.
 
 ## Repo layout
 
