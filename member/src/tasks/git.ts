@@ -67,7 +67,13 @@ export async function gh(args: string[], opts: GitOptions & { token?: string }):
 /**
  * Build an authenticated remote URL: https://x-access-token:<token>@github.com/<repo>.git
  * The `x-access-token` username works for both PATs and GitHub App installation tokens.
+ *
+ * `NIGHT_GIT_REMOTE_BASE` overrides the host with `<base>/<repo>.git` (no token)
+ * — for a local bare-repo mirror or, in tests, a temp directory. Default is the
+ * authenticated GitHub URL.
  */
 export function authenticatedRemoteUrl(repo: string, token: string): string {
+	const base = process.env.NIGHT_GIT_REMOTE_BASE?.trim()
+	if (base) return `${base.replace(/\/+$/, '')}/${repo}.git`
 	return `https://x-access-token:${token}@github.com/${repo}.git`
 }
