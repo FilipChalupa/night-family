@@ -40,7 +40,14 @@ const PullRequestSchema = v.object({
 	merged: v.optional(v.boolean()),
 	mergeable_state: v.optional(v.string()),
 	behind_by: v.optional(v.number()),
-	head: v.object({ ref: v.string(), sha: v.optional(v.string()) }),
+	labels: v.optional(v.array(LabelSchema)),
+	// `head.repo` is null for a PR from a deleted fork; `full_name` lets us tell
+	// a same-repo branch (previewable) from a fork (we don't preview forks).
+	head: v.object({
+		ref: v.string(),
+		sha: v.optional(v.string()),
+		repo: v.nullish(v.object({ full_name: v.optional(v.string()) })),
+	}),
 	base: v.object({ ref: v.string() }),
 })
 

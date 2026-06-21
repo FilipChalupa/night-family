@@ -169,6 +169,15 @@ curl -X POST http://localhost:8080/api/tasks \
   -d '{"kind":"preview","title":"Preview feature-x","repo":"org/name","metadata":{"branch":"feature-x"}}'
 ```
 
+**Preview a PR with a label.** Apply the `preview` label to a same-repo PR and
+Household enqueues a preview for its head branch; remove the label (or close the
+PR) and it's cancelled (`syncPrPreview` in `household/src/github/handlers/pulls.ts`).
+Applying the label needs write/triage access, which is the gate — we only run a
+PR's code (install + dev server) on a Member when a maintainer asks for it. **Fork
+PRs are never previewed** (their branch isn't on our origin, and running
+untrusted fork code is out of scope). New commits to the branch restart the
+preview automatically (the push handler).
+
 The Member then (see `member/src/tasks/preview.ts`):
 
 1. checks out the branch into a throwaway worktree (`checkoutBranch` in `workspace.ts`),

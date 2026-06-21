@@ -106,6 +106,19 @@ export async function handlePullRequestEvent(ctx: PullsEventCtx): Promise<void> 
 	const { action, pull_request: pr } = parsed.value
 	if (!pr) return
 
+	// Preview-on-PR (label-driven) is independent of whether a Night task owns
+	// this PR — a human's PR has none — so handle it before the task lookup
+	// below short-circuits.
+	if (
+		action === 'opened' ||
+		action === 'reopened' ||
+		action === 'labeled' ||
+		action === 'unlabeled' ||
+		action === 'closed'
+	) {
+		syncPrPreview(ctx, pr)
+	}
+
 	const task = findTaskForPr(ctx.taskStore, ctx.repo, pr)
 	if (!task) {
 		ctx.logger.debug(
@@ -381,6 +394,87 @@ export async function handlePushEvent(ctx: PullsEventCtx): Promise<void> {
 	)
 	for (const task of openPrs) {
 		enqueueRebaseForTask(ctx, task, 'push')
+	}
+}
+
+/**
+ * Label that opts a (same-repo) PR into a live preview. Applying it requires
+ * write/triage access — i.e. a trusted collaborator — which is the gate: we
+ * only ever run a PR's code (install + dev server) on a Member when a
+ * maintainer asked for it. Fork PRs are never previewed (their branch isn't on
+ * our origin, and running untrusted fork code is out of scope).
+ */
+const PREVIEW_LABEL = 'preview'
+
+/** Preview task statuses that count as "already covering this branch". */
+const LIVE_PREVIEW_STATUSES: readonly TaskRecord['status'][] = ['queued', 'assigned', 'in-progress']
+
+function prHasPreviewLabel(pr: PullRequest): boolean {
+	return (pr.labels ?? []).some((l) => l.name === PREVIEW_LABEL)
+}
+
+/** A PR whose head lives on a different repo (a fork) — never previewed. */
+function prIsFork(ctx: PullsEventCtx, pr: PullRequest): boolean {
+	const headRepo = pr.head.repo?.full_name
+	return !!headRepo && headRepo !== ctx.repo
+}
+
+/**
+ * Reconcile a PR's preview to its desired state: a labelled, open, same-repo PR
+ * should have a live preview; otherwise it shouldn't. Idempotent — safe to call
+ * on every relevant `pull_request` event.
+ */
+export function syncPrPreview(ctx: PullsEventCtx, pr: PullRequest): void {
+	if (prIsFork(ctx, pr)) return
+	const branch = pr.head.ref
+	const wantsPreview = (pr.state ?? 'open') !== 'closed' && prHasPreviewLabel(pr)
+	if (wantsPreview) ensurePreviewEnqueued(ctx, pr)
+	else cancelPreviewsForBranch(ctx, branch)
+}
+
+function ensurePreviewEnqueued(ctx: PullsEventCtx, pr: PullRequest): void {
+	const branch = pr.head.ref
+	const existing = ctx.taskStore
+		.list({ repo: ctx.repo, status: [...LIVE_PREVIEW_STATUSES] })
+		.some((t) => t.kind === 'preview' && previewBranchOf(t) === branch)
+	if (existing) return
+
+	const created = ctx.taskStore.create({
+		kind: 'preview',
+		title: `Preview: PR #${pr.number}`,
+		description: `Live preview of \`${branch}\` (PR ${pr.html_url}).`,
+		repo: ctx.repo,
+		metadata: { branch, pr_url: pr.html_url, pr_number: pr.number },
+	})
+	ctx.logger.info(
+		{ taskId: created.id, branch, pr: pr.number },
+		'preview enqueued for labelled PR',
+	)
+	ctx.dispatcher.tryDispatchAll()
+}
+
+function cancelPreviewsForBranch(ctx: PullsEventCtx, branch: string): void {
+	const previews = ctx.taskStore
+		.list({ repo: ctx.repo, status: [...LIVE_PREVIEW_STATUSES] })
+		.filter((t) => t.kind === 'preview' && previewBranchOf(t) === branch)
+	for (const task of previews) {
+		const conn = task.assignedSessionId
+			? ctx.registry.findConnectionForTask(task.assignedSessionId, task.assignedMemberId)
+			: null
+		if (conn) {
+			conn.send({ type: 'task.cancel', task_id: task.id, reason: 'preview_label_removed' })
+		} else {
+			ctx.taskStore.transition(task.id, [task.status], 'failed', {
+				failureReason: 'preview_label_removed',
+			})
+			ctx.taskStore.clearAssignment(task.id)
+		}
+	}
+	if (previews.length > 0) {
+		ctx.logger.info(
+			{ branch, count: previews.length },
+			'previews cancelled (PR unlabelled/closed)',
+		)
 	}
 }
 

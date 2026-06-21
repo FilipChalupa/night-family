@@ -17,6 +17,7 @@ import {
 	handlePullRequestReviewEvent,
 	handlePushEvent,
 	restartPreviewsForBranch,
+	syncPrPreview,
 	sweepStalePrsForRebase,
 } from './pulls.ts'
 
@@ -534,5 +535,92 @@ describe('restartPreviewsForBranch — preview branch advance', () => {
 			.list({ status: ['queued'] })
 			.filter((t) => t.kind === 'preview' && t.metadata?.['branch'] === 'feature-x')
 		expect(queued).toHaveLength(1)
+	})
+})
+
+describe('syncPrPreview — preview-on-PR via label', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	const pr = (opts: {
+		number?: number
+		ref?: string
+		labels?: string[]
+		state?: 'open' | 'closed'
+		headRepo?: string | null
+	}) => ({
+		number: opts.number ?? 1,
+		html_url: `https://github.com/${REPO}/pull/${opts.number ?? 1}`,
+		state: opts.state ?? 'open',
+		labels: (opts.labels ?? []).map((name) => ({ name })),
+		head: {
+			ref: opts.ref ?? 'feature-x',
+			sha: 'abc',
+			repo: opts.headRepo === null ? null : { full_name: opts.headRepo ?? REPO },
+		},
+		base: { ref: 'main' },
+	})
+
+	const previews = () => rig.taskStore.list({ repo: REPO }).filter((t) => t.kind === 'preview')
+
+	it('enqueues a preview for a labelled, same-repo PR', () => {
+		syncPrPreview(ctxFor(rig, REPO, {}), pr({ labels: ['preview'], ref: 'feature-x' }))
+		const p = previews()
+		expect(p).toHaveLength(1)
+		expect(p[0]!.status).toBe('queued')
+		expect(p[0]!.metadata).toMatchObject({ branch: 'feature-x', pr_number: 1 })
+		expect(rig.tryDispatchAll).toHaveBeenCalled()
+	})
+
+	it('does nothing for a PR without the preview label', () => {
+		syncPrPreview(ctxFor(rig, REPO, {}), pr({ labels: ['bug'] }))
+		expect(previews()).toHaveLength(0)
+	})
+
+	it('never previews a fork PR even when labelled', () => {
+		syncPrPreview(ctxFor(rig, REPO, {}), pr({ labels: ['preview'], headRepo: 'someone/fork' }))
+		expect(previews()).toHaveLength(0)
+	})
+
+	it('is idempotent — a second labelled event does not stack previews', () => {
+		const ctx = ctxFor(rig, REPO, {})
+		syncPrPreview(ctx, pr({ labels: ['preview'] }))
+		syncPrPreview(ctx, pr({ labels: ['preview'] }))
+		expect(previews()).toHaveLength(1)
+	})
+
+	it('cancels a running preview when the label is removed', () => {
+		const t = rig.taskStore.create({
+			kind: 'preview',
+			title: 'Preview feature-x',
+			description: '',
+			repo: REPO,
+			metadata: { branch: 'feature-x' },
+		})
+		rig.taskStore.transition(t.id, ['queued'], 'in-progress')
+
+		syncPrPreview(ctxFor(rig, REPO, {}), pr({ labels: [], ref: 'feature-x' }))
+
+		expect(rig.taskStore.get(t.id)!.status).toBe('failed')
+	})
+
+	it('cancels the preview when the PR closes', () => {
+		const t = rig.taskStore.create({
+			kind: 'preview',
+			title: 'Preview feature-x',
+			description: '',
+			repo: REPO,
+			metadata: { branch: 'feature-x' },
+		})
+		rig.taskStore.transition(t.id, ['queued'], 'in-progress')
+
+		syncPrPreview(ctxFor(rig, REPO, {}), pr({ labels: ['preview'], state: 'closed' }))
+
+		expect(rig.taskStore.get(t.id)!.status).toBe('failed')
 	})
 })
