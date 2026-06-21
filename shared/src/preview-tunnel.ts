@@ -82,10 +82,16 @@ export type HouseholdToMemberTunnel =
 
 // ─── Member → Household (registration + the response) ───────────────────────
 
-/** First frame the Member sends, claiming which member this socket serves. */
+/**
+ * First frame the Member sends. It carries the Member's live control-plane
+ * `session_id` (issued in the `/ws/member` handshake.ack), NOT a self-asserted
+ * member id: the Household looks the session up and derives the member from it,
+ * so a token holder can't claim to be a different member and hijack its preview
+ * traffic.
+ */
 export interface TunnelHello {
 	t: 'hello'
-	member_id: string
+	session_id: string
 }
 export interface TunnelResHead {
 	t: 'res.head'

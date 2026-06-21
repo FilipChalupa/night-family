@@ -58,7 +58,12 @@ export interface PreviewTunnelOpts {
 	/** Same base URL the Member uses for the control WS (`ws(s)://…`). */
 	householdUrl: string
 	accessToken: string
-	memberId: string
+	/**
+	 * The Member's live control-plane session id (or null while the main
+	 * connection is down) — sent in `hello` so the Household can bind this
+	 * tunnel to a verified member rather than a self-asserted id.
+	 */
+	getSessionId: () => string | null
 	/** Wakes an idle (sleeping) preview before proxying a request to it. */
 	waker: PreviewWaker
 	logger: Logger
@@ -117,7 +122,7 @@ export class PreviewTunnel {
 
 			ws.on('open', () => {
 				this.opts.logger.info('preview tunnel open')
-				this.send({ t: 'hello', member_id: this.opts.memberId })
+				void this.sendHello(ws)
 			})
 			ws.on('message', (data: Buffer, isBinary: boolean) => {
 				if (isBinary) this.handleData(data)
@@ -137,6 +142,23 @@ export class PreviewTunnel {
 	private send(frame: MemberToHouseholdTunnel): void {
 		const ws = this.ws
 		if (ws && ws.readyState === WebSocket.OPEN) ws.send(encodeTunnel(frame))
+	}
+
+	/** Wait for the control-plane session, then identify this tunnel by it. */
+	private async sendHello(ws: WebSocket): Promise<void> {
+		const deadline = Date.now() + 30_000
+		while (!this.shuttingDown && this.ws === ws) {
+			const sessionId = this.opts.getSessionId()
+			if (sessionId) {
+				this.send({ t: 'hello', session_id: sessionId })
+				return
+			}
+			if (Date.now() > deadline) break
+			await sleep(250)
+		}
+		// No session yet — close so the reconnect loop retries once the main
+		// control link is established.
+		if (this.ws === ws && ws.readyState === WebSocket.OPEN) ws.close(4401, 'no_session')
 	}
 
 	private sendData(bytes: Uint8Array): void {

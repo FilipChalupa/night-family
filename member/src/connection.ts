@@ -61,11 +61,18 @@ export class HouseholdConnection {
 	 * immutable startup config.
 	 */
 	private currentRepos: string[]
+	/** Household-issued session id for the live connection; null when down. */
+	private currentSessionId: string | null = null
 	private readonly state: State = {
 		status: 'idle',
 		currentTask: null,
 		lastServerActivity: Date.now(),
 		refreshingRepos: null,
+	}
+
+	/** The live control-plane session id, or null while disconnected. */
+	get sessionId(): string | null {
+		return this.currentSessionId
 	}
 
 	constructor(
@@ -149,6 +156,7 @@ export class HouseholdConnection {
 				this.logger.info({ code, reason: reason.toString() || undefined }, 'ws closed')
 				this.clearTimers()
 				this.ws = null
+				this.currentSessionId = null
 				resolve()
 			})
 
@@ -194,6 +202,7 @@ export class HouseholdConnection {
 	private async handleServerMessage(msg: HouseholdToMember): Promise<void> {
 		switch (msg.type) {
 			case 'handshake.ack':
+				this.currentSessionId = msg.session_id
 				this.logger.info(
 					{
 						household: msg.household_name,

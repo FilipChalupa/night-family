@@ -85,7 +85,7 @@ const previewTunnel = config.skills.includes('preview')
 	? new PreviewTunnel({
 			householdUrl: config.householdUrl,
 			accessToken: config.householdAccessToken,
-			memberId: config.memberId,
+			getSessionId: () => connection?.sessionId ?? null,
 			waker: previewWaker,
 			logger: logger.child({ component: 'preview-tunnel' }),
 		})

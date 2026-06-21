@@ -29,6 +29,7 @@ import {
 } from '@night/shared'
 import type { Logger } from 'pino'
 import type { TaskStatus } from '@night/shared'
+import type { MemberRegistry } from '../members/registry.ts'
 import type { TaskStore } from '../tasks/store.ts'
 import type { TokenStore } from '../tokens/auth.ts'
 import { previewPortsOf } from './proxy.ts'
@@ -336,6 +337,7 @@ export class PreviewTunnelHub {
 export interface PreviewTunnelWsDeps {
 	hub: PreviewTunnelHub
 	tokens: TokenStore
+	registry: MemberRegistry
 	logger: Logger
 }
 
@@ -368,7 +370,16 @@ export function createPreviewTunnelHandler(deps: PreviewTunnelWsDeps) {
 				const frame = decodeTunnel<MemberToHouseholdTunnel>(data)
 				if (!frame) return
 				if (frame.t === 'hello') {
-					memberId = frame.member_id
+					// Derive the member from a live control-plane session — never
+					// trust a self-asserted id, so a token holder can't register as
+					// (and hijack the traffic of) a different member.
+					const member = deps.registry.get(frame.session_id)
+					if (!member) {
+						deps.logger.warn('preview tunnel hello with unknown session — closing')
+						ws.close(4401, 'invalid_session')
+						return
+					}
+					memberId = member.memberId
 					deps.hub.register(memberId, (out) =>
 						ws.send(typeof out === 'string' ? out : new Uint8Array(out)),
 					)

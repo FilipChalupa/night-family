@@ -83,7 +83,7 @@ describe('PreviewTunnel (real sockets)', () => {
 		const tunnel = new PreviewTunnel({
 			householdUrl: `ws://127.0.0.1:${housePort}`,
 			accessToken: 'tok',
-			memberId: 'm1',
+			getSessionId: () => 'sess-1',
 			waker: new PreviewWaker(),
 			logger: silentLogger,
 		})

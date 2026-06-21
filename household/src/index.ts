@@ -238,6 +238,7 @@ app.get(
 		createPreviewTunnelHandler({
 			hub: previewTunnelHub,
 			tokens,
+			registry,
 			logger: logger.child({ component: 'ws.preview' }),
 		}),
 	),
