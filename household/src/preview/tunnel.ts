@@ -45,6 +45,14 @@ const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set([
 /** How long a proxied request waits for the Member's first response frame. */
 const HEAD_TIMEOUT_MS = 30_000
 
+/**
+ * Once the response is streaming, how long to wait between body frames before
+ * giving up. Closes the gap where a Member stays connected but its dev server
+ * stalls mid-response (or the tunnel quietly stops delivering): without this
+ * the browser would hang until its own timeout.
+ */
+const BODY_IDLE_TIMEOUT_MS = 60_000
+
 interface StreamHandlers {
 	onHead: (status: number, headers: Record<string, string>, setCookies: string[]) => void
 	onData: (bytes: Uint8Array) => void
@@ -255,11 +263,33 @@ export class PreviewTunnelHub {
 			}, HEAD_TIMEOUT_MS)
 			timer.unref()
 
+			// Idle watchdog for the streaming body — reset on every frame, fires
+			// if the Member goes quiet mid-response without an end/error.
+			let bodyTimer: NodeJS.Timeout | null = null
+			const clearBodyTimer = () => {
+				if (bodyTimer) clearTimeout(bodyTimer)
+				bodyTimer = null
+			}
+			const armBodyTimer = () => {
+				clearBodyTimer()
+				bodyTimer = setTimeout(() => {
+					tunnel.streams.delete(id)
+					tunnel.send(encodeTunnel({ t: 'req.abort', id }))
+					try {
+						controller?.error(new Error('preview stalled mid-response'))
+					} catch {
+						/* already settled */
+					}
+				}, BODY_IDLE_TIMEOUT_MS)
+				bodyTimer.unref()
+			}
+
 			tunnel.streams.set(id, {
 				onHead: (status, headers, setCookies) => {
 					if (resolved) return
 					resolved = true
 					clearTimeout(timer)
+					armBodyTimer()
 					resolve(
 						new Response(stream, {
 							status,
@@ -268,6 +298,7 @@ export class PreviewTunnelHub {
 					)
 				},
 				onData: (bytes) => {
+					armBodyTimer()
 					try {
 						controller?.enqueue(bytes)
 						if (!paused && controller && (controller.desiredSize ?? 1) <= 0) {
@@ -279,6 +310,7 @@ export class PreviewTunnelHub {
 					}
 				},
 				onEnd: () => {
+					clearBodyTimer()
 					try {
 						controller?.close()
 					} catch {
@@ -287,6 +319,7 @@ export class PreviewTunnelHub {
 					tunnel.streams.delete(id)
 				},
 				onError: (message) => {
+					clearBodyTimer()
 					tunnel.streams.delete(id)
 					if (!resolved) {
 						resolved = true

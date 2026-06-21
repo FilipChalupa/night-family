@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Logger } from 'pino'
 import {
 	DATA_REQ,
@@ -82,6 +82,35 @@ describe('PreviewTunnelHub', () => {
 		expect(resp.status).toBe(200)
 		expect(resp.headers.get('content-type')).toBe('text/html')
 		expect(await resp.text()).toBe('<!doctype html>')
+	})
+
+	it('errors the body stream and aborts when the member stalls mid-response', async () => {
+		vi.useFakeTimers()
+		try {
+			const { hub, controls } = setup()
+			const respPromise = hub.proxy('m1', {
+				method: 'GET',
+				path: '/',
+				headers: {},
+				port: 3000,
+				body: null,
+			})
+			const id = (controls().find((f) => f.t === 'req.head') as { id: string }).id
+
+			hub.handleMemberFrame('m1', { t: 'res.head', id, status: 200, headers: {} })
+			hub.handleMemberData('m1', encodeDataFrame(DATA_RES, id, bytes('partial')))
+			const resp = await respPromise
+			const reader = resp.body!.getReader()
+			const closed = reader.closed.catch((e: Error) => e) // observe the error
+			await reader.read() // 'partial'
+
+			// Member goes silent — no res.end. Past the idle window the stream errors.
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(String(await closed)).toContain('stalled')
+			expect(controls().some((f) => f.t === 'req.abort')).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('returns 503 when the member has no tunnel', async () => {
