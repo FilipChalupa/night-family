@@ -15,6 +15,7 @@ import { mountPreviewProxy } from './preview/proxy.ts'
 import {
 	PreviewTunnelHub,
 	createPreviewTunnelHandler,
+	createPreviewWsTunnelHandler,
 	previewHostMiddleware,
 } from './preview/tunnel.ts'
 import { RepoBindingStore } from './github/bindings.ts'
@@ -401,6 +402,23 @@ const webDistCandidates = [
 	process.env['WEB_DIST_DIR'],
 	join(__dirname, '..', 'web', 'dist'),
 ].filter((p): p is string => !!p)
+// Preview HMR: bridge browser WebSocket upgrades on a preview subdomain to the
+// owning Member's dev server. Catch-all, registered just before the static UI;
+// it only upgrades preview-host requests and passes everything else through.
+if (config.previewsDomain) {
+	app.get(
+		'*',
+		upgradeWebSocket(
+			createPreviewWsTunnelHandler({
+				hub: previewTunnelHub,
+				taskStore,
+				previewsDomain: config.previewsDomain,
+				logger: logger.child({ component: 'preview.ws' }),
+			}),
+		),
+	)
+}
+
 mountStaticUi(app, webDistCandidates, logger)
 
 const server = serve(

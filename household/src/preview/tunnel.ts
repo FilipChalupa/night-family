@@ -44,9 +44,17 @@ interface StreamHandlers {
 	onError: (message: string) => void
 }
 
+/** The browser side of a bridged preview WebSocket (HMR). */
+interface WsStream {
+	sendText: (text: string) => void
+	sendBinary: (bytes: Uint8Array) => void
+	close: (code?: number, reason?: string) => void
+}
+
 interface MemberTunnel {
 	send: (frame: TunnelFrame) => void
 	streams: Map<string, StreamHandlers>
+	wsStreams: Map<string, WsStream>
 }
 
 /**
@@ -61,7 +69,7 @@ export class PreviewTunnelHub {
 
 	register(memberId: string, send: (frame: TunnelFrame) => void): void {
 		// A re-register (reconnect) supersedes the old socket's streams.
-		this.members.set(memberId, { send, streams: new Map() })
+		this.members.set(memberId, { send, streams: new Map(), wsStreams: new Map() })
 		this.logger.info({ memberId }, 'preview tunnel registered')
 	}
 
@@ -69,6 +77,7 @@ export class PreviewTunnelHub {
 		const tunnel = this.members.get(memberId)
 		if (!tunnel) return
 		for (const s of tunnel.streams.values()) s.onError('tunnel closed')
+		for (const ws of tunnel.wsStreams.values()) ws.close(1011, 'tunnel closed')
 		this.members.delete(memberId)
 		this.logger.info({ memberId }, 'preview tunnel unregistered')
 	}
@@ -77,26 +86,94 @@ export class PreviewTunnelHub {
 		return this.members.has(memberId)
 	}
 
-	/** Route a `res.*` frame from a Member back to its waiting stream. */
-	handleResFrame(memberId: string, frame: MemberToHouseholdTunnel): void {
+	/** Route a frame from a Member back to its waiting HTTP stream or WS bridge. */
+	handleMemberFrame(memberId: string, frame: MemberToHouseholdTunnel): void {
 		if (frame.t === 'hello') return
 		const tunnel = this.members.get(memberId)
-		const handlers = tunnel?.streams.get(frame.id)
-		if (!handlers) return
+		if (!tunnel) return
 		switch (frame.t) {
 			case 'res.head':
-				handlers.onHead(frame.status, frame.headers)
+				tunnel.streams.get(frame.id)?.onHead(frame.status, frame.headers)
 				break
 			case 'res.data':
-				handlers.onData(new Uint8Array(Buffer.from(frame.b64, 'base64')))
+				tunnel.streams
+					.get(frame.id)
+					?.onData(new Uint8Array(Buffer.from(frame.b64, 'base64')))
 				break
 			case 'res.end':
-				handlers.onEnd()
+				tunnel.streams.get(frame.id)?.onEnd()
 				break
 			case 'res.error':
-				handlers.onError(frame.message)
+				tunnel.streams.get(frame.id)?.onError(frame.message)
+				break
+			case 'ws.msg': {
+				const ws = tunnel.wsStreams.get(frame.id)
+				if (!ws) break
+				const buf = Buffer.from(frame.b64, 'base64')
+				if (frame.binary) ws.sendBinary(new Uint8Array(buf))
+				else ws.sendText(buf.toString('utf8'))
+				break
+			}
+			case 'ws.close':
+				tunnel.wsStreams.get(frame.id)?.close(frame.code, frame.reason)
+				tunnel.wsStreams.delete(frame.id)
+				break
+			case 'ws.error':
+				tunnel.wsStreams.get(frame.id)?.close(1011, frame.message.slice(0, 120))
+				tunnel.wsStreams.delete(frame.id)
 				break
 		}
+	}
+
+	// ─── WebSocket bridge (HMR) ─────────────────────────────────────────────
+
+	/**
+	 * Open a bridged preview WebSocket: register the browser side and ask the
+	 * Member to dial its local dev-server socket. Returns the stream id, or null
+	 * if the member's tunnel is gone (caller should close the browser socket).
+	 */
+	openWsStream(
+		memberId: string,
+		browser: WsStream,
+		opts: { port: number; path: string; headers: Record<string, string>; protocols: string[] },
+	): string | null {
+		const tunnel = this.members.get(memberId)
+		if (!tunnel) return null
+		const id = `w${this.nextId++}`
+		tunnel.wsStreams.set(id, browser)
+		tunnel.send({
+			t: 'ws.open',
+			id,
+			port: opts.port,
+			path: opts.path,
+			headers: opts.headers,
+			...(opts.protocols.length > 0 ? { protocols: opts.protocols } : {}),
+		})
+		return id
+	}
+
+	/** Forward a browser → dev-server WebSocket message over the tunnel. */
+	wsFromBrowser(memberId: string, id: string, data: string | ArrayBuffer | Uint8Array): void {
+		const tunnel = this.members.get(memberId)
+		if (!tunnel) return
+		let buf: Buffer
+		let binary: boolean
+		if (typeof data === 'string') {
+			buf = Buffer.from(data, 'utf8')
+			binary = false
+		} else {
+			buf = Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data)
+			binary = true
+		}
+		tunnel.send({ t: 'ws.msg', id, b64: buf.toString('base64'), binary })
+	}
+
+	/** The browser closed its side — tell the Member and drop the bridge. */
+	closeWsFromBrowser(memberId: string, id: string, code?: number, reason?: string): void {
+		const tunnel = this.members.get(memberId)
+		if (!tunnel) return
+		tunnel.wsStreams.delete(id)
+		tunnel.send({ t: 'ws.close', id, ...(code ? { code } : {}), ...(reason ? { reason } : {}) })
 	}
 
 	/**
@@ -230,7 +307,7 @@ export function createPreviewTunnelHandler(deps: PreviewTunnelWsDeps) {
 					deps.hub.register(memberId, (f) => ws.send(encodeTunnel(f)))
 					return
 				}
-				if (memberId) deps.hub.handleResFrame(memberId, frame)
+				if (memberId) deps.hub.handleMemberFrame(memberId, frame)
 			},
 			onClose: () => {
 				if (memberId) deps.hub.unregister(memberId)
@@ -260,6 +337,9 @@ export function previewHostMiddleware(deps: PreviewHostDeps): MiddlewareHandler 
 		const host = c.req.header('host') ?? ''
 		const parsed = parsePreviewHost(host, deps.previewsDomain)
 		if (!parsed) return next()
+		// WebSocket upgrades (HMR) are handled by the upgrade route, not here —
+		// let them fall through.
+		if (c.req.header('upgrade')?.toLowerCase() === 'websocket') return next()
 
 		const task = deps.taskStore.get(parsed.taskId)
 		if (!task) return c.text('No such preview.', 404)
@@ -283,6 +363,75 @@ export function previewHostMiddleware(deps: PreviewHostDeps): MiddlewareHandler 
 			port: parsed.port,
 			bodyBytes,
 		})
+	}
+}
+
+/**
+ * Browser-facing WebSocket upgrade handler (HMR). Registered as a catch-all
+ * `app.get('*', upgradeWebSocket(...))`: for a preview-subdomain upgrade it
+ * bridges the browser socket to the Member's local dev-server socket over the
+ * tunnel; anything else (or a non-preview host) is closed immediately.
+ *
+ * Note: the Household accepts the browser upgrade without echoing a
+ * subprotocol (the framework doesn't expose that), but forwards the requested
+ * subprotocols to the Member's local connection — so Vite-style `vite-hmr`
+ * negotiation succeeds on the dev-server side. Subprotocol-strict browser
+ * clients may still warn; webpack/Next HMR (no subprotocol) is unaffected.
+ */
+export function createPreviewWsTunnelHandler(deps: PreviewHostDeps) {
+	return (c: Context) => {
+		const parsed = parsePreviewHost(c.req.header('host') ?? '', deps.previewsDomain)
+		let target: { memberId: string; port: number; path: string } | null = null
+		if (parsed) {
+			const task = deps.taskStore.get(parsed.taskId)
+			const memberId = task?.assignedMemberId ?? null
+			if (
+				task &&
+				ACTIVE_STATUSES.has(task.status) &&
+				previewPortsOf(task).some((p) => p.port === parsed.port) &&
+				memberId &&
+				deps.hub.hasMember(memberId)
+			) {
+				const url = new URL(c.req.url)
+				target = { memberId, port: parsed.port, path: url.pathname + url.search }
+			}
+		}
+		const headers = headerRecord(c.req.raw.headers)
+		const protocols = (c.req.header('sec-websocket-protocol') ?? '')
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean)
+
+		let streamId: string | null = null
+		return {
+			onOpen: (_evt: unknown, ws: WSContext<unknown>) => {
+				if (!target) {
+					ws.close(1011, 'no such preview')
+					return
+				}
+				streamId = deps.hub.openWsStream(
+					target.memberId,
+					{
+						sendText: (text) => ws.send(text),
+						sendBinary: (bytes) => ws.send(new Uint8Array(bytes)),
+						close: (code, reason) => ws.close(code, reason),
+					},
+					{ port: target.port, path: target.path, headers, protocols },
+				)
+				if (!streamId) ws.close(1011, 'preview offline')
+			},
+			onMessage: (evt: { data: string | ArrayBuffer | Uint8Array }) => {
+				if (target && streamId) deps.hub.wsFromBrowser(target.memberId, streamId, evt.data)
+			},
+			onClose: (evt: { code?: number; reason?: string }) => {
+				if (target && streamId)
+					deps.hub.closeWsFromBrowser(target.memberId, streamId, evt.code, evt.reason)
+			},
+			onError: () => {
+				if (target && streamId)
+					deps.hub.closeWsFromBrowser(target.memberId, streamId, 1011, 'error')
+			},
+		}
 	}
 }
 

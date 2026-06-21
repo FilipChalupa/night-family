@@ -237,17 +237,23 @@ Traefik stays static (one wildcard router → Household); the Household owns the
 dynamic `(task, port) → live Member session` mapping it already has from
 `metadata.preview_ports` + `task.assignedSessionId`.
 
-**Status:** the HTTP tunnel is **implemented** (phase 1). Set
+**Status:** implemented — HTTP **and** WebSocket/HMR both tunnel. Set
 `PREVIEW_PUBLISH_MODE=subdomain` + `PREVIEWS_DOMAIN` on the Member and
 `PREVIEWS_DOMAIN` on the Household, deploy behind Traefik (below), and previews
-load over the tunnel. **HMR / WebSocket upgrades are not tunnelled yet** (phase 2) — the page loads and assets stream, but live-reload won't reconnect until
-that lands; manual refresh works. The `household` redirect mode above still
-exists as the same-network alternative.
+load — assets and live-reload — over the tunnel. The `household` redirect mode
+above still exists as the same-network alternative.
+
+Caveat: the Household accepts the browser's HMR upgrade without echoing a
+subprotocol (the framework doesn't expose that), but forwards the offered
+subprotocols to the dev server. Webpack/Next HMR (no subprotocol) is unaffected;
+a subprotocol-strict client (Vite's `vite-hmr`) may warn — fix is a small
+`handleProtocols` patch if it bites.
 
 How it's wired: the Member (preview skill) opens a second WS `/ws/preview`
 (`member/src/tasks/preview-tunnel.ts`); the Household intercepts preview-subdomain
-Hosts and multiplexes the request/response over it
-(`household/src/preview/tunnel.ts`).
+Hosts (`household/src/preview/tunnel.ts`) — HTTP via a host middleware, WS
+upgrades via a catch-all `upgradeWebSocket` route — and multiplexes each over the
+tunnel, bridging WS frames to a Member-local dev-server socket.
 
 #### Deploying behind Traefik
 
@@ -273,9 +279,9 @@ labels:
 ```
 
 (Traefik v2 uses the named form `HostRegexp(`{sub:[a-z0-9-]+}.previews.night.example.com`)`.)
-Traefik forwards `Upgrade` headers on HTTP routers by default, so once the
-Household tunnels WebSockets (phase 2) HMR will pass straight through — no extra
-Traefik config needed.
+Traefik forwards `Upgrade` headers on HTTP routers by default, so HMR WebSockets
+reach the Household (which tunnels them on to the Member) with no extra Traefik
+config.
 
 Set `PREVIEWS_DOMAIN=previews.night.example.com` on **both** the Household (to
 match/validate the Host) and the Member (to build the URL), and

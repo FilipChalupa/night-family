@@ -18,10 +18,17 @@ import {
 	type HouseholdToMemberTunnel,
 	type MemberToHouseholdTunnel,
 	type TunnelReqHead,
+	type TunnelWsOpen,
 } from '@night/shared'
 import type { Logger } from 'pino'
 
 const BACKOFF_STEPS_MS = [1_000, 5_000, 30_000, 60_000]
+
+interface WsBridge {
+	socket: WebSocket
+	open: boolean
+	queue: Array<{ buf: Buffer; binary: boolean }>
+}
 
 export interface PreviewTunnelOpts {
 	/** Same base URL the Member uses for the control WS (`ws(s)://…`). */
@@ -36,6 +43,8 @@ export class PreviewTunnel {
 	private shuttingDown = false
 	/** In-flight proxied requests, by stream id, so body/abort frames can find them. */
 	private readonly inflight = new Map<string, ClientRequest>()
+	/** Bridged WebSocket connections (HMR), by stream id. */
+	private readonly wsBridges = new Map<string, WsBridge>()
 
 	constructor(private readonly opts: PreviewTunnelOpts) {}
 
@@ -62,6 +71,8 @@ export class PreviewTunnel {
 		this.shuttingDown = true
 		for (const req of this.inflight.values()) req.destroy()
 		this.inflight.clear()
+		for (const bridge of this.wsBridges.values()) bridge.socket.close()
+		this.wsBridges.clear()
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, 'shutdown')
 		this.ws = null
 	}
@@ -83,6 +94,8 @@ export class PreviewTunnel {
 				this.ws = null
 				for (const req of this.inflight.values()) req.destroy()
 				this.inflight.clear()
+				for (const bridge of this.wsBridges.values()) bridge.socket.close()
+				this.wsBridges.clear()
 				resolve()
 			})
 			ws.on('error', (err) => {
@@ -119,7 +132,70 @@ export class PreviewTunnel {
 				}
 				break
 			}
+			case 'ws.open':
+				this.openWsBridge(frame)
+				break
+			case 'ws.msg': {
+				const bridge = this.wsBridges.get(frame.id)
+				if (bridge) {
+					const buf = Buffer.from(frame.b64, 'base64')
+					if (bridge.open) bridge.socket.send(buf, { binary: frame.binary })
+					else bridge.queue.push({ buf, binary: frame.binary })
+				}
+				break
+			}
+			case 'ws.close': {
+				const bridge = this.wsBridges.get(frame.id)
+				bridge?.socket.close(frame.code, frame.reason)
+				this.wsBridges.delete(frame.id)
+				break
+			}
 		}
+	}
+
+	/**
+	 * Bridge a browser WebSocket (the Household holds the browser side) to a
+	 * Member-local one — the dev server's HMR socket. Messages the Household
+	 * forwards before the local socket finishes connecting are queued and
+	 * flushed on open.
+	 */
+	private openWsBridge(frame: TunnelWsOpen): void {
+		const headers = { ...frame.headers }
+		delete headers['host']
+		delete headers['connection']
+		delete headers['upgrade']
+		// The ws library sets these from the handshake itself; passing them
+		// through would corrupt the upstream upgrade.
+		for (const k of Object.keys(headers)) {
+			if (k.toLowerCase().startsWith('sec-websocket-')) delete headers[k]
+		}
+
+		const target = `ws://127.0.0.1:${frame.port}${frame.path}`
+		const socket = new WebSocket(target, frame.protocols ?? [], { headers })
+		const bridge: WsBridge = { socket, open: false, queue: [] }
+		this.wsBridges.set(frame.id, bridge)
+
+		socket.on('open', () => {
+			bridge.open = true
+			for (const m of bridge.queue) socket.send(m.buf, { binary: m.binary })
+			bridge.queue = []
+		})
+		socket.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+			const buf = Array.isArray(data)
+				? Buffer.concat(data)
+				: Buffer.isBuffer(data)
+					? data
+					: Buffer.from(data)
+			this.send({ t: 'ws.msg', id: frame.id, b64: buf.toString('base64'), binary: isBinary })
+		})
+		socket.on('close', (code: number, reason: Buffer) => {
+			this.send({ t: 'ws.close', id: frame.id, code, reason: reason.toString() })
+			this.wsBridges.delete(frame.id)
+		})
+		socket.on('error', (err: Error) => {
+			this.send({ t: 'ws.error', id: frame.id, message: err.message })
+			this.wsBridges.delete(frame.id)
+		})
 	}
 
 	private startRequest(frame: TunnelReqHead): void {

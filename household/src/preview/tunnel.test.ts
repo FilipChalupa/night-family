@@ -41,14 +41,14 @@ describe('PreviewTunnelHub', () => {
 		const id = (head as { id: string }).id
 
 		// Member answers.
-		hub.handleResFrame('m1', {
+		hub.handleMemberFrame('m1', {
 			t: 'res.head',
 			id,
 			status: 200,
 			headers: { 'content-type': 'text/html' },
 		})
-		hub.handleResFrame('m1', { t: 'res.data', id, b64: b64('<!doctype html>') })
-		hub.handleResFrame('m1', { t: 'res.end', id })
+		hub.handleMemberFrame('m1', { t: 'res.data', id, b64: b64('<!doctype html>') })
+		hub.handleMemberFrame('m1', { t: 'res.end', id })
 
 		const resp = await respPromise
 		expect(resp.status).toBe(200)
@@ -80,7 +80,7 @@ describe('PreviewTunnelHub', () => {
 			bodyBytes: null,
 		})
 		const id = (sent.find((f) => f.t === 'req.head') as { id: string }).id
-		hub.handleResFrame('m1', { t: 'res.error', id, message: 'ECONNREFUSED' })
+		hub.handleMemberFrame('m1', { t: 'res.error', id, message: 'ECONNREFUSED' })
 		const resp = await respPromise
 		expect(resp.status).toBe(502)
 	})
@@ -98,5 +98,61 @@ describe('PreviewTunnelHub', () => {
 		})
 		const data = sent.find((f) => f.t === 'req.data') as { b64: string } | undefined
 		expect(data?.b64).toBe(b64('hello'))
+	})
+
+	it('bridges a WebSocket: opens, relays both directions, and closes', () => {
+		const hub = new PreviewTunnelHub(silentLogger)
+		const sent: TunnelFrame[] = []
+		hub.register('m1', (f) => sent.push(f))
+
+		const browser = {
+			text: [] as string[],
+			binary: [] as Uint8Array[],
+			closed: null as number | null,
+		}
+		const id = hub.openWsStream(
+			'm1',
+			{
+				sendText: (t) => browser.text.push(t),
+				sendBinary: (b) => browser.binary.push(b),
+				close: (code) => {
+					browser.closed = code ?? 1000
+				},
+			},
+			{ port: 5173, path: '/', headers: {}, protocols: ['vite-hmr'] },
+		)
+		expect(id).not.toBeNull()
+		const open = sent.find((f) => f.t === 'ws.open')
+		expect(open).toMatchObject({ t: 'ws.open', port: 5173, path: '/', protocols: ['vite-hmr'] })
+
+		// Dev server → browser (text).
+		hub.handleMemberFrame('m1', {
+			t: 'ws.msg',
+			id: id!,
+			b64: b64('{"type":"connected"}'),
+			binary: false,
+		})
+		expect(browser.text).toEqual(['{"type":"connected"}'])
+
+		// Browser → dev server.
+		hub.wsFromBrowser('m1', id!, 'ping')
+		const up = sent.find((f) => f.t === 'ws.msg') as
+			| { b64: string; binary: boolean }
+			| undefined
+		expect(up).toMatchObject({ b64: b64('ping'), binary: false })
+
+		// Dev server closes → browser closed.
+		hub.handleMemberFrame('m1', { t: 'ws.close', id: id!, code: 1001 })
+		expect(browser.closed).toBe(1001)
+	})
+
+	it('returns null opening a WS stream for an offline member', () => {
+		const hub = new PreviewTunnelHub(silentLogger)
+		const id = hub.openWsStream(
+			'ghost',
+			{ sendText: () => {}, sendBinary: () => {}, close: () => {} },
+			{ port: 5173, path: '/', headers: {}, protocols: [] },
+		)
+		expect(id).toBeNull()
 	})
 })

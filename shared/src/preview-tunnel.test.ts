@@ -63,4 +63,16 @@ describe('encodeTunnel / decodeTunnel', () => {
 		expect(decodeTunnel(encodeTunnel(frame))).toEqual(frame)
 		expect(decodeTunnel('not json{')).toBeNull()
 	})
+
+	it('round-trips a ws.open frame with subprotocols', () => {
+		const frame = {
+			t: 'ws.open' as const,
+			id: 'w1',
+			port: 5173,
+			path: '/',
+			headers: { origin: 'https://x' },
+			protocols: ['vite-hmr'],
+		}
+		expect(decodeTunnel(encodeTunnel(frame))).toEqual(frame)
+	})
 })

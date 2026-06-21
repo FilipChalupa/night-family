@@ -40,7 +40,45 @@ export interface TunnelReqAbort {
 	id: string
 }
 
-export type HouseholdToMemberTunnel = TunnelReqHead | TunnelReqData | TunnelReqEnd | TunnelReqAbort
+// WebSocket upgrades (HMR) — phase 2. The browser↔Household socket is bridged
+// to a Member-local WebSocket. `ws.msg`/`ws.close` flow both directions.
+export interface TunnelWsOpen {
+	t: 'ws.open'
+	id: string
+	port: number
+	/** Path + query the browser upgraded on. */
+	path: string
+	headers: Record<string, string>
+	/** Subprotocols the browser offered (e.g. `vite-hmr`). */
+	protocols?: string[]
+}
+export interface TunnelWsMsg {
+	t: 'ws.msg'
+	id: string
+	b64: string
+	/** true = binary frame, false = text. */
+	binary: boolean
+}
+export interface TunnelWsClose {
+	t: 'ws.close'
+	id: string
+	code?: number
+	reason?: string
+}
+export interface TunnelWsError {
+	t: 'ws.error'
+	id: string
+	message: string
+}
+
+export type HouseholdToMemberTunnel =
+	| TunnelReqHead
+	| TunnelReqData
+	| TunnelReqEnd
+	| TunnelReqAbort
+	| TunnelWsOpen
+	| TunnelWsMsg
+	| TunnelWsClose
 
 // ─── Member → Household (registration + the response) ───────────────────────
 
@@ -76,6 +114,9 @@ export type MemberToHouseholdTunnel =
 	| TunnelResData
 	| TunnelResEnd
 	| TunnelResError
+	| TunnelWsMsg
+	| TunnelWsClose
+	| TunnelWsError
 
 export type TunnelFrame = HouseholdToMemberTunnel | MemberToHouseholdTunnel
 
