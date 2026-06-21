@@ -21,6 +21,11 @@ export interface HouseholdConfig {
 	 * Member over `/ws/preview`. `null` disables preview proxying.
 	 */
 	previewsDomain: string | null
+	/**
+	 * Tear down a preview after this many minutes with no proxied traffic
+	 * (`PREVIEW_IDLE_TTL_MINUTES`, default 30). 0 disables idle teardown.
+	 */
+	previewIdleTtlMinutes: number
 	logLevel: string
 	/**
 	 * How many parallel review jobs the dispatcher creates per `implement`
@@ -100,6 +105,7 @@ export function loadConfig(): HouseholdConfig {
 		githubOauth,
 		secretsKey: process.env['SECRETS_KEY'] ?? null,
 		previewsDomain: process.env['PREVIEWS_DOMAIN']?.trim() || null,
+		previewIdleTtlMinutes: optionalPositiveInt('PREVIEW_IDLE_TTL_MINUTES', 30),
 		logLevel: optional('LOG_LEVEL', 'info'),
 		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2),
 		selfReviewFallbackMs: optionalPositiveInt('SELF_REVIEW_FALLBACK_MS', 10 * 60_000),

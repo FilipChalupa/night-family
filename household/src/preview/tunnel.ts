@@ -386,12 +386,57 @@ export function createPreviewTunnelHandler(deps: PreviewTunnelWsDeps) {
 	}
 }
 
+// ─── Idle tracking ──────────────────────────────────────────────────────────
+
+/**
+ * Last-seen traffic per preview task, so the Household can tear down previews
+ * nobody is looking at. Touched by the host middleware (HTTP) and the WS
+ * upgrade handler (HMR pings keep an open preview alive).
+ */
+export class PreviewActivity {
+	private readonly last = new Map<string, number>()
+	touch(taskId: string, now: number = Date.now()): void {
+		this.last.set(taskId, now)
+	}
+	lastAt(taskId: string): number | undefined {
+		return this.last.get(taskId)
+	}
+	forget(taskId: string): void {
+		this.last.delete(taskId)
+	}
+	/** Drop entries for tasks no longer in `keep` (keeps the map bounded). */
+	retain(keep: ReadonlySet<string>): void {
+		for (const id of this.last.keys()) if (!keep.has(id)) this.last.delete(id)
+	}
+}
+
+/**
+ * Of the given tasks, the `preview` ones idle longer than `ttlMs`. Falls back to
+ * `updatedAt` (≈ when the preview last became ready) when no traffic has been
+ * recorded yet, so a preview nobody ever opened still ages out.
+ */
+export function idlePreviewTaskIds(
+	tasks: ReadonlyArray<{ id: string; kind: string; updatedAt: string }>,
+	activity: PreviewActivity,
+	ttlMs: number,
+	now: number = Date.now(),
+): string[] {
+	const out: string[] = []
+	for (const t of tasks) {
+		if (t.kind !== 'preview') continue
+		const last = activity.lastAt(t.id) ?? new Date(t.updatedAt).getTime()
+		if (now - last >= ttlMs) out.push(t.id)
+	}
+	return out
+}
+
 // ─── Host middleware ────────────────────────────────────────────────────────
 
 export interface PreviewHostDeps {
 	hub: PreviewTunnelHub
 	taskStore: TaskStore
 	previewsDomain: string
+	activity: PreviewActivity
 	logger: Logger
 }
 
@@ -418,6 +463,7 @@ export function previewHostMiddleware(deps: PreviewHostDeps): MiddlewareHandler 
 		if (!memberId || !deps.hub.hasMember(memberId)) {
 			return c.text('Preview server not connected.', 503)
 		}
+		deps.activity.touch(parsed.taskId)
 
 		const method = c.req.method
 		const body = method === 'GET' || method === 'HEAD' ? null : c.req.raw.body
@@ -474,6 +520,7 @@ export function createPreviewWsTunnelHandler(deps: PreviewHostDeps) {
 					ws.close(1011, 'no such preview')
 					return
 				}
+				if (parsed) deps.activity.touch(parsed.taskId)
 				streamId = deps.hub.openWsStream(
 					target.memberId,
 					{
@@ -486,6 +533,7 @@ export function createPreviewWsTunnelHandler(deps: PreviewHostDeps) {
 				if (!streamId) ws.close(1011, 'preview offline')
 			},
 			onMessage: (evt: { data: string | ArrayBuffer | Uint8Array }) => {
+				if (parsed) deps.activity.touch(parsed.taskId)
 				if (target && streamId) deps.hub.wsFromBrowser(target.memberId, streamId, evt.data)
 			},
 			onClose: (evt: { code?: number; reason?: string }) => {

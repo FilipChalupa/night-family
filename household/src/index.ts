@@ -13,9 +13,11 @@ import { openDb } from './db/index.ts'
 import { mountRepoBindingsApi } from './github/api.ts'
 import { mountPreviewProxy } from './preview/proxy.ts'
 import {
+	PreviewActivity,
 	PreviewTunnelHub,
 	createPreviewTunnelHandler,
 	createPreviewWsTunnelHandler,
+	idlePreviewTaskIds,
 	previewHostMiddleware,
 } from './preview/tunnel.ts'
 import { RepoBindingStore } from './github/bindings.ts'
@@ -169,6 +171,7 @@ nodeWs.wss.options.handleProtocols = (protocols) => protocols.values().next().va
 // request is tunnelled to the owning Member before any normal route or the
 // static UI sees it. No-op (pass-through) unless PREVIEWS_DOMAIN is set.
 const previewTunnelHub = new PreviewTunnelHub(logger.child({ component: 'preview.tunnel' }))
+const previewActivity = new PreviewActivity()
 if (config.previewsDomain) {
 	app.use(
 		'*',
@@ -176,6 +179,7 @@ if (config.previewsDomain) {
 			hub: previewTunnelHub,
 			taskStore,
 			previewsDomain: config.previewsDomain,
+			activity: previewActivity,
 			logger: logger.child({ component: 'preview.host' }),
 		}),
 	)
@@ -420,10 +424,38 @@ if (config.previewsDomain) {
 				hub: previewTunnelHub,
 				taskStore,
 				previewsDomain: config.previewsDomain,
+				activity: previewActivity,
 				logger: logger.child({ component: 'preview.ws' }),
 			}),
 		),
 	)
+}
+
+// Tear down previews nobody is looking at. Cancelling the task stops the dev
+// server (the PR section flips to "stopped"); freeing the Member for other
+// work. Disabled at TTL 0.
+if (config.previewsDomain && config.previewIdleTtlMinutes > 0) {
+	const idleTtlMs = config.previewIdleTtlMinutes * 60_000
+	const sweepIdlePreviews = () => {
+		const active = taskStore.list({ status: ['assigned', 'in-progress'] })
+		previewActivity.retain(new Set(active.filter((t) => t.kind === 'preview').map((t) => t.id)))
+		for (const id of idlePreviewTaskIds(active, previewActivity, idleTtlMs)) {
+			const task = taskStore.get(id)
+			if (!task) continue
+			const conn = task.assignedSessionId
+				? registry.findConnectionForTask(task.assignedSessionId, task.assignedMemberId)
+				: null
+			if (conn) {
+				conn.send({ type: 'task.cancel', task_id: id, reason: 'preview_idle' })
+			} else {
+				taskStore.transition(id, [task.status], 'failed', { failureReason: 'preview_idle' })
+				taskStore.clearAssignment(id)
+			}
+			previewActivity.forget(id)
+			logger.info({ taskId: id }, 'idle preview torn down')
+		}
+	}
+	setInterval(guardPeriodic('preview_idle_sweep', sweepIdlePreviews), 60_000).unref()
 }
 
 mountStaticUi(app, webDistCandidates, logger)

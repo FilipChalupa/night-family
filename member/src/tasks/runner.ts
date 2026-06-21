@@ -113,11 +113,16 @@ export class TaskRunner {
 		const ac = new AbortController()
 		this.abortController = ac
 
-		// Hard wallclock limit.
-		const wallclockTimer = setTimeout(() => {
-			ac.abort(new TaskTimeoutError(this.deps.limits.maxTaskDurationMinutes))
-		}, this.deps.limits.maxTaskDurationMinutes * 60_000)
-		wallclockTimer.unref()
+		// Hard wallclock limit — except `preview`, which is long-lived by design
+		// (it lives until cancelled via unlabel/close/push or Household idle
+		// sweep). A wallclock would silently kill an in-use preview.
+		const wallclockTimer =
+			task.kind === 'preview'
+				? null
+				: setTimeout(() => {
+						ac.abort(new TaskTimeoutError(this.deps.limits.maxTaskDurationMinutes))
+					}, this.deps.limits.maxTaskDurationMinutes * 60_000)
+		wallclockTimer?.unref()
 
 		const buffer = new EventBuffer(
 			task.taskId,
@@ -421,7 +426,7 @@ export class TaskRunner {
 				message: (err as Error).message,
 			})
 		} finally {
-			clearTimeout(wallclockTimer)
+			if (wallclockTimer) clearTimeout(wallclockTimer)
 			this.abortController = null
 			this.currentTaskId = null
 			// Drop the worktree to reclaim disk. Bare clone cache survives
@@ -617,6 +622,10 @@ export class TaskRunner {
 		await emit('log', { message: 'preview checkout ready', ref, sha: checkout.sha })
 
 		const previewLogger = this.deps.logger.child({ component: 'preview' })
+		// Keep a tail of dev-server output so a failed startup (install / build
+		// error) can be surfaced to Household instead of vanishing into the
+		// Member's debug log.
+		const recentOutput: string[] = []
 		let preview: RunningPreview | null = null
 		let annotatedPr = false
 		try {
@@ -628,8 +637,14 @@ export class TaskRunner {
 				port: primaryCfg.port,
 				readyTimeoutMs: this.deps.preview.readyTimeoutMs,
 				// Dev servers are chatty (HMR etc.) — keep their output in the
-				// Member log, not the Household event stream.
-				onLog: (line) => previewLogger.debug({ component: 'preview' }, line),
+				// Member log, not the Household event stream, but keep a tail.
+				onLog: (line) => {
+					previewLogger.debug({ component: 'preview' }, line)
+					recentOutput.push(line)
+					if (recentOutput.length > 40) recentOutput.shift()
+				},
+				onPhase: (phase, command) =>
+					void emit('log', { message: `preview ${phase}`, command }),
 			})
 
 			// A preview exposes a *list* of ports (the primary dev server plus any
@@ -713,6 +728,7 @@ export class TaskRunner {
 		} catch (err) {
 			return await this.fail(emit, null, 'preview_failed', {
 				message: (err as Error).message,
+				...(recentOutput.length > 0 ? { logs: recentOutput.slice(-20) } : {}),
 			})
 		} finally {
 			// Flip the PR's preview section to "stopped" before tearing down.

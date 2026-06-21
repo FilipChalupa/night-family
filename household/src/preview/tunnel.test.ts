@@ -10,7 +10,7 @@ import {
 	type DataFrame,
 	type TunnelFrame,
 } from '@night/shared'
-import { PreviewTunnelHub } from './tunnel.ts'
+import { idlePreviewTaskIds, PreviewActivity, PreviewTunnelHub } from './tunnel.ts'
 
 const silentLogger = {
 	info: () => {},
@@ -215,5 +215,51 @@ describe('PreviewTunnelHub', () => {
 			{ port: 5173, path: '/', headers: {}, protocols: [] },
 		)
 		expect(id).toBeNull()
+	})
+})
+
+describe('idle preview teardown', () => {
+	const now = 1_000_000
+	const ttl = 30 * 60_000
+
+	const task = (id: string, kind: string, agoMs: number) => ({
+		id,
+		kind,
+		updatedAt: new Date(now - agoMs).toISOString(),
+	})
+
+	it('tracks and forgets activity', () => {
+		const a = new PreviewActivity()
+		a.touch('t1', now)
+		expect(a.lastAt('t1')).toBe(now)
+		a.forget('t1')
+		expect(a.lastAt('t1')).toBeUndefined()
+	})
+
+	it('retain() drops entries not in the keep set', () => {
+		const a = new PreviewActivity()
+		a.touch('keep', now)
+		a.touch('drop', now)
+		a.retain(new Set(['keep']))
+		expect(a.lastAt('keep')).toBe(now)
+		expect(a.lastAt('drop')).toBeUndefined()
+	})
+
+	it('picks preview tasks idle past the TTL, using recorded activity', () => {
+		const a = new PreviewActivity()
+		a.touch('fresh', now - 60_000) // 1 min ago → not idle
+		a.touch('stale', now - 40 * 60_000) // 40 min ago → idle
+		const tasks = [
+			task('fresh', 'preview', 99 * 60_000),
+			task('stale', 'preview', 1_000),
+			task('impl', 'implement', 99 * 60_000), // not a preview
+		]
+		expect(idlePreviewTaskIds(tasks, a, ttl, now)).toEqual(['stale'])
+	})
+
+	it('falls back to updatedAt when no traffic was recorded', () => {
+		const a = new PreviewActivity()
+		const tasks = [task('never-opened', 'preview', 45 * 60_000)]
+		expect(idlePreviewTaskIds(tasks, a, ttl, now)).toEqual(['never-opened'])
 	})
 })

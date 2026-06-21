@@ -46,6 +46,8 @@ export interface PreviewOptions {
 	env?: Record<string, string>
 	/** Called once per stdout/stderr line — wire this to event emission. */
 	onLog?: (line: string) => void
+	/** Called at each phase boundary (install, start) with the command run. */
+	onPhase?: (phase: 'install' | 'start', command: string) => void
 }
 
 export interface RunningPreview {
@@ -76,6 +78,7 @@ export class PreviewServer {
 			opts.installCommand === undefined ? detectInstallCommand(cwd) : opts.installCommand
 		if (installCommand) {
 			logger.info({ installCommand }, 'preview: installing dependencies')
+			opts.onPhase?.('install', installCommand)
 			await runToCompletion(installCommand, cwd, opts.env, opts.onLog)
 		}
 
@@ -87,6 +90,7 @@ export class PreviewServer {
 		}
 
 		logger.info({ command, port: opts.port }, 'preview: starting server')
+		opts.onPhase?.('start', command)
 		return await spawnServer(command, opts)
 	}
 }
