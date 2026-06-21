@@ -36,7 +36,15 @@ import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { EventBuffer, eventFilePath } from './eventBuffer.ts'
 import { gh, GitError } from './git.ts'
 import { checkoutBranch, RebaseConflictError, RebaseSetupError, Workspace } from './workspace.ts'
-import { annotatePrWithPreview, PreviewServer, type RunningPreview } from './preview.ts'
+import {
+	annotatePrWithPreview,
+	PreviewServer,
+	probePortReady,
+	type RunningPreview,
+} from './preview.ts'
+
+/** How long to wait for an extra preview port to come up before skipping it. */
+const PREVIEW_PORT_PROBE_MS = 10_000
 import { buildPreviewSubdomainUrl, toHttpScheme, type PreviewPort } from '@night/shared'
 
 export interface AssignedTaskInput {
@@ -632,16 +640,29 @@ export class TaskRunner {
 			// is health-checked (PreviewServer waited for it); extras are
 			// advertised as configured.
 			const startedPreview = preview
-			const ports: PreviewPort[] = portCfg.map((cfg, i) => {
+			const ports: PreviewPort[] = []
+			for (let i = 0; i < portCfg.length; i++) {
+				const cfg = portCfg[i]!
 				const isPrimary = i === 0
+				// The primary is already confirmed (PreviewServer waited for it);
+				// health-check each extra port so we don't advertise a link to a
+				// server that never came up.
+				if (!isPrimary && !(await probePortReady(cfg.port, PREVIEW_PORT_PROBE_MS))) {
+					await emit('log', {
+						message: 'preview port not reachable, skipping',
+						port: cfg.port,
+						label: cfg.label,
+					})
+					continue
+				}
 				const target = isPrimary ? startedPreview.url : `http://localhost:${cfg.port}`
-				return {
+				ports.push({
 					port: cfg.port,
 					label: cfg.label,
 					target,
 					url: this.previewPublicUrl(task.taskId, target, cfg.port, isPrimary),
-				}
-			})
+				})
+			}
 			const primary = ports[0]!
 			await emit('log', {
 				message: 'preview ready',

@@ -2,10 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createServer, type Server } from 'node:http'
 import {
 	detectInstallCommand,
 	detectStartCommand,
 	normalizeUrl,
+	probePort,
 	upsertPreviewSection,
 } from './preview.ts'
 
@@ -90,5 +92,19 @@ describe('upsertPreviewSection', () => {
 		expect(second).toContain('⏹ Stopped')
 		expect(second).not.toContain('▶ Running')
 		expect(second).toContain('body')
+	})
+})
+
+describe('probePort', () => {
+	it('resolves true for a listening port and false for a closed one', async () => {
+		const server: Server = createServer()
+		const port = await new Promise<number>((resolve) =>
+			server.listen(0, '127.0.0.1', () =>
+				resolve((server.address() as { port: number }).port),
+			),
+		)
+		expect(await probePort(port, 500)).toBe(true)
+		await new Promise<void>((resolve) => server.close(() => resolve()))
+		expect(await probePort(port, 500)).toBe(false)
 	})
 })

@@ -24,6 +24,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { connect as netConnect } from 'node:net'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { join } from 'node:path'
 import type { Logger } from 'pino'
 import { gh, GitError } from './git.ts'
@@ -128,6 +130,33 @@ export function detectStartCommand(pkg: PackageJson): string | null {
 		if (scripts[name]) return `npm run ${name}`
 	}
 	return null
+}
+
+// ─── Readiness probe ────────────────────────────────────────────────────────
+
+/** Resolve true if something is accepting TCP connections on `port`. */
+export function probePort(port: number, timeoutMs = 1000, host = '127.0.0.1'): Promise<boolean> {
+	return new Promise((resolve) => {
+		const socket = netConnect({ host, port })
+		const finish = (ok: boolean) => {
+			socket.destroy()
+			resolve(ok)
+		}
+		socket.setTimeout(timeoutMs)
+		socket.once('connect', () => finish(true))
+		socket.once('timeout', () => finish(false))
+		socket.once('error', () => finish(false))
+	})
+}
+
+/** Poll {@link probePort} until the port is up or `totalMs` elapses. */
+export async function probePortReady(port: number, totalMs: number): Promise<boolean> {
+	const deadline = Date.now() + totalMs
+	for (;;) {
+		if (await probePort(port, 1000)) return true
+		if (Date.now() >= deadline) return false
+		await sleep(500)
+	}
 }
 
 // ─── Process management ─────────────────────────────────────────────────────
