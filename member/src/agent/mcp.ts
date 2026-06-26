@@ -129,6 +129,14 @@ interface OpenServer {
 	name: string
 	client: Client
 	transport: Transport
+	/** Tools exposed to the agent after the allowlist — surfaced to Household. */
+	toolCount: number
+}
+
+/** Per-server summary reported to Household at handshake. */
+export interface McpServerSummary {
+	name: string
+	toolCount: number
 }
 
 /**
@@ -152,6 +160,11 @@ export class McpManager {
 	/** Names of servers that are live, for logging/observability. */
 	get connectedServers(): string[] {
 		return this.open.map((o) => o.name)
+	}
+
+	/** Connected servers with their exposed tool counts, for the Household UI. */
+	get serverSummaries(): McpServerSummary[] {
+		return this.open.map((o) => ({ name: o.name, toolCount: o.toolCount }))
 	}
 
 	/**
@@ -180,7 +193,6 @@ export class McpManager {
 			const client = new Client({ name: 'night-family-member', version: '0.0.0' })
 			await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, 'connect')
 			const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'listTools')
-			this.open.push({ name: server.name, client, transport })
 
 			const allow = server.allow == null ? null : new Set(server.allow)
 			const tools: ToolDefinition[] = []
@@ -192,6 +204,7 @@ export class McpManager {
 				}
 				tools.push(wrapMcpTool(server.name, descriptor, client))
 			}
+			this.open.push({ name: server.name, client, transport, toolCount: tools.length })
 			log.info(
 				{ exposed: tools.length, skipped, advertised: listed.tools.length },
 				'mcp server connected',

@@ -232,6 +232,7 @@ function handleHandshake(
 		provider: msg.provider,
 		model: msg.model,
 		workerProfile: msg.worker_profile,
+		mcpServers: msg.mcp_servers ?? [],
 		protocolVersion: msg.protocol_version,
 		tokenId,
 		maxTokensPerDay: msg.max_tokens_per_day ?? null,

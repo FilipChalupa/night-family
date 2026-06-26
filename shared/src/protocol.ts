@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '3.3.0'
+export const PROTOCOL_VERSION = '3.4.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -232,6 +232,23 @@ export interface MsgHandshake {
 	 * aren't drained first by absolute-spend ordering.
 	 */
 	max_tokens_per_day?: number
+	/**
+	 * MCP servers this Member connected to at startup, with how many tools
+	 * each exposes to the agent after its allowlist. Reports servers that
+	 * actually connected, not merely what's configured — a server that
+	 * failed to connect is omitted. Purely informational (surfaced on the
+	 * Member detail page). Omitted when no MCP is configured. New in
+	 * protocol 3.4.0.
+	 */
+	mcp_servers?: McpServerInfo[]
+}
+
+/** One connected MCP server, for the Household UI. See {@link MsgHandshake}. */
+export interface McpServerInfo {
+	/** Server name — the `mcpServers.<key>` from the Member's `mcp.yaml`. */
+	name: string
+	/** Tools exposed to the agent after the read-only allowlist is applied. */
+	tool_count: number
 }
 
 export interface MsgMemberReady {

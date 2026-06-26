@@ -64,6 +64,13 @@
       "when": 1778112000000,
       "tag": "0008_plan_size_rename_and_jobs_kind_drop",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1782485890134,
+      "tag": "0009_long_apocalypse",
+      "breakpoints": true
     }
   ]
 }

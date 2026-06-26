@@ -22,6 +22,9 @@ export const members = sqliteTable(
 		provider: text('provider').notNull().default(''),
 		model: text('model').notNull().default(''),
 		workerProfile: text('worker_profile').notNull().default(''),
+		// JSON array of { name, tool_count } — MCP servers the member connected
+		// to at handshake. '[]' = none. Informational, surfaced in the UI.
+		mcpServers: text('mcp_servers').notNull().default('[]'),
 		protocolVersion: text('protocol_version').notNull().default(''),
 		tokenId: text('token_id'),
 		firstConnectedAt: integer('first_connected_at', { mode: 'timestamp_ms' })

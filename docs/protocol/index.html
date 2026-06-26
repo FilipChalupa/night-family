@@ -196,6 +196,25 @@
 			</p>
 
 			<section class="entry">
+				<h2>3.4.0</h2>
+				<p>
+					Members can connect to MCP (Model Context Protocol) servers — Slack, Linear,
+					Jira, Drive, … — and expose their tools to the agent. The handshake now reports
+					which servers a Member actually connected to, so the dashboard can show what
+					each Member can reach.
+				</p>
+				<ul>
+					<li>
+						Added optional <code>mcp_servers</code> to <code>handshake</code> (Member →
+						Household): an array of <code>{ name, tool_count }</code> for each connected
+						server (tool count is post-allowlist). Omitted when no MCP is configured;
+						lists servers that connected, not merely what's configured. Surfaced on the
+						Member detail page. Old Members simply omit it.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
 				<h2>3.1.0</h2>
 				<p>
 					Refresh-on-demand for the Member's accessible-repos allowlist — Household can

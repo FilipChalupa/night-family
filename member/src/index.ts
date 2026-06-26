@@ -96,6 +96,10 @@ const taskRunner = new TaskRunner({
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {
 	taskRunner,
+	mcpServers: mcpManager.serverSummaries.map((s) => ({
+		name: s.name,
+		tool_count: s.toolCount,
+	})),
 })
 
 // Preview members open a second, dedicated tunnel WS so Household can proxy

@@ -23,6 +23,36 @@ describe('parseMemberToHousehold', () => {
 		if (out.ok) expect(out.msg.type).toBe('handshake')
 	})
 
+	it('accepts a handshake carrying mcp_servers', () => {
+		const raw = JSON.stringify({
+			type: 'handshake',
+			protocol_version: '3.4.0',
+			member_id: 'm1',
+			member_name: 'memberone',
+			display_name: 'Member One',
+			skills: ['implement'],
+			schedule: {
+				timezone: 'UTC',
+				nightWindows: [{ name: 'night', days: ['mon'], start: '22:00', end: '08:00' }],
+			},
+			provider: 'anthropic',
+			model: 'claude-opus-4-7',
+			worker_profile: 'medium',
+			mcp_servers: [
+				{ name: 'linear', tool_count: 3 },
+				{ name: 'slack', tool_count: 5 },
+			],
+		})
+		const out = parseMemberToHousehold(raw)
+		expect(out.ok).toBe(true)
+		if (out.ok && out.msg.type === 'handshake') {
+			expect(out.msg.mcp_servers).toEqual([
+				{ name: 'linear', tool_count: 3 },
+				{ name: 'slack', tool_count: 5 },
+			])
+		}
+	})
+
 	it('rejects a handshake without schedule', () => {
 		const raw = JSON.stringify({
 			type: 'handshake',

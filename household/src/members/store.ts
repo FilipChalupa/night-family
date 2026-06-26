@@ -1,5 +1,5 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
-import type { Provider, Skill, WorkerProfile } from '@night/shared'
+import type { McpServerInfo, Provider, Skill, WorkerProfile } from '@night/shared'
 import type { Db } from '../db/index.ts'
 import { members } from '../db/schema.ts'
 import type { MemberSnapshot } from './registry.ts'
@@ -26,6 +26,7 @@ export interface UpsertConnectInput {
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
+	mcpServers: McpServerInfo[]
 	protocolVersion: string
 	tokenId: string
 	connectedAt: Date
@@ -56,6 +57,7 @@ export class MemberStateStore {
 				provider: input.provider,
 				model: input.model,
 				workerProfile: input.workerProfile,
+				mcpServers: JSON.stringify(input.mcpServers),
 				protocolVersion: input.protocolVersion,
 				tokenId: input.tokenId,
 				firstConnectedAt: ts,
@@ -73,6 +75,7 @@ export class MemberStateStore {
 					provider: input.provider,
 					model: input.model,
 					workerProfile: input.workerProfile,
+					mcpServers: JSON.stringify(input.mcpServers),
 					protocolVersion: input.protocolVersion,
 					tokenId: input.tokenId,
 					lastConnectedAt: ts,
@@ -228,6 +231,7 @@ function rowToOfflineSnapshot(row: typeof members.$inferSelect): OfflineMemberSn
 		provider: (row.provider || 'unknown') as Provider,
 		model: row.model,
 		workerProfile: (row.workerProfile || 'unknown') as WorkerProfile,
+		mcpServers: parseMcpServers(row.mcpServers),
 		protocolVersion: row.protocolVersion,
 		tokenId: row.tokenId ?? '',
 		// Daily cap isn't persisted across sessions — it's reported by the
@@ -250,6 +254,23 @@ function parseJsonArray(raw: string): string[] {
 	try {
 		const parsed = JSON.parse(raw)
 		return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+	} catch {
+		return []
+	}
+}
+
+/** Parse the persisted `mcp_servers` JSON, tolerating old/empty rows. */
+function parseMcpServers(raw: string): McpServerInfo[] {
+	try {
+		const parsed = JSON.parse(raw)
+		if (!Array.isArray(parsed)) return []
+		return parsed.filter(
+			(x): x is McpServerInfo =>
+				!!x &&
+				typeof x === 'object' &&
+				typeof x.name === 'string' &&
+				typeof x.tool_count === 'number',
+		)
 	} catch {
 		return []
 	}

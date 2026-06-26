@@ -25,6 +25,7 @@ const member = (partial: Partial<MemberSnapshot>): MemberSnapshot => ({
 	provider: 'openai',
 	model: 'gpt-5-codex',
 	workerProfile: 'medium',
+	mcpServers: [],
 	protocolVersion: '3.1.0',
 	tokenId: 'token-1',
 	connectedAt: '2026-01-01T00:00:00.000Z',

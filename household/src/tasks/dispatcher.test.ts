@@ -100,6 +100,7 @@ function fakeMember(opts: {
 		provider: 'anthropic',
 		model: 'm',
 		workerProfile: 'medium',
+		mcpServers: [],
 		protocolVersion: '3.0.0',
 		tokenId: 'tok',
 		maxTokensPerDay: opts.maxTokensPerDay ?? null,

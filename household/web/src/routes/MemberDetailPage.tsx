@@ -221,6 +221,14 @@ function MemberDetailCard({
 				) : null}
 				<Field label="Worker profile" value={member.workerProfile} />
 				<Field
+					label="MCP servers"
+					value={
+						member.mcpServers.length > 0
+							? member.mcpServers.map((s) => `${s.name} (${s.tool_count})`).join(', ')
+							: '—'
+					}
+				/>
+				<Field
 					label="Protocol version"
 					value={
 						protoSkew === 'equal' || !householdProtocolVersion

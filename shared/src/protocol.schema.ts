@@ -96,6 +96,7 @@ const MsgHandshakeSchema = v.object({
 	repos: v.optional(v.array(v.string())),
 	resumes: v.optional(v.array(ResumeRefSchema)),
 	max_tokens_per_day: v.optional(v.number()),
+	mcp_servers: v.optional(v.array(v.object({ name: v.string(), tool_count: v.number() }))),
 })
 
 const MsgMemberReadySchema = v.object({ type: v.literal('member.ready') })

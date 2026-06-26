@@ -1,5 +1,12 @@
 import { EventEmitter } from 'node:events'
-import type { MemberStatus, Provider, Schedule, Skill, WorkerProfile } from '@night/shared'
+import type {
+	McpServerInfo,
+	MemberStatus,
+	Provider,
+	Schedule,
+	Skill,
+	WorkerProfile,
+} from '@night/shared'
 import {
 	effectiveSkillsAt,
 	isNightAt,
@@ -44,6 +51,11 @@ export interface ConnectedMember {
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
+	/**
+	 * MCP servers this Member connected to (name + exposed tool count),
+	 * reported at handshake. Empty when no MCP is configured. Informational.
+	 */
+	mcpServers: McpServerInfo[]
 	protocolVersion: string
 	tokenId: string
 	/**
@@ -103,6 +115,8 @@ export interface MemberSnapshot {
 	provider: Provider
 	model: string
 	workerProfile: WorkerProfile
+	/** MCP servers the Member connected to (name + tool count). Empty = none. */
+	mcpServers: McpServerInfo[]
 	protocolVersion: string
 	tokenId: string
 	/** Mirror of {@link ConnectedMember.maxTokensPerDay}; `null` = uncapped. */
@@ -150,6 +164,7 @@ function snapshotConnected(m: ConnectedMember, now: Date = new Date()): MemberSn
 		provider: m.provider,
 		model: m.model,
 		workerProfile: m.workerProfile,
+		mcpServers: m.mcpServers,
 		protocolVersion: m.protocolVersion,
 		tokenId: m.tokenId,
 		maxTokensPerDay: m.maxTokensPerDay,
@@ -216,6 +231,7 @@ export class MemberRegistry {
 			provider: m.provider,
 			model: m.model,
 			workerProfile: m.workerProfile,
+			mcpServers: m.mcpServers,
 			protocolVersion: m.protocolVersion,
 			tokenId: m.tokenId,
 			connectedAt: m.connectedAt,

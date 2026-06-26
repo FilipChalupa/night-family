@@ -4,8 +4,8 @@
 // stay defined locally — they're API-shape, not protocol-shape, and the
 // web should not pull household runtime in.
 
-import type { Schedule, Skill, TaskKind, TaskStatus } from '@night/shared'
-export type { Schedule, Skill, TaskKind, TaskStatus }
+import type { McpServerInfo, Schedule, Skill, TaskKind, TaskStatus } from '@night/shared'
+export type { McpServerInfo, Schedule, Skill, TaskKind, TaskStatus }
 
 /**
  * Statuses for tasks still moving through the lifecycle — everything except
@@ -47,6 +47,8 @@ export interface MemberSnapshot {
 	provider: string
 	model: string
 	workerProfile: string
+	/** MCP servers the Member connected to (name + exposed tool count). */
+	mcpServers: McpServerInfo[]
 	protocolVersion: string
 	tokenId: string
 	connectedAt: string
