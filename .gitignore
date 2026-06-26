@@ -24,6 +24,7 @@ data/
 config/
 workspace/
 schedule.yaml
+mcp.yaml
 
 # Claude Code per-machine settings
 .claude/settings.local.json

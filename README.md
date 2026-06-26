@@ -152,6 +152,32 @@ Lookup chain (first hit wins): `SCHEDULE_FILE` env, `/etc/night-family/schedule.
 
 Admins can also push a temporary override ("Implement-only for the next 2h") from the Member detail page in the dashboard; it expires automatically.
 
+## MCP servers (external tools)
+
+A Member can connect to [MCP](https://modelcontextprotocol.io) servers (Slack, Linear, Jira, Notion, Google Drive, …) and expose their tools to the agent. The point is letting the agent **resolve what an issue points at** — open the linked Linear ticket, read the referenced Slack thread, fetch a design doc — instead of guessing. The tools show up to the model namespaced `mcp__<server>__<tool>` and flow through the same provider adapters as the built-in tools, so no provider code changes per service.
+
+Off by default. To turn it on, write an `mcp.yaml`. Generate one interactively:
+
+```bash
+npm run member:generate-mcp-config         # pick services → writes <repo-root>/mcp.yaml
+npm run member:generate-mcp-config -- --template   # or: full commented catalog
+```
+
+It walks a catalog (Slack, Jira, Linear, GitHub, Notion, Drive, Gmail), wires each server's transport + a **read-only tool allowlist**, and references secrets as `${VAR}` so the file stays commit-safe — you put the actual tokens in `.env.member`. Example:
+
+```yaml
+mcpServers:
+    linear:
+        command: npx
+        args: ['-y', '@tacticlaunch/mcp-linear']
+        env: { LINEAR_API_KEY: '${LINEAR_API_KEY}' }
+        allow: [linear_getIssueById, linear_searchIssues, linear_getComments]
+```
+
+Lookup chain (first hit wins): `MCP_CONFIG_FILE` env, `/etc/night-family/mcp.yaml`, `<repo-root>/mcp.yaml`. `mcp.yaml` is gitignored. Servers connect once at startup and are shared across tasks; **a server that fails to connect is logged and skipped — it never blocks task execution.**
+
+Notes on auth: most services take a **static token** (Slack `xoxb-`, Jira email + API token, Linear personal key, GitHub PAT) — paste it into `.env.member` and you're done, ideal for headless/Docker Members. **Google (Gmail/Drive) needs OAuth**, which is awkward headless — use a service account or a one-time consent that stores a refresh token. Keep the allowlist read-only and scope the upstream token itself to read-only where the service supports it; the agent is autonomous, so write tools (send mail, post message, create issue) should be opted in deliberately.
+
 ## Member repo allowlist
 
 A Member only works on repos its PAT can push to — at startup it pulls `/user/repos` (filtered by `permissions.push`) and ships the list to Household, which uses it as the allowlist when dispatching repo-scoped tasks. Newly granted collaborator access doesn't require a Member restart: Household asks Members to re-fetch the list when (a) a day↔night schedule edge fires, (b) a queued task arrives for a repo no Member's allowlist covers, or (c) an admin clicks "Refresh repos" on the Members panel. Members also run a slow 6-hour safety-net refresh on their own. Failures are reported back (`member.repos_error`) and surface in the Household log; the previous list is kept until the next refresh succeeds.

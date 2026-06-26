@@ -1,6 +1,8 @@
 import { loadConfig } from './config.ts'
 import { HouseholdConnection } from './connection.ts'
 import { logger } from './logger.ts'
+import { McpManager } from './agent/mcp.ts'
+import { resolveMcpConfig } from './agent/mcp-config.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
 import { gcStaleCaches, gcStaleTaskDirs } from './tasks/workspace.ts'
 import { PreviewTunnel } from './tasks/preview-tunnel.ts'
@@ -54,6 +56,21 @@ if (stubMode) {
 
 let connection: HouseholdConnection | null = null
 
+// Connect MCP servers (Slack, Linear, Jira, …) once at startup. A missing
+// config file means no MCP; a server that fails to connect is skipped inside
+// connect(), so this never blocks the Member from running tasks.
+const mcpResolved = resolveMcpConfig()
+const mcpManager = new McpManager(mcpResolved.config.servers, logger.child({ component: 'mcp' }))
+if (mcpResolved.config.servers.length > 0) {
+	logger.info(
+		{ source: mcpResolved.source, servers: mcpResolved.config.servers.map((s) => s.name) },
+		'mcp config loaded',
+	)
+	await mcpManager.connect().catch((err) => {
+		logger.warn({ err }, 'mcp connect failed (non-fatal)')
+	})
+}
+
 const usageTracker = new DailyUsageTracker()
 
 // Shared between the runner (which registers a running preview) and the tunnel
@@ -74,6 +91,7 @@ const taskRunner = new TaskRunner({
 	rebaseVerifyCommand: config.rebaseVerifyCommand,
 	preview: config.preview,
 	previewWaker,
+	mcp: { tools: mcpManager.tools, servers: mcpManager.connectedServers },
 })
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {
@@ -101,6 +119,7 @@ const shutdown = (signal: string) => {
 	logger.info({ signal }, 'shutting down')
 	connection?.stop()
 	previewTunnel?.stop()
+	void mcpManager.close()
 	setTimeout(() => process.exit(0), 1500).unref()
 }
 

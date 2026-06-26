@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"===loop.ts===\" && cat member/src/agent/loop.ts *)",
+      "Bash(node -e \"const p=require\\('./node_modules/@modelcontextprotocol/sdk/package.json'\\); console.log\\('version', p.version\\); console.log\\('exports', Object.keys\\(p.exports\\).filter\\(k=>k.includes\\('client'\\)||k.includes\\('stdio'\\)||k.includes\\('Http'\\)||k.includes\\('sse'\\)\\).join\\('\\\\n'\\)\\)\")",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(node --input-type=module -e \"import\\('@modelcontextprotocol/sdk/client/stdio.js'\\).then\\(m=>console.log\\('ok',typeof m.StdioClientTransport\\)\\).catch\\(e=>console.log\\('ERR',e.message\\)\\)\")",
+      "Bash(node --input-type=module -e \"import\\('@modelcontextprotocol/sdk/client/stdio.js'\\).then\\(\\(\\)=>{}\\); import { createRequire } from 'module'; const r=createRequire\\(process.cwd\\(\\)+'/member/'\\); console.log\\(r.resolve\\('@modelcontextprotocol/sdk/package.json'\\)\\)\")",
+      "Bash(node -e 'console.log\\(require.resolve\\('\\\\''@modelcontextprotocol/sdk/package.json'\\\\'', {paths:['\\\\''__TRACKED_VAR__/member'\\\\'','\\\\''__TRACKED_VAR__'\\\\'']}\\)\\)')",
+      "Bash(node -e ' *)",
+      "Bash(npx vitest *)",
+      "Bash(node --input-type=module -e \"import {parseMcpConfig} from '/home/onset/z/night-family/member/src/agent/mcp-config.ts'; import {readFileSync} from 'fs'; console.log\\('template parses, servers:', parseMcpConfig\\(readFileSync\\('/tmp/claude-1000/-home-onset-z-night-family/77f934b0-13b4-4a71-860e-61369f628d36/scratchpad/mcp-template.yaml','utf8'\\)\\).servers.length\\)\")"
+    ],
+    "additionalDirectories": [
+      "/home/onset/z/night-family/member/src/agent"
+    ]
+  }
+}
