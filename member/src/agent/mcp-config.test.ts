@@ -2,13 +2,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { stringify as stringifyYaml } from 'yaml'
 import {
-	catalogServerEntry,
 	defaultMcpConfigYaml,
 	expandEnvMap,
 	expandEnvRefs,
-	KNOWN_SERVERS,
 	parseMcpConfig,
 	resolveMcpConfig,
 } from './mcp-config.ts'
@@ -124,25 +121,27 @@ describe('resolveMcpConfig', () => {
 	})
 })
 
-describe('catalog', () => {
-	it('the commented template parses to no servers (everything is inert)', () => {
+describe('template', () => {
+	it('ships inert — the generated template has every example commented out', () => {
 		expect(parseMcpConfig(defaultMcpConfigYaml()).servers).toEqual([])
 	})
 
-	it('every catalog entry produces a config the parser accepts', () => {
-		const servers = Object.fromEntries(
-			KNOWN_SERVERS.map((s) => [s.key, catalogServerEntry(s, true)]),
-		)
-		const cfg = parseMcpConfig(stringifyYaml({ mcpServers: servers }))
-		expect(cfg.servers.map((s) => s.name).sort()).toEqual(
-			KNOWN_SERVERS.map((s) => s.key).sort(),
-		)
-		// Read-only entries carry their curated allowlist.
-		for (const s of cfg.servers) expect(s.allow).not.toBeNull()
-	})
-
-	it('full-access entries omit the allowlist (all tools exposed)', () => {
-		const entry = catalogServerEntry(KNOWN_SERVERS[0]!, false)
-		expect(entry.allow).toBeUndefined()
+	it('its example blocks are valid once uncommented', () => {
+		// Uncomment only the indented example lines — leave the top-level header
+		// comments and the "# ---" section headers as comments — to prove the
+		// snippets are well-formed YAML.
+		const uncommented = defaultMcpConfigYaml()
+			.split('\n')
+			.map((l) => {
+				if (/^\s+# ---/.test(l)) return l
+				if (/^\s+#/.test(l)) return l.replace(/^(\s+)# ?/, '$1')
+				return l
+			})
+			.join('\n')
+		const cfg = parseMcpConfig(uncommented)
+		const names = cfg.servers.map((s) => s.name).sort()
+		expect(names).toEqual(['example-remote', 'example-stdio'])
+		expect(cfg.servers.find((s) => s.name === 'example-stdio')!.transport).toBe('stdio')
+		expect(cfg.servers.find((s) => s.name === 'example-remote')!.transport).toBe('http')
 	})
 })

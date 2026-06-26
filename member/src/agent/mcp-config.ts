@@ -242,173 +242,19 @@ export function resolveMcpConfig(
 	return { config: EMPTY, source: null }
 }
 
-// ---------------------------------------------------------------------------
-// Catalog of known servers — drives the `generate-mcp-config` CLI. These are
-// starting points, not guarantees: MCP server packages and tool names churn,
-// so the generator stamps a "verify against the server's docs" note into the
-// file it writes. The durable value here is the wiring (transport, which
-// secrets, a sane read-only allowlist), not the exact package version.
-// ---------------------------------------------------------------------------
-
-/** How a server authenticates — surfaced to the user so the hard cases are obvious. */
-export type AuthBucket = 'static-token' | 'basic' | 'oauth'
-
-export interface KnownSecret {
-	/** Env var name the Member must provide. */
-	readonly env: string
-	readonly label: string
-	/** False for optional secrets (e.g. a workspace/team id). */
-	readonly required: boolean
-}
-
-export interface KnownServer {
-	readonly key: string
-	readonly title: string
-	readonly authBucket: AuthBucket
-	/** One-liner shown in the picker, incl. any auth caveat. */
-	readonly notes: string
-	readonly transport: 'stdio' | 'http' | 'sse'
-	readonly command?: string
-	readonly args?: readonly string[]
-	readonly url?: string
-	/** Env vars wired into `env` (stdio) — `${ENV}` references by default. */
-	readonly secrets: readonly KnownSecret[]
-	/** Suggested read-only tool allowlist. */
-	readonly readOnlyAllow: readonly string[]
-}
-
-export const KNOWN_SERVERS: readonly KnownServer[] = [
-	{
-		key: 'slack',
-		title: 'Slack',
-		authBucket: 'static-token',
-		notes: 'Bot token (xoxb-…). Static, headless-friendly.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@modelcontextprotocol/server-slack'],
-		secrets: [
-			{ env: 'SLACK_BOT_TOKEN', label: 'Bot token (xoxb-…)', required: true },
-			{ env: 'SLACK_TEAM_ID', label: 'Team ID (T…)', required: true },
-		],
-		readOnlyAllow: [
-			'slack_list_channels',
-			'slack_get_channel_history',
-			'slack_get_thread_replies',
-			'slack_get_users',
-			'slack_get_user_profile',
-		],
-	},
-	{
-		key: 'jira',
-		title: 'Jira / Confluence (Atlassian)',
-		authBucket: 'basic',
-		notes: 'Cloud: email + API token (basic auth). Static, headless-friendly.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', 'mcp-atlassian'],
-		secrets: [
-			{ env: 'JIRA_URL', label: 'Site URL (https://you.atlassian.net)', required: true },
-			{ env: 'JIRA_USERNAME', label: 'Account email', required: true },
-			{ env: 'JIRA_API_TOKEN', label: 'API token', required: true },
-		],
-		readOnlyAllow: ['jira_search', 'jira_get_issue', 'jira_get_issue_comments'],
-	},
-	{
-		key: 'linear',
-		title: 'Linear',
-		authBucket: 'static-token',
-		notes: 'Personal API key (lin_api_…) via a local server. Make it read-only in Linear.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@tacticlaunch/mcp-linear'],
-		secrets: [{ env: 'LINEAR_API_KEY', label: 'Personal API key (lin_api_…)', required: true }],
-		readOnlyAllow: ['linear_getIssueById', 'linear_searchIssues', 'linear_getComments'],
-	},
-	{
-		key: 'github',
-		title: 'GitHub',
-		authBucket: 'static-token',
-		notes: 'PAT. Members already have `gh`; useful for cross-repo search.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@modelcontextprotocol/server-github'],
-		secrets: [{ env: 'GITHUB_PERSONAL_ACCESS_TOKEN', label: 'GitHub PAT', required: true }],
-		readOnlyAllow: ['search_repositories', 'search_issues', 'get_issue', 'get_file_contents'],
-	},
-	{
-		key: 'notion',
-		title: 'Notion',
-		authBucket: 'static-token',
-		notes: 'Internal integration token (secret_…). Static.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@notionhq/notion-mcp-server'],
-		secrets: [{ env: 'NOTION_TOKEN', label: 'Integration token (secret_…)', required: true }],
-		readOnlyAllow: ['search', 'fetch'],
-	},
-	{
-		key: 'gdrive',
-		title: 'Google Drive',
-		authBucket: 'oauth',
-		notes: 'Google OAuth — needs a one-time consent or a service account. The hard one.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@modelcontextprotocol/server-gdrive'],
-		secrets: [
-			{
-				env: 'GDRIVE_CREDENTIALS_PATH',
-				label: 'Path to OAuth credentials JSON',
-				required: true,
-			},
-		],
-		readOnlyAllow: ['gdrive_search', 'gdrive_read_file'],
-	},
-	{
-		key: 'gmail',
-		title: 'Gmail',
-		authBucket: 'oauth',
-		notes: 'Google OAuth — one-time consent stores a refresh token. The hard one.',
-		transport: 'stdio',
-		command: 'npx',
-		args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
-		secrets: [],
-		readOnlyAllow: ['search_emails', 'read_email'],
-	},
-]
-
 /**
- * Turn a catalog entry into a YAML-ready server object (the value under a
- * `mcpServers.<key>`). Secrets become `${VAR}` references so the written file
- * stays commit-safe. `readOnly` (the default) emits the curated allowlist;
- * full access omits `allow` so every advertised tool is exposed. Shared by
- * the generator and its tests so the two can't drift.
- */
-export function catalogServerEntry(
-	server: KnownServer,
-	readOnly: boolean,
-): Record<string, unknown> {
-	const entry: Record<string, unknown> = {}
-	if (server.transport !== 'stdio') entry.transport = server.transport
-	if (server.command) entry.command = server.command
-	if (server.args) entry.args = [...server.args]
-	if (server.url) entry.url = server.url
-	if (server.secrets.length > 0) {
-		entry.env = Object.fromEntries(server.secrets.map((s) => [s.env, `\${${s.env}}`]))
-	}
-	if (readOnly) entry.allow = [...server.readOnlyAllow]
-	return entry
-}
-
-/**
- * Render a fully commented starter `mcp.yaml` containing every catalog
- * server, all commented out. Mirrors `defaultScheduleYaml()` — the file is
- * meant to be read and edited, so it leads with how the pieces fit.
+ * Render a generic, fully-commented starter `mcp.yaml`. Night Family has no
+ * built-in knowledge of any specific service — every MCP server publishes its
+ * own config snippet in its docs. This template shows the two shapes (a local
+ * stdio subprocess and a remote HTTP/SSE endpoint), the `${VAR}` secret
+ * convention and the `allow` allowlist, all commented out. Mirrors
+ * `defaultScheduleYaml()`: meant to be read and edited.
  */
 export function defaultMcpConfigYaml(): string {
-	const blocks = KNOWN_SERVERS.map((s) => renderCommentedServer(s)).join('\n')
 	return `# Night Family member — MCP servers.
-# Gives this member's agent extra tools from external services (Slack, Jira,
-# Linear, Drive, …). Loaded at startup; the resolution order is:
+# Gives this member's agent extra tools from external MCP servers so it can
+# resolve what an issue points at (a ticket, a chat thread, a linked doc)
+# instead of guessing. Loaded at startup; resolution order:
 #   1. MCP_CONFIG_FILE env var
 #   2. /etc/night-family/mcp.yaml   (Docker mount)
 #   3. <repo-root>/mcp.yaml         (local dev)
@@ -417,41 +263,35 @@ export function defaultMcpConfigYaml(): string {
 # \`mcp__<name>__<tool>\`. A server that fails to connect is skipped — it
 # never blocks task execution. Restart the member to apply changes.
 #
+# This is a GENERIC template. Night Family doesn't ship a catalog of services
+# — every MCP server publishes a config snippet in its own docs. Copy that
+# snippet under \`mcpServers:\`, point its secrets at .env.member, and (ideally)
+# restrict \`allow\` to the read tools you want. The two blocks below show the
+# only two shapes there are.
+#
 # SECURITY:
 #   - Keep secrets in .env.member and reference them here as \${VAR} so this
 #     file stays safe to commit.
-#   - \`allow:\` is a read-only allowlist by default. Add write tools (send
-#     mail, post message, create issue) only deliberately — the agent is
-#     autonomous.
-#   - Tip: scope the upstream token itself to read-only where the service
-#     supports it (Linear, GitHub fine-grained PATs, …).
-#
-# NOTE: package and tool names below are starting points — verify them
-# against each server's own docs, they change over time. Run
-# \`npm run member:generate-mcp-config\` for an interactive setup.
+#   - \`allow:\` is an optional allowlist of tool names. Omit it to expose every
+#     tool the server advertises; set it to a read-only subset (recommended —
+#     the agent is autonomous). Add write tools only deliberately.
+#   - Prefer scoping the upstream token itself to read-only where supported.
 
 mcpServers:
-${blocks}`
-}
+  # --- A local server (stdio): Night Family spawns it as a subprocess. ---
+  # example-stdio:
+  #   command: some-mcp-server        # the executable: a binary, or npx / uvx
+  #   args: ['--some-flag', 'value']
+  #   env:
+  #     SOME_API_TOKEN: '\${SOME_API_TOKEN}'   # real value goes in .env.member
+  #   allow: [search, get_item]       # omit this line to expose all tools
 
-function renderCommentedServer(s: KnownServer): string {
-	const lines: string[] = []
-	lines.push(`  # --- ${s.title} (${s.authBucket}) — ${s.notes}`)
-	const body: string[] = []
-	body.push(`${s.key}:`)
-	if (s.transport !== 'stdio') body.push(`  transport: ${s.transport}`)
-	if (s.command) body.push(`  command: ${s.command}`)
-	if (s.args) body.push(`  args: [${s.args.map((a) => `'${a}'`).join(', ')}]`)
-	if (s.url) body.push(`  url: ${s.url}`)
-	if (s.secrets.length > 0) {
-		body.push(`  env:`)
-		for (const sec of s.secrets) {
-			body.push(`    ${sec.env}: '\${${sec.env}}'  # ${sec.label}`)
-		}
-	}
-	body.push(`  allow: [${s.readOnlyAllow.join(', ')}]`)
-	// Comment the whole block out — the file ships inert; the user uncomments
-	// the servers they actually want.
-	lines.push(...body.map((l) => `  # ${l}`))
-	return lines.join('\n') + '\n'
+  # --- A remote server (HTTP/SSE): Night Family connects over the network. ---
+  # example-remote:
+  #   transport: http                 # or: sse
+  #   url: https://mcp.example.com/mcp
+  #   headers:
+  #     Authorization: 'Bearer \${SOME_API_TOKEN}'
+  #   allow: [search, fetch]
+`
 }

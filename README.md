@@ -154,29 +154,31 @@ Admins can also push a temporary override ("Implement-only for the next 2h") fro
 
 ## MCP servers (external tools)
 
-A Member can connect to [MCP](https://modelcontextprotocol.io) servers (Slack, Linear, Jira, Notion, Google Drive, …) and expose their tools to the agent. The point is letting the agent **resolve what an issue points at** — open the linked Linear ticket, read the referenced Slack thread, fetch a design doc — instead of guessing. The tools show up to the model namespaced `mcp__<server>__<tool>` and flow through the same provider adapters as the built-in tools, so no provider code changes per service.
+A Member can connect to [MCP](https://modelcontextprotocol.io) servers and expose their tools to the agent. The point is letting the agent **resolve what an issue points at** — open a linked ticket, read a referenced chat thread, fetch a design doc — instead of guessing. Tools show up to the model namespaced `mcp__<server>__<tool>` and flow through the same provider adapters as the built-in tools, so there's **no service-specific code in Night Family** — it's a generic MCP layer. Which servers exist is entirely up to your config.
 
-Off by default. To turn it on, write an `mcp.yaml`. Generate one interactively:
+Off by default. To turn it on, write an `mcp.yaml`. Generate a commented starter:
 
 ```bash
-npm run member:generate-mcp-config         # pick services → writes <repo-root>/mcp.yaml
-npm run member:generate-mcp-config -- --template   # or: full commented catalog
+npm run member:generate-mcp-config        # → <repo-root>/mcp.yaml
 ```
 
-It walks a catalog (Slack, Jira, Linear, GitHub, Notion, Drive, Gmail), wires each server's transport + a **read-only tool allowlist**, and references secrets as `${VAR}` so the file stays commit-safe — you put the actual tokens in `.env.member`. Example:
+The template lays down the two transport shapes (a local **stdio** subprocess and a remote **HTTP/SSE** endpoint) with the `${VAR}` secret convention and the `allow` allowlist. Every MCP server publishes its own config snippet in its docs — paste that under `mcpServers`, point its secrets at `.env.member`, and restrict `allow` to the read tools you want. Shape:
 
 ```yaml
 mcpServers:
-    linear:
-        command: npx
-        args: ['-y', '@tacticlaunch/mcp-linear']
-        env: { LINEAR_API_KEY: '${LINEAR_API_KEY}' }
-        allow: [linear_getIssueById, linear_searchIssues, linear_getComments]
+    my-server:
+        command: some-mcp-server # stdio: a binary, or npx / uvx
+        env: { SOME_API_TOKEN: '${SOME_API_TOKEN}' } # real value in .env.member
+        allow: [search, get_item] # omit to expose all tools
+    my-remote:
+        transport: http # or: sse
+        url: https://mcp.example.com/mcp
+        headers: { Authorization: 'Bearer ${SOME_API_TOKEN}' }
 ```
 
-Lookup chain (first hit wins): `MCP_CONFIG_FILE` env, `/etc/night-family/mcp.yaml`, `<repo-root>/mcp.yaml`. `mcp.yaml` is gitignored. Servers connect once at startup and are shared across tasks; **a server that fails to connect is logged and skipped — it never blocks task execution.**
+Lookup chain (first hit wins): `MCP_CONFIG_FILE` env, `/etc/night-family/mcp.yaml`, `<repo-root>/mcp.yaml`. `mcp.yaml` is gitignored. Servers connect once at startup and are shared across tasks; **a server that fails to connect is logged and skipped — it never blocks task execution.** The Member reports its connected servers (and tool counts) to Household, shown on the Member detail page.
 
-Notes on auth: most services take a **static token** (Slack `xoxb-`, Jira email + API token, Linear personal key, GitHub PAT) — paste it into `.env.member` and you're done, ideal for headless/Docker Members. **Google (Gmail/Drive) needs OAuth**, which is awkward headless — use a service account or a one-time consent that stores a refresh token. Keep the allowlist read-only and scope the upstream token itself to read-only where the service supports it; the agent is autonomous, so write tools (send mail, post message, create issue) should be opted in deliberately.
+Auth is per-server and lives in the server's own docs, but two patterns recur. A **static token** (an API key / bot token in `env` or an `Authorization` header) is ideal for headless/Docker Members — paste it into `.env.member` and you're done. **OAuth** servers are awkward headless — prefer a service account or a one-time consent that stores a refresh token. Keep `allow` to read tools and scope the upstream token to read-only where supported; the agent is autonomous, so opt into write tools deliberately.
 
 ## Member repo allowlist
 
