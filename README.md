@@ -176,7 +176,9 @@ mcpServers:
         headers: { Authorization: 'Bearer ${SOME_API_TOKEN}' }
 ```
 
-Lookup chain (first hit wins): `MCP_CONFIG_FILE` env, `/etc/night-family/mcp.yaml`, `<repo-root>/mcp.yaml`. `mcp.yaml` is gitignored. Servers connect once at startup and are shared across tasks; **a server that fails to connect is logged and skipped — it never blocks task execution.** The Member reports its connected servers (and tool counts) to Household, shown on the Member detail page.
+Lookup chain (first hit wins): `MCP_CONFIG_FILE` env, `/etc/night-family/mcp.yaml`, `<repo-root>/mcp.yaml`. `mcp.yaml` is gitignored. Servers connect at startup and are shared across tasks; **a server that fails to connect is logged and skipped — it never blocks task execution.** The Member keeps each server alive (health-check + auto-reconnect) and reports live status to Household, shown on the Member detail page as e.g. `linear (3), slack (down)`.
+
+In Docker, uncomment the `mcp.yaml` bind mount in [docker-compose.member.yml](docker-compose.member.yml) (only once the file exists — Docker errors on a missing bind source). The member runs a hardened read-only rootfs, so a `npx`-based stdio server needs a writable npm cache: `NPM_CONFIG_CACHE=/tmp/.npm` is set for that, but it re-downloads on every restart. For production, **pre-install your MCP servers in a derived image** (`RUN npm i -g …`) and point `command:` at the installed binary — faster and avoids the cold-start `npx` fetch that can trip the connect timeout (the auto-reconnect recovers it on the next tick regardless).
 
 Auth is per-server and lives in the server's own docs, but two patterns recur. A **static token** (an API key / bot token in `env` or an `Authorization` header) is ideal for headless/Docker Members — paste it into `.env.member` and you're done. **OAuth** servers are awkward headless — prefer a service account or a one-time consent that stores a refresh token. Keep `allow` to read tools and scope the upstream token to read-only where supported; the agent is autonomous, so opt into write tools deliberately.
 

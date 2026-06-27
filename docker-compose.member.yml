@@ -8,9 +8,18 @@ services:
         environment:
             WORKSPACE_DIR: /workspace
             LOG_LEVEL: info
+            # The rootfs is read-only, so an `npx`-based stdio MCP server has
+            # nowhere to write its package cache. Point it at the writable tmpfs.
+            # (Better for production: pre-install your MCP servers in a derived
+            # image and reference the binary directly — see README.)
+            NPM_CONFIG_CACHE: /tmp/.npm
         volumes:
             - member-workspace:/workspace
             - ./schedule.yaml:/etc/night-family/schedule.yaml:ro
+            # MCP is opt-in — uncomment to give this member an mcp.yaml. Docker
+            # errors on a bind mount whose source is missing, so only enable it
+            # once the file exists (e.g. `npm run member:generate-mcp-config`).
+            # - ./mcp.yaml:/etc/night-family/mcp.yaml:ro
         restart: unless-stopped
         user: '1000:1000'
         read_only: true
