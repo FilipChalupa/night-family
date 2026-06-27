@@ -233,21 +233,24 @@ export interface MsgHandshake {
 	 */
 	max_tokens_per_day?: number
 	/**
-	 * MCP servers this Member connected to at startup, with how many tools
-	 * each exposes to the agent after its allowlist. Reports servers that
-	 * actually connected, not merely what's configured — a server that
-	 * failed to connect is omitted. Purely informational (surfaced on the
-	 * Member detail page). Omitted when no MCP is configured. New in
-	 * protocol 3.4.0.
+	 * MCP servers this Member is configured to use, each with its current
+	 * connection status and (when live) how many tools it exposes after its
+	 * allowlist. Reports every configured (non-disabled) server — a `down`
+	 * entry means it's configured but not currently reachable, which is more
+	 * useful than omitting it. Live status is kept fresh mid-session via
+	 * {@link MsgMcp}. Purely informational (surfaced on the Member detail
+	 * page). Omitted when no MCP is configured. New in protocol 3.4.0.
 	 */
 	mcp_servers?: McpServerInfo[]
 }
 
-/** One connected MCP server, for the Household UI. See {@link MsgHandshake}. */
+/** One configured MCP server and its live state, for the Household UI. */
 export interface McpServerInfo {
 	/** Server name — the `mcpServers.<key>` from the Member's `mcp.yaml`. */
 	name: string
-	/** Tools exposed to the agent after the read-only allowlist is applied. */
+	/** Whether the Member currently has a working connection to this server. */
+	status: 'live' | 'down'
+	/** Tools exposed to the agent after the allowlist; 0 while `down`. */
 	tool_count: number
 }
 
@@ -331,6 +334,18 @@ export interface MsgMemberReposError {
 	error: string
 }
 
+/**
+ * Pushed by the Member whenever its set of live MCP servers changes — a server
+ * dropped, or a previously-down one reconnected. Replaces the `mcp_servers`
+ * snapshot Household cached at handshake so the Member detail page reflects
+ * reality. Only sent on a change, not on a fixed interval. New in protocol
+ * 3.4.0.
+ */
+export interface MsgMcp {
+	type: 'member.mcp'
+	servers: McpServerInfo[]
+}
+
 export type MemberToHousehold =
 	| MsgHandshake
 	| MsgMemberReady
@@ -343,6 +358,7 @@ export type MemberToHousehold =
 	| MsgPong
 	| MsgMemberRepos
 	| MsgMemberReposError
+	| MsgMcp
 
 // ---------------- Household → Member ----------------
 

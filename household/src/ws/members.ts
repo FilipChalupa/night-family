@@ -321,6 +321,20 @@ function routeMemberMessage(
 				'member failed to refresh accessible repos',
 			)
 			break
+		case 'member.mcp': {
+			const changed = deps.registry.updateMcpServers(session.sessionId, msg.servers)
+			if (changed) {
+				deps.logger.info(
+					{
+						sessionId: session.sessionId,
+						live: msg.servers.filter((s) => s.status === 'live').map((s) => s.name),
+						down: msg.servers.filter((s) => s.status === 'down').map((s) => s.name),
+					},
+					'member mcp status changed',
+				)
+			}
+			break
+		}
 		case 'task.ack':
 			deps.dispatcher.onAck(msg.task_id)
 			break

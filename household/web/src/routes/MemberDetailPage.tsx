@@ -224,7 +224,13 @@ function MemberDetailCard({
 					label="MCP servers"
 					value={
 						member.mcpServers.length > 0
-							? member.mcpServers.map((s) => `${s.name} (${s.tool_count})`).join(', ')
+							? member.mcpServers
+									.map((s) =>
+										s.status === 'live'
+											? `${s.name} (${s.tool_count})`
+											: `${s.name} (down)`,
+									)
+									.join(', ')
 							: '—'
 					}
 				/>

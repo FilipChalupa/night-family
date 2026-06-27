@@ -82,6 +82,12 @@ const AssignedTaskSchema = v.object({
 
 // ---------------- Member → Household ----------------
 
+const McpServerInfoSchema = v.object({
+	name: v.string(),
+	status: v.picklist(['live', 'down']),
+	tool_count: v.number(),
+})
+
 const MsgHandshakeSchema = v.object({
 	type: v.literal('handshake'),
 	protocol_version: v.string(),
@@ -96,7 +102,7 @@ const MsgHandshakeSchema = v.object({
 	repos: v.optional(v.array(v.string())),
 	resumes: v.optional(v.array(ResumeRefSchema)),
 	max_tokens_per_day: v.optional(v.number()),
-	mcp_servers: v.optional(v.array(v.object({ name: v.string(), tool_count: v.number() }))),
+	mcp_servers: v.optional(v.array(McpServerInfoSchema)),
 })
 
 const MsgMemberReadySchema = v.object({ type: v.literal('member.ready') })
@@ -152,6 +158,11 @@ const MsgMemberReposErrorSchema = v.object({
 	error: v.string(),
 })
 
+const MsgMcpSchema = v.object({
+	type: v.literal('member.mcp'),
+	servers: v.array(McpServerInfoSchema),
+})
+
 const MemberToHouseholdSchema = v.variant('type', [
 	MsgHandshakeSchema,
 	MsgMemberReadySchema,
@@ -164,6 +175,7 @@ const MemberToHouseholdSchema = v.variant('type', [
 	MsgPongSchema,
 	MsgMemberReposSchema,
 	MsgMemberReposErrorSchema,
+	MsgMcpSchema,
 ])
 
 // ---------------- Household → Member ----------------

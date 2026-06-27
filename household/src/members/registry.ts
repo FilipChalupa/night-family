@@ -293,6 +293,24 @@ export class MemberRegistry {
 	}
 
 	/**
+	 * Replace a session's live MCP server states from a `member.mcp` push.
+	 * Persists so an offline member's last-known set survives, and re-emits
+	 * `member.updated` so the UI reflects the new live/down status immediately.
+	 */
+	updateMcpServers(sessionId: string, servers: McpServerInfo[]): boolean {
+		const m = this.bySession.get(sessionId)
+		if (!m) return false
+		m.mcpServers = servers
+		m.lastHeartbeat = new Date()
+		this.persistence?.updateMcpServers(m.memberId, servers)
+		this.emitter.emit('event', {
+			type: 'member.updated',
+			member: snapshotConnected(m),
+		} satisfies RegistryEvent)
+		return true
+	}
+
+	/**
 	 * Record that a Member-side accessible-repos refresh failed. Surfaces in
 	 * the snapshot so the dashboard can show "last refresh: rate_limited"
 	 * without scraping logs. Stays until the next successful

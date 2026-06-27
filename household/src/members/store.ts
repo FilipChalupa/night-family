@@ -103,6 +103,18 @@ export class MemberStateStore {
 			.run()
 	}
 
+	/**
+	 * Replace the persisted MCP server states for a member, pushed live via
+	 * `member.mcp`. Keeps the offline snapshot's last-known live/down set fresh.
+	 */
+	updateMcpServers(memberId: string, servers: McpServerInfo[], at: Date = new Date()): void {
+		this.db
+			.update(members)
+			.set({ mcpServers: JSON.stringify(servers), lastSeenAt: at })
+			.where(eq(members.memberId, memberId))
+			.run()
+	}
+
 	markDisconnected(memberId: string, at: Date = new Date()): void {
 		this.db
 			.update(members)

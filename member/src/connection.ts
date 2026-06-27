@@ -47,12 +47,14 @@ const REPOS_PERIODIC_REFRESH_MS = 6 * 60 * 60 * 1000
 export interface ConnectionDeps {
 	taskRunner: TaskRunner
 	/**
-	 * Connected MCP servers (name + exposed tool count) to announce on the
-	 * handshake so Household can show what each Member can reach. Omit / empty
-	 * when no MCP is configured. Stable for the Member's lifetime, so a single
-	 * snapshot is fine across reconnects.
+	 * Current MCP server states (name + live status + tool count) to announce
+	 * on the handshake so Household can show what each Member can reach. A
+	 * getter, not a snapshot: status changes over the session, and each
+	 * (re)handshake should carry the latest. Omit when no MCP is configured.
+	 * Live updates between handshakes go out as `member.mcp` (sent by the
+	 * owner via {@link HouseholdConnection.send}).
 	 */
-	mcpServers?: McpServerInfo[]
+	getMcpServers?: () => McpServerInfo[]
 }
 
 export class HouseholdConnection {
@@ -199,9 +201,10 @@ export class HouseholdConnection {
 			model: this.config.model,
 			worker_profile: this.config.workerProfile,
 			repos: [...this.currentRepos],
-			...(this.deps.mcpServers && this.deps.mcpServers.length > 0
-				? { mcp_servers: this.deps.mcpServers }
-				: {}),
+			...(() => {
+				const mcp = this.deps.getMcpServers?.() ?? []
+				return mcp.length > 0 ? { mcp_servers: mcp } : {}
+			})(),
 			...(resumes.length > 0 ? { resumes } : {}),
 			...(this.config.limits.maxTokensPerDay !== null
 				? { max_tokens_per_day: this.config.limits.maxTokensPerDay }

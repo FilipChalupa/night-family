@@ -91,13 +91,15 @@ export interface TaskRunnerDeps {
 	/** Shared with the preview tunnel so an idle preview can sleep and wake. */
 	previewWaker?: PreviewWaker
 	/**
-	 * MCP tools available to the agent, connected once at Member startup and
-	 * shared across tasks (they talk to external services, not the per-task
-	 * workspace). `tools` is appended to the workspace tools; `servers` lists
-	 * the connected server names for the system-prompt hint. Omitted = no MCP.
-	 * Not wired into the rebase-rescue path, which is pure local conflict work.
+	 * MCP tools available to the agent, managed by the McpManager and shared
+	 * across tasks (they talk to external services, not the per-task workspace).
+	 * Read via getters, not a snapshot: reconnects can swap the live tool set, so
+	 * each task picks up whatever is connected right now. `tools()` is appended
+	 * to the workspace tools; `serverNames()` lists the live servers for the
+	 * system-prompt hint. Omitted = no MCP. Not wired into the rebase-rescue
+	 * path, which is pure local conflict work.
 	 */
-	mcp?: { tools: readonly ToolDefinition[]; servers: readonly string[] }
+	mcp?: { tools: () => readonly ToolDefinition[]; serverNames: () => readonly string[] }
 }
 
 export interface TaskOutcome {
@@ -282,12 +284,14 @@ export class TaskRunner {
 				bashTimeoutMs: bashTimeoutMsForKind(task.kind),
 			})
 
-			// Append MCP tools (Slack, Linear, …) after the workspace tools so
-			// the agent can resolve links an issue points at. Stable across the
-			// Member's lifetime; the empty default is a no-op.
-			if (this.deps.mcp && this.deps.mcp.tools.length > 0) {
-				tools.push(...this.deps.mcp.tools)
+			// Append the currently-live MCP tools after the workspace tools so
+			// the agent can resolve links an issue points at. Read fresh per task
+			// — reconnects can change the live set. Empty = no-op.
+			const mcpTools = this.deps.mcp?.tools() ?? []
+			if (mcpTools.length > 0) {
+				tools.push(...mcpTools)
 			}
+			const mcpServerNames = this.deps.mcp?.serverNames() ?? []
 
 			const systemPrompt = buildSystemPrompt({
 				memberName: this.deps.memberName,
@@ -297,7 +301,7 @@ export class TaskRunner {
 					this.deps.limits,
 					this.deps.dailyUsage.tokensToday(),
 				),
-				...(this.deps.mcp ? { mcpServers: this.deps.mcp.servers } : {}),
+				...(mcpServerNames.length > 0 ? { mcpServers: mcpServerNames } : {}),
 			})
 
 			const agentTask: AgentTask = {

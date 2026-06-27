@@ -56,18 +56,18 @@ if (stubMode) {
 
 let connection: HouseholdConnection | null = null
 
-// Connect MCP servers (Slack, Linear, Jira, …) once at startup. A missing
-// config file means no MCP; a server that fails to connect is skipped inside
-// connect(), so this never blocks the Member from running tasks.
+// Connect MCP servers (resolved from mcp.yaml) at startup and keep them alive.
+// A missing config file means no MCP; a server that fails to connect is left
+// `down` and retried, so this never blocks the Member from running tasks.
 const mcpResolved = resolveMcpConfig()
 const mcpManager = new McpManager(mcpResolved.config.servers, logger.child({ component: 'mcp' }))
-if (mcpResolved.config.servers.length > 0) {
+if (mcpManager.configured) {
 	logger.info(
 		{ source: mcpResolved.source, servers: mcpResolved.config.servers.map((s) => s.name) },
 		'mcp config loaded',
 	)
-	await mcpManager.connect().catch((err) => {
-		logger.warn({ err }, 'mcp connect failed (non-fatal)')
+	await mcpManager.start().catch((err) => {
+		logger.warn({ err }, 'mcp start failed (non-fatal)')
 	})
 }
 
@@ -91,15 +91,21 @@ const taskRunner = new TaskRunner({
 	rebaseVerifyCommand: config.rebaseVerifyCommand,
 	preview: config.preview,
 	previewWaker,
-	mcp: { tools: mcpManager.tools, servers: mcpManager.connectedServers },
+	mcp: {
+		tools: () => mcpManager.tools,
+		serverNames: () => mcpManager.connectedServers,
+	},
 })
 
 connection = new HouseholdConnection(config, logger.child({ component: 'connection' }), {
 	taskRunner,
-	mcpServers: mcpManager.serverSummaries.map((s) => ({
-		name: s.name,
-		tool_count: s.toolCount,
-	})),
+	getMcpServers: () => mcpManager.serverInfos,
+})
+
+// Push live MCP status changes (a server dropped or reconnected) to Household
+// between handshakes, mirroring how `member.repos` keeps the allowlist fresh.
+mcpManager.setOnChange((servers) => {
+	connection?.send({ type: 'member.mcp', servers })
 })
 
 // Preview members open a second, dedicated tunnel WS so Household can proxy

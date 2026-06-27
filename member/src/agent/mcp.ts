@@ -1,21 +1,29 @@
 /**
- * MCP runtime — connects to the configured MCP servers at Member startup and
- * exposes their tools as ordinary {@link ToolDefinition}s, so the existing
- * provider adapters (Anthropic / Gemini / OpenAI) pick them up unchanged.
+ * MCP runtime — connects to the configured MCP servers and exposes their tools
+ * as ordinary {@link ToolDefinition}s, so the existing provider adapters
+ * (Anthropic / Gemini / OpenAI) pick them up unchanged.
  *
  * Design notes:
  *   - A server that fails to connect (down, bad token, slow spawn) is logged
- *     and skipped. MCP is an enhancement, never a hard dependency of task
+ *     and left `down`. MCP is an enhancement, never a hard dependency of task
  *     execution — a broken Slack server must not stop the Member implementing
  *     code.
+ *   - Liveness: the manager keeps every configured server alive. It detects a
+ *     dropped connection two ways — the transport's `onclose` (immediate, e.g.
+ *     a stdio subprocess exits) and a periodic `ping` health check (catches a
+ *     silently-dead HTTP server) — and reconnects down servers with backoff.
+ *     Status transitions fire `onChange` so the Member can report them to
+ *     Household.
  *   - Tools are namespaced `mcp__<server>__<tool>` so two servers can expose a
  *     `search` without colliding, and the name stays within the
  *     `^[a-zA-Z0-9_-]{1,128}$` shape every provider requires.
  *   - The `allow` list (read-only by default) is applied here, before the
  *     agent ever sees a tool — defense in depth on top of scoping the upstream
  *     token.
- *   - Connections are opened once and shared across every task this Member
- *     runs; the tools talk to external services, not the per-task workspace.
+ *   - Connections are shared across every task this Member runs; the tools talk
+ *     to external services, not the per-task workspace. Because reconnects can
+ *     swap the live tool set, consumers must read {@link McpManager.tools}
+ *     per task rather than snapshot it once.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -23,19 +31,37 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
-import { redactBashOutput } from '@night/shared'
+import { redactBashOutput, type McpServerInfo } from '@night/shared'
 import type { Logger } from 'pino'
 import { expandEnvMap, type McpServerConfig } from './mcp-config.ts'
 import type { ToolDefinition, ToolResult } from './types.ts'
 
 /** How long a single server gets to connect + list tools before we give up. */
 const CONNECT_TIMEOUT_MS = 20_000
+/** How long a health-check ping may hang before the server is treated as down. */
+const PING_TIMEOUT_MS = 10_000
+/** Default interval between health-check / reconnect passes. */
+const DEFAULT_TICK_MS = 30_000
+/** Reconnect backoff by consecutive-failure count (ms), clamped to the last. */
+const RECONNECT_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000]
 /** Per call cap, so a chatty MCP tool can't blow the context budget. */
 const MAX_OUTPUT_CHARS = 60_000
 
 /** The slice of the MCP client this module actually uses — keeps tests honest. */
 export interface McpToolCaller {
 	callTool(args: { name: string; arguments?: Record<string, unknown> }): Promise<unknown>
+}
+
+/**
+ * The client surface the manager drives. The SDK `Client` satisfies it; tests
+ * provide a fake so the lifecycle (status, reconnect, health check) is testable
+ * without real transports.
+ */
+export interface McpClient extends McpToolCaller {
+	ping(): Promise<unknown>
+	close(): Promise<void>
+	/** Invoked by the transport when the connection drops. Assigned by the manager. */
+	onclose?: (() => void) | undefined
 }
 
 /** A tool descriptor as returned by `tools/list`. */
@@ -125,110 +151,247 @@ function flattenResult(raw: unknown): ToolResult {
 	return { output, isError }
 }
 
-interface OpenServer {
-	name: string
-	client: Client
-	transport: Transport
-	/** Tools exposed to the agent after the allowlist — surfaced to Household. */
-	toolCount: number
-}
-
-/** Per-server summary reported to Household at handshake. */
-export interface McpServerSummary {
-	name: string
-	toolCount: number
+/** A freshly-established connection: the live client plus its wrapped tools. */
+export interface McpConnection {
+	client: McpClient
+	tools: ToolDefinition[]
 }
 
 /**
- * Owns the live MCP connections for a Member. Call {@link connect} once at
- * startup, read {@link tools} per task, and {@link close} on shutdown.
+ * Establishes one connection. Injectable so tests can drive connect
+ * success/failure (and `onclose`) without spawning real servers; the default
+ * uses the MCP SDK.
+ */
+export type McpConnector = (server: McpServerConfig) => Promise<McpConnection>
+
+interface ServerState {
+	readonly config: McpServerConfig
+	status: 'live' | 'down'
+	client: McpClient | null
+	tools: ToolDefinition[]
+	/** Consecutive failed (re)connects — drives the backoff. */
+	failures: number
+	/** Earliest epoch-ms at which a down server may be retried. */
+	nextAttemptAt: number
+}
+
+export interface McpManagerOptions {
+	/** Override the connection establishment (tests). */
+	connector?: McpConnector
+	/** Health-check / reconnect interval. Default {@link DEFAULT_TICK_MS}. */
+	tickMs?: number
+	/** Clock seam for backoff gating (tests). Default `Date.now`. */
+	clock?: () => number
+}
+
+/**
+ * Owns the live MCP connections for a Member, keeping each configured server
+ * connected (reconnecting dropped ones) and reporting status transitions.
+ *
+ * Lifecycle: {@link start} once, read {@link tools} per task, {@link close} on
+ * shutdown. {@link healthCheck} runs one ping+reconnect pass; the internal
+ * timer calls it on an interval, and tests call it directly.
  */
 export class McpManager {
-	private readonly open: OpenServer[] = []
-	private _tools: ToolDefinition[] = []
+	private readonly states: ServerState[]
+	private readonly connector: McpConnector
+	private readonly tickMs: number
+	private readonly clock: () => number
+	private onChange: ((infos: McpServerInfo[]) => void) | null = null
+	private lastEmitted: string | null = null
+	private tickTimer: NodeJS.Timeout | null = null
+	private closed = false
 
 	constructor(
-		private readonly servers: readonly McpServerConfig[],
+		servers: readonly McpServerConfig[],
 		private readonly logger: Logger,
-	) {}
+		opts: McpManagerOptions = {},
+	) {
+		this.states = servers
+			.filter((s) => !s.disabled)
+			.map((config) => ({
+				config,
+				status: 'down' as const,
+				client: null,
+				tools: [],
+				failures: 0,
+				nextAttemptAt: 0,
+			}))
+		this.connector = opts.connector ?? defaultConnector
+		this.tickMs = opts.tickMs ?? DEFAULT_TICK_MS
+		this.clock = opts.clock ?? Date.now
+	}
 
-	/** Tools from every server that connected successfully. Stable after connect. */
+	/** Whether any server is configured at all (skip the machinery if not). */
+	get configured(): boolean {
+		return this.states.length > 0
+	}
+
+	/** Live tools across every connected server. Re-read per task — it changes on reconnect. */
 	get tools(): ToolDefinition[] {
-		return this._tools
+		return this.states.flatMap((s) => s.tools)
 	}
 
-	/** Names of servers that are live, for logging/observability. */
+	/** Names of currently-live servers, for the system-prompt hint. */
 	get connectedServers(): string[] {
-		return this.open.map((o) => o.name)
+		return this.states.filter((s) => s.status === 'live').map((s) => s.config.name)
 	}
 
-	/** Connected servers with their exposed tool counts, for the Household UI. */
-	get serverSummaries(): McpServerSummary[] {
-		return this.open.map((o) => ({ name: o.name, toolCount: o.toolCount }))
+	/** Every configured server with its current status + tool count, for Household. */
+	get serverInfos(): McpServerInfo[] {
+		return this.states.map((s) => ({
+			name: s.config.name,
+			status: s.status,
+			tool_count: s.tools.length,
+		}))
+	}
+
+	/** Register the status-change callback (Member → Household push). */
+	setOnChange(cb: (infos: McpServerInfo[]) => void): void {
+		this.onChange = cb
+	}
+
+	/** Connect every server once, then start the health/reconnect loop. Never throws. */
+	async start(): Promise<void> {
+		if (!this.configured) return
+		await Promise.all(this.states.map((s) => this.tryConnect(s)))
+		this.logger.info(
+			{ servers: this.connectedServers, configured: this.states.length },
+			'mcp started',
+		)
+		// Seed `lastEmitted` so the first real change (not the initial snapshot,
+		// which the handshake already carries) is what fires onChange.
+		this.lastEmitted = JSON.stringify(this.serverInfos)
+		this.scheduleTick()
 	}
 
 	/**
-	 * Connect to every enabled server in parallel. Never throws: a server that
-	 * fails is logged and left out. Returns the tools it managed to assemble.
+	 * One health-check + reconnect pass: ping live servers (a failure means the
+	 * connection is dead), and retry down servers whose backoff has elapsed.
+	 * Public so the timer and tests share one path.
 	 */
-	async connect(): Promise<ToolDefinition[]> {
-		const enabled = this.servers.filter((s) => !s.disabled)
-		const results = await Promise.all(enabled.map((s) => this.connectOne(s)))
-		this._tools = results.flat()
-		this.logger.info(
-			{
-				servers: this.connectedServers,
-				toolCount: this._tools.length,
-				configured: enabled.length,
-			},
-			'mcp ready',
+	async healthCheck(): Promise<void> {
+		if (this.closed) return
+		const now = this.clock()
+		await Promise.all(
+			this.states.map(async (state) => {
+				if (state.status === 'live') {
+					try {
+						await withTimeout(state.client!.ping(), PING_TIMEOUT_MS, 'ping')
+					} catch {
+						this.markDown(state, 'ping failed')
+					}
+				} else if (now >= state.nextAttemptAt) {
+					await this.tryConnect(state)
+				}
+			}),
 		)
-		return this._tools
+		this.emitIfChanged()
 	}
 
-	private async connectOne(server: McpServerConfig): Promise<ToolDefinition[]> {
-		const log = this.logger.child({ mcpServer: server.name })
+	private async tryConnect(state: ServerState): Promise<void> {
+		const log = this.logger.child({ mcpServer: state.config.name })
 		try {
-			const transport = buildTransport(server)
-			const client = new Client({ name: 'night-family-member', version: '0.0.0' })
-			await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, 'connect')
-			const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'listTools')
-
-			const allow = server.allow == null ? null : new Set(server.allow)
-			const tools: ToolDefinition[] = []
-			let skipped = 0
-			for (const descriptor of listed.tools as McpToolDescriptor[]) {
-				if (allow && !allow.has(descriptor.name)) {
-					skipped++
-					continue
-				}
-				tools.push(wrapMcpTool(server.name, descriptor, client))
-			}
-			this.open.push({ name: server.name, client, transport, toolCount: tools.length })
-			log.info(
-				{ exposed: tools.length, skipped, advertised: listed.tools.length },
-				'mcp server connected',
-			)
-			return tools
+			const conn = await this.connector(state.config)
+			state.client = conn.client
+			state.tools = conn.tools
+			state.status = 'live'
+			state.failures = 0
+			// Immediate down-detection: the transport tells us when it drops.
+			conn.client.onclose = () => this.handleClose(state)
+			log.info({ tools: conn.tools.length }, 'mcp server live')
 		} catch (err) {
-			// A broken server is non-fatal — log loudly and carry on without it.
-			log.warn({ err }, 'mcp server failed to connect — skipping its tools')
-			return []
+			state.client = null
+			state.tools = []
+			state.status = 'down'
+			state.failures += 1
+			state.nextAttemptAt = this.clock() + backoff(state.failures)
+			log.warn({ err, failures: state.failures }, 'mcp server down — will retry')
 		}
 	}
 
-	/** Close every connection. Best-effort; errors are swallowed. */
+	/** onclose handler — flip to down immediately and let the next tick reconnect. */
+	private handleClose(state: ServerState): void {
+		if (this.closed || state.status !== 'live') return
+		this.logger.child({ mcpServer: state.config.name }).warn('mcp connection closed')
+		this.markDown(state, 'connection closed')
+		this.emitIfChanged()
+	}
+
+	private markDown(state: ServerState, _reason: string): void {
+		state.status = 'down'
+		state.client = null
+		state.tools = []
+		// Don't count an onclose as a connect failure (failures drives connect
+		// backoff); just gate the next retry by the current step.
+		state.nextAttemptAt = this.clock() + backoff(state.failures + 1)
+	}
+
+	private scheduleTick(): void {
+		if (this.closed) return
+		this.tickTimer = setTimeout(() => {
+			void this.healthCheck().finally(() => this.scheduleTick())
+		}, this.tickMs)
+		this.tickTimer.unref?.()
+	}
+
+	private emitIfChanged(): void {
+		const infos = this.serverInfos
+		const key = JSON.stringify(infos)
+		if (key === this.lastEmitted) return
+		this.lastEmitted = key
+		this.onChange?.(infos)
+	}
+
+	/** Stop the loop and close every connection. Best-effort. */
 	async close(): Promise<void> {
+		this.closed = true
+		if (this.tickTimer) clearTimeout(this.tickTimer)
+		this.tickTimer = null
 		await Promise.all(
-			this.open.map(async (o) => {
+			this.states.map(async (state) => {
+				const client = state.client
+				state.client = null
+				state.status = 'down'
+				state.tools = []
+				if (!client) return
+				client.onclose = undefined
 				try {
-					await o.client.close()
+					await client.close()
 				} catch {
 					// already gone / process exiting — nothing useful to do
 				}
 			}),
 		)
-		this.open.length = 0
+	}
+}
+
+/** Backoff for the Nth consecutive failure (1-indexed), clamped to the last step. */
+function backoff(failures: number): number {
+	const i = Math.min(Math.max(failures, 1), RECONNECT_BACKOFF_MS.length) - 1
+	return RECONNECT_BACKOFF_MS[i]!
+}
+
+const defaultConnector: McpConnector = async (server) => {
+	const transport = buildTransport(server)
+	const client = new Client({ name: 'night-family-member', version: '0.0.0' })
+	try {
+		await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, 'connect')
+		const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'listTools')
+		const allow = server.allow == null ? null : new Set(server.allow)
+		const tools: ToolDefinition[] = []
+		for (const descriptor of listed.tools as McpToolDescriptor[]) {
+			if (allow && !allow.has(descriptor.name)) continue
+			tools.push(wrapMcpTool(server.name, descriptor, client))
+		}
+		return { client: client as unknown as McpClient, tools }
+	} catch (err) {
+		try {
+			await client.close()
+		} catch {
+			// best-effort cleanup of a half-open client
+		}
+		throw err
 	}
 }
 

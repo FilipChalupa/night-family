@@ -1,9 +1,20 @@
+import { pino } from 'pino'
 import { describe, expect, it, vi } from 'vitest'
-import { wrapMcpTool, type McpToolCaller } from './mcp.ts'
+import {
+	McpManager,
+	wrapMcpTool,
+	type McpClient,
+	type McpConnection,
+	type McpConnector,
+	type McpToolCaller,
+} from './mcp.ts'
+import type { McpServerConfig } from './mcp-config.ts'
 
 function caller(impl: McpToolCaller['callTool']): McpToolCaller {
 	return { callTool: impl }
 }
+
+const silent = pino({ level: 'silent' })
 
 describe('wrapMcpTool', () => {
 	const descriptor = {
@@ -102,5 +113,172 @@ describe('wrapMcpTool', () => {
 		const tool = wrapMcpTool('x', { name: 't' }, caller(spy))
 		await tool.run('not an object')
 		expect(spy).toHaveBeenCalledWith({ name: 't', arguments: {} })
+	})
+})
+
+// --- McpManager lifecycle ---------------------------------------------------
+
+/** A controllable fake client + transport for driving the manager's lifecycle. */
+class FakeClient implements McpClient {
+	onclose: (() => void) | undefined
+	closed = false
+	pingImpl: () => Promise<unknown> = async () => ({})
+	async callTool() {
+		return { content: [{ type: 'text', text: 'ok' }] }
+	}
+	async ping() {
+		return this.pingImpl()
+	}
+	async close() {
+		this.closed = true
+	}
+	/** Simulate the transport dropping the connection. */
+	drop() {
+		this.onclose?.()
+	}
+}
+
+function stdioCfg(name: string, allow?: string[]): McpServerConfig {
+	return { name, transport: 'stdio', command: 'x', ...(allow ? { allow } : {}) }
+}
+
+/** Connector harness: tracks the latest client per server and can be made to fail. */
+function harness() {
+	let fail = false
+	const current = new Map<string, FakeClient>()
+	const connector: McpConnector = async (server): Promise<McpConnection> => {
+		if (fail) throw new Error('connect refused')
+		const client = new FakeClient()
+		current.set(server.name, client)
+		const names = server.allow ?? ['a', 'b']
+		const tools = [...names].map((n) => wrapMcpTool(server.name, { name: n }, client))
+		return { client, tools }
+	}
+	return {
+		connector,
+		setFail: (v: boolean) => {
+			fail = v
+		},
+		clientFor: (name: string) => current.get(name)!,
+	}
+}
+
+describe('McpManager lifecycle', () => {
+	it('connects servers at start and exposes their tools', async () => {
+		const h = harness()
+		const mgr = new McpManager([stdioCfg('s1', ['a', 'b'])], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+		})
+		await mgr.start()
+		expect(mgr.serverInfos).toEqual([{ name: 's1', status: 'live', tool_count: 2 }])
+		expect(mgr.connectedServers).toEqual(['s1'])
+		expect(mgr.tools.map((t) => t.name)).toEqual(['mcp__s1__a', 'mcp__s1__b'])
+		await mgr.close()
+	})
+
+	it('marks a failed server down and reconnects once its backoff elapses', async () => {
+		const h = harness()
+		h.setFail(true)
+		let now = 0
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+			clock: () => now,
+		})
+		await mgr.start()
+		expect(mgr.serverInfos[0]).toEqual({ name: 's1', status: 'down', tool_count: 0 })
+		expect(mgr.tools).toEqual([])
+
+		// Server recovers, but the backoff window hasn't elapsed yet.
+		h.setFail(false)
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+
+		// Past the backoff → the next health check reconnects.
+		now += 5_000
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('live')
+		expect(mgr.tools.length).toBe(2)
+		await mgr.close()
+	})
+
+	it('flips to down on an onclose drop and fires onChange, then reconnects', async () => {
+		const h = harness()
+		let now = 0
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+			clock: () => now,
+		})
+		await mgr.start()
+		const changes: string[][] = []
+		mgr.setOnChange((infos) => changes.push(infos.map((i) => `${i.name}:${i.status}`)))
+
+		h.clientFor('s1').drop()
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+		expect(changes).toEqual([['s1:down']])
+
+		now += 5_000
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('live')
+		expect(changes).toEqual([['s1:down'], ['s1:live']])
+		await mgr.close()
+	})
+
+	it('treats a failed health-check ping as the server going down', async () => {
+		const h = harness()
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+		})
+		await mgr.start()
+		const changes: number[] = []
+		mgr.setOnChange((infos) => changes.push(infos.filter((i) => i.status === 'live').length))
+
+		h.clientFor('s1').pingImpl = async () => {
+			throw new Error('unreachable')
+		}
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+		expect(changes).toEqual([0])
+		await mgr.close()
+	})
+
+	it('does not fire onChange when nothing changed (stable pings)', async () => {
+		const h = harness()
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+		})
+		await mgr.start()
+		const changes: unknown[] = []
+		mgr.setOnChange((infos) => changes.push(infos))
+		await mgr.healthCheck()
+		await mgr.healthCheck()
+		expect(changes).toEqual([])
+		await mgr.close()
+	})
+
+	it('closes every live client on shutdown', async () => {
+		const h = harness()
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+		})
+		await mgr.start()
+		const client = h.clientFor('s1')
+		await mgr.close()
+		expect(client.closed).toBe(true)
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+	})
+
+	it('is inert with no servers configured', async () => {
+		const mgr = new McpManager([], silent, { tickMs: 1e9 })
+		expect(mgr.configured).toBe(false)
+		await mgr.start()
+		expect(mgr.tools).toEqual([])
+		expect(mgr.serverInfos).toEqual([])
+		await mgr.close()
 	})
 })

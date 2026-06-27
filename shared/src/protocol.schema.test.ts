@@ -39,17 +39,29 @@ describe('parseMemberToHousehold', () => {
 			model: 'claude-opus-4-7',
 			worker_profile: 'medium',
 			mcp_servers: [
-				{ name: 'linear', tool_count: 3 },
-				{ name: 'slack', tool_count: 5 },
+				{ name: 'linear', status: 'live', tool_count: 3 },
+				{ name: 'slack', status: 'down', tool_count: 0 },
 			],
 		})
 		const out = parseMemberToHousehold(raw)
 		expect(out.ok).toBe(true)
 		if (out.ok && out.msg.type === 'handshake') {
 			expect(out.msg.mcp_servers).toEqual([
-				{ name: 'linear', tool_count: 3 },
-				{ name: 'slack', tool_count: 5 },
+				{ name: 'linear', status: 'live', tool_count: 3 },
+				{ name: 'slack', status: 'down', tool_count: 0 },
 			])
+		}
+	})
+
+	it('accepts a member.mcp status update', () => {
+		const raw = JSON.stringify({
+			type: 'member.mcp',
+			servers: [{ name: 'linear', status: 'live', tool_count: 3 }],
+		})
+		const out = parseMemberToHousehold(raw)
+		expect(out.ok).toBe(true)
+		if (out.ok && out.msg.type === 'member.mcp') {
+			expect(out.msg.servers[0]?.status).toBe('live')
 		}
 	})
 
