@@ -71,6 +71,13 @@
       "when": 1782485890134,
       "tag": "0009_long_apocalypse",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1782585196254,
+      "tag": "0010_public_jack_power",
+      "breakpoints": true
     }
   ]
 }

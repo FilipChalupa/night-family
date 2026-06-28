@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `required_mcp` text DEFAULT '[]' NOT NULL;

@@ -57,6 +57,31 @@ describe('parseTriageOutput', () => {
 		expect(parseTriageOutput('{"outcome":"plan","size":"weird"}')).toEqual({ outcome: 'plan' })
 	})
 
+	it('parses the optional mcp estimate on a plan', () => {
+		expect(parseTriageOutput('{"outcome":"plan","size":"M","mcp":["linear","slack"]}')).toEqual(
+			{
+				outcome: 'plan',
+				size: 'M',
+				mcp: ['linear', 'slack'],
+			},
+		)
+	})
+
+	it('omits mcp when absent, empty, or non-string', () => {
+		expect(parseTriageOutput('{"outcome":"plan","size":"S"}')).toEqual({
+			outcome: 'plan',
+			size: 'S',
+		})
+		expect(parseTriageOutput('{"outcome":"plan","size":"S","mcp":[]}')).toEqual({
+			outcome: 'plan',
+			size: 'S',
+		})
+		expect(parseTriageOutput('{"outcome":"plan","mcp":[1,"linear"]}')).toEqual({
+			outcome: 'plan',
+			mcp: ['linear'],
+		})
+	})
+
 	it('falls back to unknown when no JSON line is present', () => {
 		expect(parseTriageOutput('agent rambled and forgot the JSON')).toEqual({
 			outcome: 'unknown',

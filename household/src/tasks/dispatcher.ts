@@ -32,7 +32,7 @@ import {
 } from '@night/shared'
 import type { ConnectedMember, MemberRegistry, MemberSnapshot } from '../members/registry.ts'
 import type { NotificationSender } from '../notifications/sender.ts'
-import type { TaskRecord, TaskStore } from './store.ts'
+import type { McpClaimContext, TaskRecord, TaskStore } from './store.ts'
 import type { TaskJobRecord, TaskJobStore, ReviewVerdict } from './jobStore.ts'
 
 const RETRY_BACKOFFS_MS = [60_000, 5 * 60_000, 15 * 60_000] as const
@@ -226,13 +226,20 @@ export class Dispatcher {
 		let task: TaskRecord | null = null
 		const acceptable = acceptableTaskKinds(member.skills)
 		if (acceptable.length > 0) {
+			// Soft MCP routing: prefer leaving an MCP-needing task for a member
+			// that has the server connected, but never starve it (see mcpEligible).
+			const mcp: McpClaimContext = {
+				memberMcp: liveMcpNames(member),
+				fleetMcp: this.fleetLiveMcp(),
+			}
 			task = this.deps.taskStore.claimNextForPreferredMember(
 				acceptable,
 				assignment,
 				member.repos,
+				mcp,
 			)
 			if (!task) {
-				task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos)
+				task = this.deps.taskStore.claimNextFor(acceptable, assignment, member.repos, mcp)
 			}
 		}
 
@@ -266,6 +273,15 @@ export class Dispatcher {
 		if (!member.repos) return true // unconstrained
 		if (!repo) return true // repo-less tasks (summarize) accepted by everyone
 		return member.repos.includes(repo)
+	}
+
+	/** Union of live MCP server names across every currently-connected member. */
+	private fleetLiveMcp(): string[] {
+		const all = new Set<string>()
+		for (const m of this.deps.registry.list()) {
+			for (const name of liveMcpNames(m)) all.add(name)
+		}
+		return [...all]
 	}
 
 	/**
@@ -607,7 +623,7 @@ export class Dispatcher {
 			if (task.kind === 'triage') {
 				const triage = parseTriageResult(result)
 				if (triage?.outcome === 'plan') {
-					this.spawnImplementFromTriage(task, triage.size)
+					this.spawnImplementFromTriage(task, triage.size, triage.mcp)
 				} else {
 					this.deps.logger.info(
 						{ taskId, outcome: triage?.outcome ?? 'unknown' },
@@ -677,6 +693,7 @@ export class Dispatcher {
 	private spawnImplementFromTriage(
 		triage: TaskRecord,
 		size: 'S' | 'M' | 'L' | 'XL' | null,
+		requiredMcp: string[] = [],
 	): void {
 		if (!triage.repo) {
 			this.deps.logger.warn(
@@ -717,13 +734,14 @@ export class Dispatcher {
 			repo: triage.repo,
 			githubIssueNumber: issueNumber,
 			githubIssueUrl: triage.githubIssueUrl,
+			requiredMcp,
 			metadata: { spawned_from_triage: triage.id },
 		})
 		if (size) {
 			this.deps.taskStore.storePlanResult(implement.id, size, [])
 		}
 		this.deps.logger.info(
-			{ triageId: triage.id, implementId: implement.id, size },
+			{ triageId: triage.id, implementId: implement.id, size, requiredMcp },
 			'implement task queued from triage plan',
 		)
 	}
@@ -853,15 +871,25 @@ export class Dispatcher {
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
+/** Live MCP server names a member currently has connected. */
+function liveMcpNames(member: MemberSnapshot): string[] {
+	return member.mcpServers.filter((s) => s.status === 'live').map((s) => s.name)
+}
+
 /**
  * Parse the JSON the triage agent appends at the end of its turn:
- *   {"outcome":"question"}            — a clarifying question was posted
- *   {"outcome":"plan","size":"M"}     — a plan comment was posted; ready
- *                                       to enqueue an implement task
+ *   {"outcome":"question"}                      — a clarifying question was posted
+ *   {"outcome":"plan","size":"M"}               — a plan comment was posted; ready
+ *                                                 to enqueue an implement task
+ *   {"outcome":"plan","size":"M","mcp":["linear"]} — plus the MCP servers the
+ *                                                 implementer is estimated to need
  */
 function parseTriageResult(
 	result: unknown,
-): { outcome: 'question' } | { outcome: 'plan'; size: 'S' | 'M' | 'L' | 'XL' | null } | null {
+):
+	| { outcome: 'question' }
+	| { outcome: 'plan'; size: 'S' | 'M' | 'L' | 'XL' | null; mcp: string[] }
+	| null {
 	if (!result || typeof result !== 'object') return null
 	const r = result as Record<string, unknown>
 	const outcome = r['outcome']
@@ -870,7 +898,11 @@ function parseTriageResult(
 		const size = r['size']
 		const validSize =
 			size === 'S' || size === 'M' || size === 'L' || size === 'XL' ? size : null
-		return { outcome: 'plan', size: validSize }
+		const rawMcp = r['mcp']
+		const mcp = Array.isArray(rawMcp)
+			? rawMcp.filter((x): x is string => typeof x === 'string')
+			: []
+		return { outcome: 'plan', size: validSize, mcp }
 	}
 	return null
 }

@@ -27,6 +27,8 @@ export interface TaskRecord {
 	status: TaskStatus
 	planSize: 'S' | 'M' | 'L' | 'XL' | null
 	planBlockers: string[] | null
+	/** MCP server names the implementation is estimated to need (from triage). */
+	requiredMcp: string[]
 	prUrl: string | null
 	assignedSessionId: string | null
 	assignedMemberId: string | null
@@ -53,6 +55,8 @@ export interface CreateTaskInput {
 	githubIssueNumber?: number | null
 	githubIssueUrl?: string | null
 	metadata?: Record<string, unknown>
+	/** MCP server names the task is estimated to need (triage routing hint). */
+	requiredMcp?: string[]
 }
 
 export interface PatchTaskInput {
@@ -78,6 +82,7 @@ function rowToRecord(row: TaskJoinRow, reviewJobs: ReviewJobsSummary | null = nu
 		status: t.status as TaskStatus,
 		planSize: (t.planSize as TaskRecord['planSize']) ?? null,
 		planBlockers: t.planBlockers ? (JSON.parse(t.planBlockers) as string[]) : null,
+		requiredMcp: parseStringArray(t.requiredMcp),
 		prUrl: t.prUrl,
 		assignedSessionId: t.assignedSessionId,
 		assignedMemberId: t.assignedMemberId,
@@ -93,6 +98,44 @@ function rowToRecord(row: TaskJoinRow, reviewJobs: ReviewJobsSummary | null = nu
 		updatedAt: t.updatedAt.toISOString(),
 		metadata: t.metadata ? (JSON.parse(t.metadata) as Record<string, unknown>) : null,
 		reviewJobs,
+	}
+}
+
+/**
+ * Fleet-aware MCP context for a claim attempt. A task's `requiredMcp` is a
+ * *soft* preference: a member should leave an MCP-needing task for a
+ * better-equipped peer, but never starve it — if no connected member has the
+ * required server, anyone may take it (degraded, but done).
+ */
+export interface McpClaimContext {
+	/** Live MCP servers the claiming member has. */
+	memberMcp: string[]
+	/** MCP servers any currently-connected member has (the union across the fleet). */
+	fleetMcp: string[]
+}
+
+/**
+ * Whether this member should claim a task needing `requiredMcp`. Blocked only
+ * when a required server is held *somewhere in the fleet* but not by this
+ * member — otherwise (member has it, or nobody does) it's eligible.
+ */
+export function mcpEligible(requiredMcp: string[], ctx: McpClaimContext): boolean {
+	if (requiredMcp.length === 0) return true
+	const has = new Set(ctx.memberMcp)
+	const fleet = new Set(ctx.fleetMcp)
+	return !requiredMcp.some((s) => !has.has(s) && fleet.has(s))
+}
+
+/** How many queued candidates to consider per claim (MCP filtering happens in JS). */
+const CLAIM_BATCH = 25
+
+function parseStringArray(raw: string | null): string[] {
+	if (!raw) return []
+	try {
+		const parsed = JSON.parse(raw)
+		return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+	} catch {
+		return []
 	}
 }
 
@@ -120,6 +163,7 @@ export class TaskStore {
 				status: 'queued',
 				githubIssueNumber: input.githubIssueNumber ?? null,
 				githubIssueUrl: input.githubIssueUrl ?? null,
+				requiredMcp: JSON.stringify(input.requiredMcp ?? []),
 				createdAt: now,
 				updatedAt: now,
 				metadata: input.metadata ? JSON.stringify(input.metadata) : null,
@@ -334,10 +378,11 @@ export class TaskStore {
 		acceptableKinds: TaskKind[],
 		assignment: { sessionId: string; memberId: string },
 		repoAllowlist: string[] | null = null,
+		mcp?: McpClaimContext,
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
 
-		// Find candidate — skip tasks whose retry delay hasn't elapsed yet.
+		// Find candidates — skip tasks whose retry delay hasn't elapsed yet.
 		const now = new Date()
 		const baseConds = [
 			eq(tasks.status, 'queued'),
@@ -354,37 +399,46 @@ export class TaskStore {
 			if (repoCond) baseConds.push(repoCond)
 		}
 		const candidates = this.db
-			.select({ id: tasks.id })
+			.select({ id: tasks.id, requiredMcp: tasks.requiredMcp })
 			.from(tasks)
 			.where(and(...baseConds))
 			.orderBy(tasks.createdAt)
-			.limit(1)
+			.limit(CLAIM_BATCH)
 			.all()
-		const candidate = candidates[0]
-		if (!candidate) return null
+		return this.claimFirstEligible(candidates, assignment, mcp)
+	}
 
-		// Atomic transition. Clear `previousMemberId` — the dispatcher hint
-		// is only meaningful while the task sits in `queued`.
-		const result = this.db
-			.update(tasks)
-			.set({
-				status: 'assigned',
-				assignedSessionId: assignment.sessionId,
-				assignedMemberId: assignment.memberId,
-				previousMemberId: null,
-				updatedAt: new Date(),
-			})
-			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
-			.run()
-
-		if (result.changes === 0) {
-			// Lost the race; caller can try again.
-			return null
+	/**
+	 * Walk createdAt-ordered candidates, skip those the member shouldn't take
+	 * on MCP grounds, and atomically claim the first eligible one. Returns null
+	 * if every candidate is filtered out or lost to a race.
+	 */
+	private claimFirstEligible(
+		candidates: Array<{ id: string; requiredMcp: string }>,
+		assignment: { sessionId: string; memberId: string },
+		mcp: McpClaimContext | undefined,
+	): TaskRecord | null {
+		for (const candidate of candidates) {
+			if (mcp && !mcpEligible(parseStringArray(candidate.requiredMcp), mcp)) continue
+			// Atomic transition. Clear `previousMemberId` — the dispatcher hint
+			// is only meaningful while the task sits in `queued`.
+			const result = this.db
+				.update(tasks)
+				.set({
+					status: 'assigned',
+					assignedSessionId: assignment.sessionId,
+					assignedMemberId: assignment.memberId,
+					previousMemberId: null,
+					updatedAt: new Date(),
+				})
+				.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
+				.run()
+			if (result.changes === 0) continue // lost the race — try the next candidate
+			const record = this.get(candidate.id)!
+			this.emit({ type: 'task.updated', task: record })
+			return record
 		}
-
-		const record = this.get(candidate.id)!
-		this.emit({ type: 'task.updated', task: record })
-		return record
+		return null
 	}
 
 	/**
@@ -454,6 +508,7 @@ export class TaskStore {
 		acceptableKinds: TaskKind[],
 		assignment: { sessionId: string; memberId: string },
 		repoAllowlist: string[] | null = null,
+		mcp?: McpClaimContext,
 	): TaskRecord | null {
 		if (acceptableKinds.length === 0) return null
 
@@ -472,32 +527,13 @@ export class TaskStore {
 			if (repoCond) baseConds.push(repoCond)
 		}
 		const candidates = this.db
-			.select({ id: tasks.id })
+			.select({ id: tasks.id, requiredMcp: tasks.requiredMcp })
 			.from(tasks)
 			.where(and(...baseConds))
 			.orderBy(tasks.createdAt)
-			.limit(1)
+			.limit(CLAIM_BATCH)
 			.all()
-		const candidate = candidates[0]
-		if (!candidate) return null
-
-		const result = this.db
-			.update(tasks)
-			.set({
-				status: 'assigned',
-				assignedSessionId: assignment.sessionId,
-				assignedMemberId: assignment.memberId,
-				previousMemberId: null,
-				updatedAt: new Date(),
-			})
-			.where(and(eq(tasks.id, candidate.id), eq(tasks.status, 'queued')))
-			.run()
-
-		if (result.changes === 0) return null
-
-		const record = this.get(candidate.id)!
-		this.emit({ type: 'task.updated', task: record })
-		return record
+		return this.claimFirstEligible(candidates, assignment, mcp)
 	}
 
 	transition(

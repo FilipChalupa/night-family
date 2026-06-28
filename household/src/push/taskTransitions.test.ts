@@ -15,6 +15,7 @@ function task(
 		status: overrides.status,
 		planSize: overrides.planSize ?? null,
 		planBlockers: overrides.planBlockers ?? null,
+		requiredMcp: overrides.requiredMcp ?? [],
 		prUrl: overrides.prUrl ?? null,
 		assignedSessionId: overrides.assignedSessionId ?? null,
 		assignedMemberId: overrides.assignedMemberId ?? null,

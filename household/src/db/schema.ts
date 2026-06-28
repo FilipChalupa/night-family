@@ -61,6 +61,9 @@ export const tasks = sqliteTable(
 		// task spawned from triage. Also patchable by admins via PATCH /api/tasks/:id.
 		planSize: text('plan_size'), // S | M | L | XL
 		planBlockers: text('plan_blockers'), // JSON array
+		// MCP server names the implementation is estimated to need (set by
+		// triage). Used as a soft routing preference in dispatch. JSON array.
+		requiredMcp: text('required_mcp').notNull().default('[]'),
 		prUrl: text('pr_url'),
 		assignedSessionId: text('assigned_session_id'),
 		/**

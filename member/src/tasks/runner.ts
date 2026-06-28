@@ -1098,18 +1098,28 @@ export class TaskRunner {
 export function parseTriageOutput(summary: string): {
 	outcome: 'question' | 'plan' | 'unknown'
 	size?: 'S' | 'M' | 'L' | 'XL'
+	mcp?: string[]
 } {
 	const match = summary.match(/\{[\s\S]*"outcome"[\s\S]*\}/)
 	if (match) {
 		try {
-			const obj = JSON.parse(match[0]) as { outcome?: string; size?: string }
+			const obj = JSON.parse(match[0]) as { outcome?: string; size?: string; mcp?: unknown }
 			if (obj.outcome === 'question') return { outcome: 'question' }
 			if (obj.outcome === 'plan') {
 				const size =
 					obj.size === 'S' || obj.size === 'M' || obj.size === 'L' || obj.size === 'XL'
 						? obj.size
 						: undefined
-				return size ? { outcome: 'plan', size } : { outcome: 'plan' }
+				// MCP server names the implementer is estimated to need. Cap the
+				// count so a runaway list can't bloat the routing hint.
+				const mcp = Array.isArray(obj.mcp)
+					? obj.mcp.filter((x): x is string => typeof x === 'string').slice(0, 16)
+					: undefined
+				return {
+					outcome: 'plan',
+					...(size ? { size } : {}),
+					...(mcp && mcp.length > 0 ? { mcp } : {}),
+				}
 			}
 		} catch {
 			/* fall through */

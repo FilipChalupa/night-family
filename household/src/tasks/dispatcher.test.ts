@@ -12,7 +12,7 @@ import { MemberRegistry, type ConnectedMember } from '../members/registry.ts'
 import { MemberStateStore } from '../members/store.ts'
 import { Dispatcher } from './dispatcher.ts'
 import { TaskJobStore } from './jobStore.ts'
-import { TaskStore } from './store.ts'
+import { mcpEligible, TaskStore } from './store.ts'
 
 const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), '..', 'db', 'migrations')
 
@@ -74,6 +74,7 @@ function fakeMember(opts: {
 	send?: (m: unknown) => void
 	skills?: ConnectedMember['skills']
 	maxTokensPerDay?: number | null
+	mcpServers?: ConnectedMember['mcpServers']
 }): ConnectedMember {
 	const sessionId = `sess-${opts.memberName}-${Math.random().toString(16).slice(2, 8)}`
 	return {
@@ -100,7 +101,7 @@ function fakeMember(opts: {
 		provider: 'anthropic',
 		model: 'm',
 		workerProfile: 'medium',
-		mcpServers: [],
+		mcpServers: opts.mcpServers ?? [],
 		protocolVersion: '3.0.0',
 		tokenId: 'tok',
 		maxTokensPerDay: opts.maxTokensPerDay ?? null,
@@ -416,6 +417,15 @@ describe('Dispatcher triage → implement spawning', () => {
 		expect(
 			(implement?.metadata as Record<string, unknown> | null)?.['spawned_from_triage'],
 		).toBe(triageId)
+	})
+
+	it('carries the triage MCP estimate onto the spawned implement task', () => {
+		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 49 })
+
+		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'S', mcp: ['linear'] }, null)
+
+		const implement = rig.taskStore.list({ repo: 'o/r' }).find((t) => t.kind === 'implement')
+		expect(implement?.requiredMcp).toEqual(['linear'])
 	})
 
 	it('question outcome does NOT spawn an implement task', () => {
@@ -1016,5 +1026,90 @@ describe('Dispatcher preview URL', () => {
 			},
 		])
 		expect(updated.metadata?.['branch']).toBe('feature-x')
+	})
+})
+
+describe('mcpEligible', () => {
+	it('allows a task with no required MCP', () => {
+		expect(mcpEligible([], { memberMcp: [], fleetMcp: [] })).toBe(true)
+	})
+
+	it('allows when the member has every required server', () => {
+		expect(
+			mcpEligible(['linear'], { memberMcp: ['linear', 'slack'], fleetMcp: ['linear'] }),
+		).toBe(true)
+	})
+
+	it('blocks when a peer has a required server the member lacks', () => {
+		expect(mcpEligible(['linear'], { memberMcp: [], fleetMcp: ['linear'] })).toBe(false)
+	})
+
+	it('relaxes when no connected member has the required server (no starvation)', () => {
+		expect(mcpEligible(['linear'], { memberMcp: [], fleetMcp: ['slack'] })).toBe(true)
+	})
+})
+
+describe('claimNextFor — MCP routing', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	function queueImplement(requiredMcp: string[]): string {
+		return rig.taskStore.create({
+			kind: 'implement',
+			title: 'needs mcp',
+			description: '',
+			repo: 'o/r',
+			requiredMcp,
+		}).id
+	}
+
+	/** Register a member (so the assigned_member_id FK row exists) and return its assignment. */
+	function assign(name: string) {
+		const m = fakeMember({ memberName: name, status: 'idle' })
+		rig.registry.add(m)
+		return { sessionId: m.sessionId, memberId: m.memberId }
+	}
+
+	it('a member without the required server leaves it for an equipped peer', () => {
+		const id = queueImplement(['linear'])
+		// Member lacks linear, but a peer in the fleet has it → should not claim.
+		const claimed = rig.taskStore.claimNextFor(['implement'], assign('plain'), null, {
+			memberMcp: [],
+			fleetMcp: ['linear'],
+		})
+		expect(claimed).toBeNull()
+		expect(rig.taskStore.get(id)?.status).toBe('queued')
+	})
+
+	it('a member with the required server claims it', () => {
+		const id = queueImplement(['linear'])
+		const claimed = rig.taskStore.claimNextFor(['implement'], assign('linear'), null, {
+			memberMcp: ['linear'],
+			fleetMcp: ['linear'],
+		})
+		expect(claimed?.id).toBe(id)
+	})
+
+	it('claims anyway when no connected member has the server (avoids starvation)', () => {
+		const id = queueImplement(['linear'])
+		const claimed = rig.taskStore.claimNextFor(['implement'], assign('plain'), null, {
+			memberMcp: [],
+			fleetMcp: [], // nobody has linear
+		})
+		expect(claimed?.id).toBe(id)
+	})
+
+	it('skips the MCP-blocked task and claims the next eligible one', () => {
+		const blocked = queueImplement(['linear'])
+		const open = queueImplement([])
+		const claimed = rig.taskStore.claimNextFor(['implement'], assign('plain'), null, {
+			memberMcp: [],
+			fleetMcp: ['linear'],
+		})
+		expect(claimed?.id).toBe(open)
+		expect(rig.taskStore.get(blocked)?.status).toBe('queued')
 	})
 })
