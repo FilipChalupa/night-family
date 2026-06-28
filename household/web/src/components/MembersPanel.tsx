@@ -17,7 +17,13 @@ import {
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { relativeTime } from '../time.ts'
-import type { MemberScheduleStatus, MemberSnapshot, Skill, TaskRecord } from '../types.ts'
+import type {
+	McpServerInfo,
+	MemberScheduleStatus,
+	MemberSnapshot,
+	Skill,
+	TaskRecord,
+} from '../types.ts'
 import { RefreshReposButton } from './RefreshReposButton.tsx'
 import type { TokenRecord } from './TokensPanel.tsx'
 
@@ -72,6 +78,9 @@ export function MembersPanel({
 						</TableCell>
 						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
 							Profile
+						</TableCell>
+						<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+							MCP
 						</TableCell>
 						<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 							Protocol
@@ -241,6 +250,9 @@ export function MembersPanel({
 									{m.workerProfile}
 								</Typography>
 							</TableCell>
+							<TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+								<McpCell servers={m.mcpServers} />
+							</TableCell>
 							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
 								<ProtocolCell
 									memberVersion={m.protocolVersion}
@@ -339,6 +351,36 @@ function SkillsCell({
 					</Tooltip>
 				)
 			})}
+		</Box>
+	)
+}
+
+function McpCell({ servers }: { servers: McpServerInfo[] }) {
+	if (servers.length === 0) {
+		return (
+			<Typography variant="body2" color="text.disabled">
+				—
+			</Typography>
+		)
+	}
+	return (
+		<Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+			{servers.map((s) =>
+				s.status === 'live' ? (
+					<Tooltip key={s.name} title={`${s.tool_count} tool(s) available`}>
+						<Chip label={`${s.name} ${s.tool_count}`} size="small" variant="outlined" />
+					</Tooltip>
+				) : (
+					<Tooltip key={s.name} title="Configured but not currently reachable">
+						<Chip
+							label={`${s.name} down`}
+							size="small"
+							color="warning"
+							variant="outlined"
+						/>
+					</Tooltip>
+				),
+			)}
 		</Box>
 	)
 }
