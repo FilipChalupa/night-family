@@ -5,6 +5,7 @@
  * Coverage:
  *  - AWS access keys
  *  - GitHub PATs (ghp_*, github_pat_*)
+ *  - LLM provider API keys (OpenAI/Anthropic sk-*, Google AIza*)
  *  - JWTs
  *  - PEM blocks
  *  - KEY=value lines in .env* / *secret* / *credential* / *.pem / *.key files
@@ -27,6 +28,13 @@ const GH_USER_TOKEN = /\bghu_[A-Za-z0-9]{36,}\b/g
 const GH_SERVER_TOKEN = /\bghs_[A-Za-z0-9]{36,}\b/g
 const GH_REFRESH = /\bghr_[A-Za-z0-9]{36,}\b/g
 
+// LLM provider API keys. OpenAI/Anthropic share the `sk-` prefix (incl.
+// `sk-ant-`, `sk-proj-`, `sk-svcacct-`); Google/Gemini keys are `AIza` + 35
+// chars. Min lengths keep short innocuous strings from matching. This is the
+// realistic leak path for AI_API_KEY echoed in a provider SDK error.
+const SK_PROVIDER_KEY = /\bsk-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/g
+const GOOGLE_API_KEY = /\bAIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])/g
+
 // JWT — three base64url chunks separated by dots.
 const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g
 
@@ -46,6 +54,8 @@ function maskTokens(input: string): string {
 		.replace(GH_USER_TOKEN, REDACTED)
 		.replace(GH_SERVER_TOKEN, REDACTED)
 		.replace(GH_REFRESH, REDACTED)
+		.replace(SK_PROVIDER_KEY, REDACTED)
+		.replace(GOOGLE_API_KEY, REDACTED)
 		.replace(JWT, REDACTED)
 		.replace(AWS_ACCESS_KEY_ID, REDACTED)
 		.replace(AWS_SECRET_ACCESS_KEY, (match) => {

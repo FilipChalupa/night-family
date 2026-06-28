@@ -34,9 +34,29 @@ describe('redactString', () => {
 		expect(redactString('aws: AKIAIOSFODNN7EXAMPLE')).toBe('aws: [REDACTED]')
 	})
 
-	it('leaves benign text alone', () => {
+	it('redacts OpenAI / Anthropic sk- keys (incl. sk-ant-, sk-proj-)', () => {
+		expect(redactString('key=sk-ant-api03-abcDEF0123456789ghiJKL_mnop-qrst')).toBe(
+			'key=[REDACTED]',
+		)
+		expect(redactString('OPENAI sk-proj-AbCdEf0123456789GhIjKlMnOpQr')).toBe(
+			'OPENAI [REDACTED]',
+		)
+		expect(redactString('sk-0123456789abcdefABCDEF0123')).toBe('[REDACTED]')
+	})
+
+	it('redacts Google / Gemini AIza keys', () => {
+		expect(redactString('GEMINI: AIzaSyA1234567890abcdefGHIJKLMNOPqrstuvw')).toBe(
+			'GEMINI: [REDACTED]',
+		)
+	})
+
+	it('leaves benign text and short sk-/AIza lookalikes alone', () => {
 		const s = 'hello world, no secrets here'
 		expect(redactString(s)).toBe(s)
+		// Too short / not key-shaped — must not over-redact.
+		expect(redactString('a risk-averse task-runner ran sk-12 fine')).toBe(
+			'a risk-averse task-runner ran sk-12 fine',
+		)
 	})
 })
 
