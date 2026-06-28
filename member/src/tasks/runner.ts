@@ -1110,10 +1110,16 @@ export function parseTriageOutput(summary: string): {
 					obj.size === 'S' || obj.size === 'M' || obj.size === 'L' || obj.size === 'XL'
 						? obj.size
 						: undefined
-				// MCP server names the implementer is estimated to need. Cap the
-				// count so a runaway list can't bloat the routing hint.
+				// MCP server names the implementer is estimated to need. Normalize
+				// (trim + lowercase) so the routing hint matches member server keys
+				// case-insensitively, drop blanks, and cap so a runaway list can't
+				// bloat the hint.
 				const mcp = Array.isArray(obj.mcp)
-					? obj.mcp.filter((x): x is string => typeof x === 'string').slice(0, 16)
+					? obj.mcp
+							.filter((x): x is string => typeof x === 'string')
+							.map((x) => x.trim().toLowerCase())
+							.filter((x) => x.length > 0)
+							.slice(0, 16)
 					: undefined
 				return {
 					outcome: 'plan',

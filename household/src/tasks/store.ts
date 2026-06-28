@@ -118,12 +118,17 @@ export interface McpClaimContext {
  * Whether this member should claim a task needing `requiredMcp`. Blocked only
  * when a required server is held *somewhere in the fleet* but not by this
  * member — otherwise (member has it, or nobody does) it's eligible.
+ *
+ * Matching is case-insensitive and trims whitespace: triage *estimates* server
+ * names, so "Linear" should match a member's `linear` server key without the
+ * two having to agree on casing.
  */
 export function mcpEligible(requiredMcp: string[], ctx: McpClaimContext): boolean {
 	if (requiredMcp.length === 0) return true
-	const has = new Set(ctx.memberMcp)
-	const fleet = new Set(ctx.fleetMcp)
-	return !requiredMcp.some((s) => !has.has(s) && fleet.has(s))
+	const norm = (s: string) => s.trim().toLowerCase()
+	const has = new Set(ctx.memberMcp.map(norm))
+	const fleet = new Set(ctx.fleetMcp.map(norm))
+	return !requiredMcp.map(norm).some((s) => !has.has(s) && fleet.has(s))
 }
 
 /** How many queued candidates to consider per claim (MCP filtering happens in JS). */

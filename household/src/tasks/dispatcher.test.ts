@@ -1047,6 +1047,13 @@ describe('mcpEligible', () => {
 	it('relaxes when no connected member has the required server (no starvation)', () => {
 		expect(mcpEligible(['linear'], { memberMcp: [], fleetMcp: ['slack'] })).toBe(true)
 	})
+
+	it('matches case-insensitively and ignores surrounding whitespace', () => {
+		expect(mcpEligible([' Linear '], { memberMcp: ['linear'], fleetMcp: ['linear'] })).toBe(
+			true,
+		)
+		expect(mcpEligible(['LINEAR'], { memberMcp: [], fleetMcp: ['Linear'] })).toBe(false)
+	})
 })
 
 describe('claimNextFor — MCP routing', () => {

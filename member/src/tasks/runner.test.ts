@@ -57,14 +57,14 @@ describe('parseTriageOutput', () => {
 		expect(parseTriageOutput('{"outcome":"plan","size":"weird"}')).toEqual({ outcome: 'plan' })
 	})
 
-	it('parses the optional mcp estimate on a plan', () => {
-		expect(parseTriageOutput('{"outcome":"plan","size":"M","mcp":["linear","slack"]}')).toEqual(
-			{
-				outcome: 'plan',
-				size: 'M',
-				mcp: ['linear', 'slack'],
-			},
-		)
+	it('parses and normalizes (trim + lowercase) the optional mcp estimate', () => {
+		expect(
+			parseTriageOutput('{"outcome":"plan","size":"M","mcp":["Linear"," SLACK "]}'),
+		).toEqual({
+			outcome: 'plan',
+			size: 'M',
+			mcp: ['linear', 'slack'],
+		})
 	})
 
 	it('omits mcp when absent, empty, or non-string', () => {
