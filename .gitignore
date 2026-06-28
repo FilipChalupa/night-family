@@ -26,5 +26,7 @@ workspace/
 schedule.yaml
 mcp.yaml
 
-# Claude Code per-machine settings
+# Claude Code per-machine settings (settings.json accumulates session-specific
+# permission grants with absolute local paths — not shareable).
 .claude/settings.local.json
+.claude/settings.json

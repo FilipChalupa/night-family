@@ -6,3 +6,6 @@ household/src/db/migrations/
 # common names, but be explicit for our packages).
 **/dist/
 **/node_modules/
+
+# Claude Code local settings — machine-specific, gitignored, not ours to format.
+.claude/
