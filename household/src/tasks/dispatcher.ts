@@ -582,6 +582,7 @@ export class Dispatcher {
 				title: task.title,
 				description: task.description,
 				...(task.repo ? { repo: task.repo } : {}),
+				...(task.prUrl ? { pr_url: task.prUrl } : {}),
 				...(Object.keys(wireMetadata).length > 0 ? { metadata: wireMetadata } : {}),
 			},
 		})

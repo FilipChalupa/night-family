@@ -41,6 +41,7 @@ import {
 	PullRequestReviewEventSchema,
 	PushEventSchema,
 	type PullRequest,
+	type PullRequestReviewEvent,
 } from './payloads.ts'
 import { isTrustedAuthorAssociation } from './trust.ts'
 
@@ -603,7 +604,66 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 	} else if (review.state === 'approved' && pr.mergeable_state === 'clean') {
 		ctx.taskStore.transition(task.id, ['in-review'], 'awaiting-merge')
 		ctx.logger.info({ taskId: task.id }, 'review approved + clean → awaiting-merge')
+	} else if (review.state === 'commented') {
+		// A reviewer left discussion/questions without approving or requesting
+		// changes. Queue a `respond` task so the agent reads the thread and
+		// replies (it won't touch code — `changes_requested` is the fix path).
+		queueRespondForReview(ctx, task, pr, review)
 	}
+}
+
+/**
+ * Spawn a `respond` task for a `commented` review. No-op unless the PR is
+ * still open and no respond is already in flight for it (a chatty reviewer
+ * shouldn't fan out a task per comment). The agent's own replies are PR
+ * comments, not reviews, so this never self-triggers.
+ */
+function queueRespondForReview(
+	ctx: PullsEventCtx,
+	task: TaskRecord,
+	pr: PullRequest,
+	review: NonNullable<PullRequestReviewEvent['review']>,
+): void {
+	if (!OPEN_PR_STATUSES.includes(task.status)) return
+
+	const existing = ctx.taskStore
+		.listByPrUrl(pr.html_url)
+		.find(
+			(t) =>
+				t.kind === 'respond' &&
+				(t.status === 'queued' || t.status === 'assigned' || t.status === 'in-progress'),
+		)
+	if (existing) {
+		ctx.logger.info(
+			{ taskId: existing.id, prNumber: pr.number },
+			'respond already in flight for this PR — not spawning a duplicate',
+		)
+		return
+	}
+
+	const reviewer = review.user?.login ?? 'a reviewer'
+	const body = (review.body ?? '').trim()
+	const respond = ctx.taskStore.create({
+		kind: 'respond',
+		title: `Respond to review: ${task.title}`,
+		description:
+			`${reviewer} left review feedback on the pull request.` +
+			(body ? `\n\nTheir comment:\n${body}` : '') +
+			`\n\nRead the full review thread and reply; do not change code.`,
+		repo: ctx.repo,
+		prUrl: pr.html_url,
+		githubIssueNumber: task.githubIssueNumber,
+		githubIssueUrl: task.githubIssueUrl,
+		// Reuse the parent's MCP routing hint — answering review feedback may
+		// need the same linked ticket/thread the implementation did.
+		requiredMcp: task.requiredMcp,
+		metadata: { responding_to_review_by: reviewer, parent_task: task.id },
+	})
+	ctx.logger.info(
+		{ taskId: respond.id, parentTask: task.id, prNumber: pr.number, reviewer },
+		'review commented -> respond task queued',
+	)
+	ctx.dispatcher.tryDispatchAll()
 }
 
 function findTaskForPr(store: TaskStore, repo: string, pr: PullRequest): TaskRecord | null {

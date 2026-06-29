@@ -9,7 +9,7 @@ import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../../db/schema.ts'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
-import { TaskStore } from '../../tasks/store.ts'
+import { TaskStore, type TaskRecord } from '../../tasks/store.ts'
 import { TaskJobStore } from '../../tasks/jobStore.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
 import {
@@ -275,6 +275,7 @@ function reviewBody(opts: {
 	state: 'changes_requested' | 'approved' | 'commented'
 	authorAssociation?: string
 	mergeableState?: string
+	body?: string
 }) {
 	return {
 		action: 'submitted',
@@ -289,7 +290,7 @@ function reviewBody(opts: {
 		},
 		review: {
 			state: opts.state,
-			body: 'lgtm',
+			body: opts.body ?? 'lgtm',
 			user: { login: 'reviewer' },
 			author_association: opts.authorAssociation ?? 'OWNER',
 		},
@@ -359,6 +360,65 @@ describe('handlePullRequestReviewEvent — author_association gating', () => {
 		const { parent, body } = seedAndBody('NONE', 'approved')
 		await handlePullRequestReviewEvent(ctxFor(rig, REPO, body))
 		expect(rig.taskStore.get(parent.id)!.status).toBe('in-review')
+	})
+})
+
+describe('handlePullRequestReviewEvent — commented → respond', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+	})
+
+	function seedParent() {
+		return seedParentImplement(rig, {
+			branchPrefix: '',
+			prUrl: `https://github.com/${REPO}/pull/7`,
+		})
+	}
+	function commented(
+		parent: TaskRecord,
+		opts: { authorAssociation?: string; body?: string } = {},
+	) {
+		return reviewBody({
+			prUrl: parent.prUrl!,
+			headRef: `pr/night/${parent.id.slice(0, 8)}-speed`,
+			state: 'commented',
+			authorAssociation: opts.authorAssociation ?? 'OWNER',
+			...(opts.body !== undefined ? { body: opts.body } : {}),
+		})
+	}
+
+	it('queues a respond task carrying the PR and reviewer comment, parent stays in-review', async () => {
+		const parent = seedParent()
+		await handlePullRequestReviewEvent(
+			ctxFor(rig, REPO, commented(parent, { body: 'is this thread-safe?' })),
+		)
+		const respond = rig.taskStore.list({ repo: REPO }).find((t) => t.kind === 'respond')
+		expect(respond).toBeDefined()
+		expect(respond!.status).toBe('queued')
+		expect(respond!.prUrl).toBe(parent.prUrl)
+		expect(respond!.description).toContain('is this thread-safe?')
+		expect(rig.taskStore.get(parent.id)!.status).toBe('in-review')
+		expect(rig.tryDispatchAll).toHaveBeenCalled()
+	})
+
+	it('does not spawn a duplicate respond while one is in flight', async () => {
+		const parent = seedParent()
+		await handlePullRequestReviewEvent(ctxFor(rig, REPO, commented(parent)))
+		await handlePullRequestReviewEvent(ctxFor(rig, REPO, commented(parent)))
+		const responds = rig.taskStore.list({ repo: REPO }).filter((t) => t.kind === 'respond')
+		expect(responds).toHaveLength(1)
+	})
+
+	it('ignores a commented review from an untrusted reviewer', async () => {
+		const parent = seedParent()
+		await handlePullRequestReviewEvent(
+			ctxFor(rig, REPO, commented(parent, { authorAssociation: 'NONE' })),
+		)
+		expect(rig.taskStore.list({ repo: REPO }).some((t) => t.kind === 'respond')).toBe(false)
 	})
 })
 

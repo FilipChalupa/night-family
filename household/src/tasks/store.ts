@@ -57,6 +57,8 @@ export interface CreateTaskInput {
 	metadata?: Record<string, unknown>
 	/** MCP server names the task is estimated to need (triage routing hint). */
 	requiredMcp?: string[]
+	/** PR this task acts on, when it already exists at creation (e.g. respond). */
+	prUrl?: string | null
 }
 
 export interface PatchTaskInput {
@@ -169,6 +171,7 @@ export class TaskStore {
 				githubIssueNumber: input.githubIssueNumber ?? null,
 				githubIssueUrl: input.githubIssueUrl ?? null,
 				requiredMcp: JSON.stringify(input.requiredMcp ?? []),
+				prUrl: input.prUrl ?? null,
 				createdAt: now,
 				updatedAt: now,
 				metadata: input.metadata ? JSON.stringify(input.metadata) : null,
