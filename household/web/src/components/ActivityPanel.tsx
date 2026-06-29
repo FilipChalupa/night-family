@@ -1,5 +1,6 @@
 import { Alert, Paper, Stack, Typography } from '@mui/material'
 import { BarChart } from '@mui/x-charts/BarChart'
+import { LineChart } from '@mui/x-charts/LineChart'
 import { PieChart } from '@mui/x-charts/PieChart'
 import { useQuery } from '@tanstack/react-query'
 import { EmptyState } from '../routes/Root.tsx'
@@ -24,11 +25,19 @@ interface MemberRow {
 	tokens: number
 }
 
+interface RepoRow {
+	repo: string | null
+	completed: number
+	failed: number
+	tokens: number
+}
+
 interface StatsResponse {
 	windowDays: number
 	daily: DailyRow[]
 	statusBreakdown: StatusRow[]
 	byMember: MemberRow[]
+	byRepo: RepoRow[]
 }
 
 interface PreviewStats {
@@ -287,8 +296,90 @@ export function ActivityPanel() {
 					)}
 				</Paper>
 			</Stack>
+
+			<Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Stack
+						direction="row"
+						spacing={1}
+						sx={{ alignItems: 'baseline', flexWrap: 'wrap', mb: 0.5 }}
+					>
+						<Typography variant="body2" color="text.secondary">
+							Cumulative spend · last {data.windowDays} days
+						</Typography>
+						{(() => {
+							const total = data.daily.reduce((sum, d) => sum + d.tokens, 0)
+							const perDay = total / Math.max(data.daily.length, 1)
+							return total > 0 ? (
+								<Typography variant="caption" color="text.secondary">
+									· {formatTokens(total)} total · ~{formatTokens(perDay)}/day
+								</Typography>
+							) : null
+						})()}
+					</Stack>
+					{data.daily.every((d) => d.tokens === 0) ? (
+						<EmptyState>No token usage reported in this window yet.</EmptyState>
+					) : (
+						<LineChart
+							height={240}
+							xAxis={[
+								{
+									data: data.daily.map((d) => d.date.slice(5)),
+									scaleType: 'point',
+								},
+							]}
+							series={[
+								{
+									data: cumulative(data.daily.map((d) => d.tokens)),
+									label: 'Cumulative tokens',
+									color: '#a78bfa',
+									area: true,
+									showMark: false,
+									valueFormatter: formatTokens,
+								},
+							]}
+							margin={{ left: 64, right: 16, top: 16, bottom: 32 }}
+						/>
+					)}
+				</Paper>
+
+				<Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+					<Typography variant="body2" color="text.secondary" gutterBottom>
+						Tokens by repo · last {data.windowDays} days
+					</Typography>
+					{data.byRepo.every((r) => r.tokens === 0) ? (
+						<EmptyState>No token usage reported in this window yet.</EmptyState>
+					) : (
+						<BarChart
+							height={240}
+							layout="horizontal"
+							yAxis={[
+								{
+									data: data.byRepo.map((r) => r.repo ?? '(no repo)'),
+									scaleType: 'band',
+									width: 'auto',
+								},
+							]}
+							series={[
+								{
+									data: data.byRepo.map((r) => r.tokens),
+									label: 'Tokens',
+									color: '#34d399',
+									valueFormatter: formatTokens,
+								},
+							]}
+							margin={{ right: 16, top: 16, bottom: 32 }}
+						/>
+					)}
+				</Paper>
+			</Stack>
 		</Stack>
 	)
+}
+
+function cumulative(values: number[]): number[] {
+	let running = 0
+	return values.map((v) => (running += v))
 }
 
 function formatTokens(value: number | null): string {

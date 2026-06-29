@@ -37,6 +37,13 @@ interface MemberRow {
 	tokens: number
 }
 
+interface RepoRow {
+	repo: string | null
+	completed: number
+	failed: number
+	tokens: number
+}
+
 const DEFAULT_DAYS = 30
 const MAX_DAYS = 365
 
@@ -154,11 +161,44 @@ export function mountStatsApi(app: Hono, deps: StatsApiDeps): void {
 			tokens: Number(r.tokens) || 0,
 		}))
 
+		// Per-repo spend: same token rollup grouped by repo, to spot which repo
+		// is eating the budget. Repo-less tasks (e.g. summarize) bucket as null.
+		const repoAggregates = deps.sqlite
+			.prepare(
+				`WITH task_tokens AS (
+					SELECT task_id,
+					       MAX(COALESCE(json_extract(payload, '$.input'), 0) +
+					           COALESCE(json_extract(payload, '$.output'), 0)) AS tokens
+					FROM task_events
+					WHERE kind = 'usage'
+					GROUP BY task_id
+				 )
+				 SELECT t.repo AS repo,
+				        SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS completed,
+				        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
+				        COALESCE(SUM(tt.tokens), 0) AS tokens
+				 FROM tasks t
+				 LEFT JOIN task_tokens tt ON tt.task_id = t.id
+				 WHERE t.status IN ('done', 'failed')
+				   AND t.updated_at >= ?
+				 GROUP BY t.repo
+				 ORDER BY tokens DESC
+				 LIMIT 20`,
+			)
+			.all(cutoffMs) as RepoRow[]
+		const byRepo = repoAggregates.map((r) => ({
+			repo: r.repo,
+			completed: Number(r.completed) || 0,
+			failed: Number(r.failed) || 0,
+			tokens: Number(r.tokens) || 0,
+		}))
+
 		return c.json({
 			windowDays: days,
 			daily,
 			statusBreakdown,
 			byMember,
+			byRepo,
 		})
 	})
 
