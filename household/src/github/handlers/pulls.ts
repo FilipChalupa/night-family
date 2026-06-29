@@ -30,6 +30,7 @@
  * stored `pr_url` metadata. Branch name is the primary key.
  */
 
+import { findAttributionMarker } from '@night/shared'
 import type { Logger } from 'pino'
 import type { Dispatcher } from '../../tasks/dispatcher.ts'
 import type { MemberRegistry } from '../../members/registry.ts'
@@ -624,6 +625,14 @@ function queueRespondForReview(
 	pr: PullRequest,
 	review: NonNullable<PullRequestReviewEvent['review']>,
 ): void {
+	// Skip the fleet's own reviews. A self-review job posts via `post_pr_review`
+	// (which stamps the Night marker), and the agent is told to fall back to a
+	// `comment` verdict when it can't approve its own PR — without this guard the
+	// member would spawn a respond task answering its own review. Approve /
+	// changes_requested from those same marker-carrying reviews still drive the
+	// task (they're handled before this), so the filter lives here, not on the
+	// whole handler.
+	if (findAttributionMarker(review.body ?? '') !== null) return
 	if (!OPEN_PR_STATUSES.includes(task.status)) return
 
 	const existing = ctx.taskStore

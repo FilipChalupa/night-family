@@ -420,6 +420,19 @@ describe('handlePullRequestReviewEvent — commented → respond', () => {
 		)
 		expect(rig.taskStore.list({ repo: REPO }).some((t) => t.kind === 'respond')).toBe(false)
 	})
+
+	it("ignores the fleet's own review (Night marker present) — no self-answer loop", async () => {
+		const parent = seedParent()
+		// A self-review job posts with the attribution marker and a `comment` verdict.
+		await handlePullRequestReviewEvent(
+			ctxFor(
+				rig,
+				REPO,
+				commented(parent, { body: 'lgtm <!-- night-family:member=m1 task=t1 -->' }),
+			),
+		)
+		expect(rig.taskStore.list({ repo: REPO }).some((t) => t.kind === 'respond')).toBe(false)
+	})
 })
 
 describe('handlePushEvent — base-branch advance', () => {
