@@ -46,6 +46,13 @@ const DEFAULT_TICK_MS = 30_000
 const RECONNECT_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000]
 /** Per call cap, so a chatty MCP tool can't blow the context budget. */
 const MAX_OUTPUT_CHARS = 60_000
+/**
+ * Hard cap on a single tool call. A hung MCP server would otherwise block the
+ * agent loop until the whole-task wallclock limit; this fails the one call
+ * (surfaced to the agent as a tool error) so it can move on. Generous because
+ * legitimate calls (a wide search, a slow upstream) can take a while.
+ */
+const CALL_TIMEOUT_MS = 120_000
 
 /** The slice of the MCP client this module actually uses — keeps tests honest. */
 export interface McpToolCaller {
@@ -102,7 +109,11 @@ export function wrapMcpTool(
 				input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
 			let raw: unknown
 			try {
-				raw = await caller.callTool({ name: descriptor.name, arguments: args })
+				raw = await withTimeout(
+					caller.callTool({ name: descriptor.name, arguments: args }),
+					CALL_TIMEOUT_MS,
+					`call ${serverName}/${descriptor.name}`,
+				)
 			} catch (err) {
 				return {
 					output: `MCP call to ${serverName}/${descriptor.name} failed: ${

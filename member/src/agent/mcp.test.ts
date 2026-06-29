@@ -108,6 +108,24 @@ describe('wrapMcpTool', () => {
 		expect(result.output).toContain('connection reset')
 	})
 
+	it('fails a hung tool call after the timeout instead of blocking forever', async () => {
+		vi.useFakeTimers()
+		try {
+			const tool = wrapMcpTool(
+				'slack',
+				{ name: 'search' },
+				caller(() => new Promise(() => {})),
+			)
+			const pending = tool.run({})
+			await vi.advanceTimersByTimeAsync(120_000)
+			const result = await pending
+			expect(result.isError).toBe(true)
+			expect(result.output).toMatch(/timed out/)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it('coerces non-object input to empty arguments', async () => {
 		const spy = vi.fn(async () => ({ content: [] }))
 		const tool = wrapMcpTool('x', { name: 't' }, caller(spy))
