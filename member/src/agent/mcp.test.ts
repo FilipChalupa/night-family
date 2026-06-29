@@ -291,6 +291,51 @@ describe('McpManager lifecycle', () => {
 		expect(mgr.serverInfos[0]!.status).toBe('down')
 	})
 
+	it('does not resurrect a server whose connect resolves after close()', async () => {
+		let resolveConn!: (c: McpConnection) => void
+		const client = new FakeClient()
+		const connector: McpConnector = () =>
+			new Promise<McpConnection>((res) => {
+				resolveConn = res
+			})
+		const mgr = new McpManager([stdioCfg('s1')], silent, { connector, tickMs: 1e9 })
+		const startP = mgr.start() // tryConnect now awaits the connector
+		await mgr.close() // shutdown lands before the connect resolves
+		resolveConn({ client, tools: [] })
+		await startP
+		// The just-opened client (and its subprocess) is closed, not adopted.
+		expect(client.closed).toBe(true)
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+	})
+
+	it('escalates reconnect backoff for a flapping server (no stabilizing ping)', async () => {
+		const h = harness()
+		let now = 0
+		const mgr = new McpManager([stdioCfg('s1')], silent, {
+			connector: h.connector,
+			tickMs: 1e9,
+			clock: () => now,
+		})
+		await mgr.start()
+
+		// First drop → backoff(1) = 5s.
+		h.clientFor('s1').drop()
+		now = 5_000
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('live')
+
+		// Drop again before any stabilizing ping → backoff escalates to 15s, so a
+		// reconnect at +5s is too early; +15s reconnects.
+		h.clientFor('s1').drop()
+		now = 5_000 + 5_000
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('down')
+		now = 5_000 + 15_000
+		await mgr.healthCheck()
+		expect(mgr.serverInfos[0]!.status).toBe('live')
+		await mgr.close()
+	})
+
 	it('is inert with no servers configured', async () => {
 		const mgr = new McpManager([], silent, { tickMs: 1e9 })
 		expect(mgr.configured).toBe(false)

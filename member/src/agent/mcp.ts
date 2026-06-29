@@ -289,6 +289,10 @@ export class McpManager {
 				if (state.status === 'live') {
 					try {
 						await withTimeout(state.client!.ping(), PING_TIMEOUT_MS, 'ping')
+						// A clean ping proves the connection is stable — only now
+						// reset the backoff counter. Resetting it eagerly on connect
+						// let a connect-then-die flapper retry at the 5s floor forever.
+						state.failures = 0
 					} catch {
 						this.markDown(state, 'ping failed')
 					}
@@ -297,6 +301,7 @@ export class McpManager {
 				}
 			}),
 		)
+		if (this.closed) return
 		this.emitIfChanged()
 	}
 
@@ -304,11 +309,17 @@ export class McpManager {
 		const log = this.logger.child({ mcpServer: state.config.name })
 		try {
 			const conn = await this.connector(state.config)
+			// Raced with shutdown while connecting — don't resurrect a closed
+			// manager; close the just-opened client (and its subprocess) instead.
+			if (this.closed) {
+				void conn.client.close().catch(() => {})
+				return
+			}
 			state.client = conn.client
 			state.tools = conn.tools
 			state.status = 'live'
-			state.failures = 0
-			// Immediate down-detection: the transport tells us when it drops.
+			// Note: `failures` is NOT reset here — only a surviving health-check
+			// ping (above) clears it, so a flapping server keeps escalating.
 			conn.client.onclose = () => this.handleClose(state)
 			log.info({ tools: conn.tools.length }, 'mcp server live')
 		} catch (err) {
@@ -333,9 +344,10 @@ export class McpManager {
 		state.status = 'down'
 		state.client = null
 		state.tools = []
-		// Don't count an onclose as a connect failure (failures drives connect
-		// backoff); just gate the next retry by the current step.
-		state.nextAttemptAt = this.clock() + backoff(state.failures + 1)
+		// A drop counts toward the backoff so a flapping server escalates
+		// (5s → 15s → 30s → 60s) instead of re-spawning every 5s forever.
+		state.failures += 1
+		state.nextAttemptAt = this.clock() + backoff(state.failures)
 	}
 
 	private scheduleTick(): void {
@@ -416,7 +428,10 @@ function buildTransport(server: McpServerConfig): Transport {
 		// leak the Member's whole environment into it.
 		return new StdioClientTransport({
 			command: server.command,
-			stderr: 'pipe',
+			// `inherit` sends the server's stderr to the Member's own stderr (so
+			// its diagnostics are visible) without us having to drain it — a
+			// `pipe` we never read fills its ~64KB buffer and hangs the child.
+			stderr: 'inherit',
 			...(server.args ? { args: [...server.args] } : {}),
 			...(env ? { env } : {}),
 		}) as Transport
