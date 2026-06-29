@@ -3,6 +3,7 @@ import { BarChart } from '@mui/x-charts/BarChart'
 import { LineChart } from '@mui/x-charts/LineChart'
 import { PieChart } from '@mui/x-charts/PieChart'
 import { useQuery } from '@tanstack/react-query'
+import { cumulative, formatTokens } from '../format.ts'
 import { EmptyState } from '../routes/Root.tsx'
 
 interface DailyRow {
@@ -375,18 +376,6 @@ export function ActivityPanel() {
 			</Stack>
 		</Stack>
 	)
-}
-
-function cumulative(values: number[]): number[] {
-	let running = 0
-	return values.map((v) => (running += v))
-}
-
-function formatTokens(value: number | null): string {
-	if (value === null) return ''
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-	return value.toLocaleString()
 }
 
 function Stat({ label, value, color }: { label: string; value: number | string; color?: string }) {

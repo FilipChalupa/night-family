@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { formatTokens } from '../format.ts'
 import { RefreshReposButton } from '../components/RefreshReposButton.tsx'
 import { TasksPanel } from '../components/TasksPanel.tsx'
 import { useTokensQuery, type TokenRecord } from '../components/TokensPanel.tsx'
@@ -386,12 +387,6 @@ function ReposField({ repos }: { repos: string[] | null }) {
 			)}
 		</Stack>
 	)
-}
-
-function formatTokens(value: number): string {
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-	return value.toLocaleString()
 }
 
 function statusColor(status: MemberSnapshot['status']): 'success' | 'warning' | 'default' {

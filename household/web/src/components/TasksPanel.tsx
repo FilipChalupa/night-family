@@ -32,7 +32,9 @@ import { Link as RouterLink } from '@tanstack/react-router'
 import { acceptableTaskKinds } from '@night/shared'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
+import { formatTokens } from '../format.ts'
 import { relativeTime } from '../time.ts'
+import { TaskTimeline } from './TaskTimeline.tsx'
 import {
 	OPEN_STATUSES,
 	isWaitingOnHuman,
@@ -40,7 +42,6 @@ import {
 	type MemberSnapshot,
 	type ReviewJobsSummary,
 	type TaskKind,
-	type TaskLogEvent,
 	type TaskRecord,
 	type TaskStatus,
 } from '../types.ts'
@@ -674,74 +675,11 @@ function TasksTable({
 }
 
 function TaskEventsDialog({ taskId, onClose }: { taskId: string | null; onClose: () => void }) {
-	const { data: events, error } = useQuery<TaskLogEvent[]>({
-		queryKey: ['task-events', taskId],
-		queryFn: async () => {
-			const r = await fetch(`/api/tasks/${taskId}/events?limit=50`)
-			if (!r.ok) {
-				const b = (await r.json().catch(() => ({}))) as { error?: string }
-				throw new Error(b.error ?? `HTTP ${r.status}`)
-			}
-			const body = (await r.json()) as { events: TaskLogEvent[] }
-			return body.events
-		},
-		enabled: taskId !== null,
-	})
-
 	return (
 		<Dialog open={taskId !== null} onClose={onClose} maxWidth="md" fullWidth>
 			<DialogTitle>Task events</DialogTitle>
 			<DialogContent>
-				{error ? <Alert severity="error">{(error as Error).message}</Alert> : null}
-				{!events && !error ? (
-					<Typography color="text.secondary">Loading…</Typography>
-				) : null}
-				{events && events.length === 0 ? (
-					<Typography color="text.secondary">
-						No events recorded for this task. Either the agent never sent any (e.g. it
-						crashed before emit) or they were purged after 90 days.
-					</Typography>
-				) : null}
-				{events && events.length > 0 ? (
-					<Stack spacing={1}>
-						{events.map((e) => (
-							<Box
-								key={e.seq}
-								sx={{
-									p: 1.5,
-									border: 1,
-									borderColor: 'divider',
-									borderRadius: 1,
-									backgroundColor: 'background.default',
-								}}
-							>
-								<Stack
-									direction="row"
-									spacing={1}
-									sx={{ alignItems: 'baseline', mb: 0.5 }}
-								>
-									<Chip label={e.kind} size="small" variant="outlined" />
-									<Typography variant="caption" color="text.secondary">
-										seq {e.seq} · {new Date(e.ts).toLocaleString()}
-									</Typography>
-								</Stack>
-								<Box
-									component="pre"
-									sx={{
-										m: 0,
-										fontFamily: 'monospace',
-										fontSize: '0.78rem',
-										whiteSpace: 'pre-wrap',
-										wordBreak: 'break-word',
-										color: 'text.secondary',
-									}}
-								>
-									{JSON.stringify(e.payload, null, 2)}
-								</Box>
-							</Box>
-						))}
-					</Stack>
-				) : null}
+				{taskId !== null ? <TaskTimeline taskId={taskId} limit={50} /> : null}
 			</DialogContent>
 		</Dialog>
 	)
@@ -957,10 +895,4 @@ function useTaskTokens(): Record<string, number> {
 		refetchInterval: 15_000,
 	})
 	return data ?? {}
-}
-
-function formatTokens(value: number): string {
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-	return value.toLocaleString()
 }
