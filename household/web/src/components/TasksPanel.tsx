@@ -108,6 +108,7 @@ export function TasksPanel({
 					</Alert>
 				)
 			) : null}
+			{canManage ? <BulkRetryBar tasks={tasks} onRetry={onRetry} /> : null}
 			<TasksTable
 				tasks={visible}
 				canManage={canManage}
@@ -126,6 +127,48 @@ export function TasksPanel({
 					}}
 					rowsPerPageOptions={pagination.rowsPerPageOptions ?? [10, 25, 50, 100]}
 				/>
+			) : null}
+		</Stack>
+	)
+}
+
+/**
+ * One-click retry of every `failed` task in the current view (the `tasks` prop
+ * is already filtered by the page). Retries sequentially so a burst doesn't
+ * hammer dispatch; surfaces the first error and how many succeeded.
+ */
+function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props['onRetry'] }) {
+	const failed = tasks.filter((t) => t.status === 'failed')
+	const [busy, setBusy] = useState(false)
+	const [error, setError] = useState<string | null>(null)
+	if (failed.length === 0) return null
+
+	const run = async () => {
+		if (!window.confirm(`Retry ${failed.length} failed task(s)?`)) return
+		setBusy(true)
+		setError(null)
+		let ok = 0
+		for (const t of failed) {
+			try {
+				await onRetry(t.id)
+				ok++
+			} catch (e) {
+				setError(`Stopped after ${ok}/${failed.length}: ${(e as Error).message}`)
+				break
+			}
+		}
+		setBusy(false)
+	}
+
+	return (
+		<Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+			<Button size="small" variant="outlined" color="warning" onClick={run} disabled={busy}>
+				{busy ? 'Retrying…' : `Retry all failed (${failed.length})`}
+			</Button>
+			{error ? (
+				<Typography variant="caption" color="error">
+					{error}
+				</Typography>
 			) : null}
 		</Stack>
 	)
@@ -757,7 +800,7 @@ function statusColor(status: TaskStatus): 'default' | 'info' | 'warning' | 'succ
  * at all — that's a different kind of misconfiguration the chip would
  * incorrectly attribute to repo coverage.
  */
-function isQueueBlockedByRepo(task: TaskRecord, members: MemberSnapshot[]): boolean {
+export function isQueueBlockedByRepo(task: TaskRecord, members: MemberSnapshot[]): boolean {
 	if (task.status !== 'queued') return false
 	if (!task.repo) return false
 	const live = members.filter((m) => m.status !== 'offline')
@@ -767,7 +810,7 @@ function isQueueBlockedByRepo(task: TaskRecord, members: MemberSnapshot[]): bool
 	return !skillMatched.some((m) => m.repos === null || m.repos.includes(repo))
 }
 
-function QueueBlockedByRepoBadge({ repo }: { repo: string }) {
+export function QueueBlockedByRepoBadge({ repo }: { repo: string }) {
 	const [owner, name] = repo.split('/', 2)
 	const chip = (
 		<Chip

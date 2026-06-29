@@ -5,7 +5,13 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { Markdown } from '../components/Markdown.tsx'
-import { previewPortsOf, previewState, ReviewWaitBadge } from '../components/TasksPanel.tsx'
+import {
+	isQueueBlockedByRepo,
+	previewPortsOf,
+	previewState,
+	QueueBlockedByRepoBadge,
+	ReviewWaitBadge,
+} from '../components/TasksPanel.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -156,6 +162,7 @@ function TaskDetailCard({
 	onRestart: () => void
 	actionError: string | null
 }) {
+	const { members } = useAppData()
 	const cancellable = ACTIVE_STATUSES.has(task.status)
 	const retryable = task.status === 'failed'
 	// A finished/failed preview can be spun up again for the same branch.
@@ -180,6 +187,9 @@ function TaskDetailCard({
 					<Chip label={task.kind} size="small" variant="outlined" />
 					{task.status === 'in-review' ? (
 						<ReviewWaitBadge jobs={task.reviewJobs} />
+					) : null}
+					{isQueueBlockedByRepo(task, members) ? (
+						<QueueBlockedByRepoBadge repo={task.repo!} />
 					) : null}
 				</Stack>
 
