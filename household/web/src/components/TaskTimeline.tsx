@@ -35,9 +35,13 @@ export function TaskTimeline({ taskId, limit = 200 }: { taskId: string; limit?: 
 		)
 	}
 
-	const first = new Date(events[0]!.ts).getTime()
-	const last = new Date(events[events.length - 1]!.ts).getTime()
-	const totalTokens = events.reduce((max, e) => {
+	// The events endpoint returns newest-first; a timeline reads oldest→newest,
+	// so reverse to chronological order (this also makes first/last and the
+	// inter-step deltas below come out positive).
+	const ordered = [...events].reverse()
+	const first = new Date(ordered[0]!.ts).getTime()
+	const last = new Date(ordered[ordered.length - 1]!.ts).getTime()
+	const totalTokens = ordered.reduce((max, e) => {
 		if (e.kind !== 'usage') return max
 		const p = (e.payload ?? {}) as Record<string, unknown>
 		return Math.max(max, num(p.input) + num(p.output))
@@ -65,8 +69,8 @@ export function TaskTimeline({ taskId, limit = 200 }: { taskId: string; limit?: 
 				) : null}
 			</Stack>
 
-			{events.map((e, i) => {
-				const prevTs = i > 0 ? new Date(events[i - 1]!.ts).getTime() : null
+			{ordered.map((e, i) => {
+				const prevTs = i > 0 ? new Date(ordered[i - 1]!.ts).getTime() : null
 				const deltaS = prevTs !== null ? (new Date(e.ts).getTime() - prevTs) / 1000 : null
 				const { summary, tone } = summarizeEvent(e)
 				const meta = kindMeta(e.kind)

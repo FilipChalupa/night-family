@@ -27,6 +27,7 @@ interface StatsResponseBody {
 	daily: DailyResponseRow[]
 	statusBreakdown: Array<{ status: string; count: number }>
 	byMember: Array<{ name: string; completed: number; failed: number; tokens: number }>
+	byRepo: Array<{ repo: string | null; completed: number; failed: number; tokens: number }>
 }
 
 interface Rig {
@@ -72,6 +73,7 @@ function insertTask(
 		member: string | null
 		updatedAt: number
 		kind?: string
+		repo?: string | null
 	},
 ): void {
 	let memberId: string | null = null
@@ -89,13 +91,14 @@ function insertTask(
 	}
 	sqlite
 		.prepare(
-			`INSERT INTO tasks (id, kind, title, description, status, assigned_member_id, created_at, updated_at, retry_count)
-			 VALUES (?, ?, 'test', '', ?, ?, ?, ?, 0)`,
+			`INSERT INTO tasks (id, kind, title, description, status, repo, assigned_member_id, created_at, updated_at, retry_count)
+			 VALUES (?, ?, 'test', '', ?, ?, ?, ?, ?, 0)`,
 		)
 		.run(
 			opts.id,
 			opts.kind ?? 'implement',
 			opts.status,
+			opts.repo ?? null,
 			memberId,
 			opts.updatedAt,
 			opts.updatedAt,
@@ -160,6 +163,51 @@ describe('GET /api/stats/tasks — token aggregates', () => {
 		const byName = (n: string) => body.byMember.find((m) => m.name === n)
 		expect(byName('alice')).toEqual({ name: 'alice', completed: 1, failed: 0, tokens: 450 })
 		expect(byName('bob')).toEqual({ name: 'bob', completed: 0, failed: 1, tokens: 100 })
+	})
+
+	it('aggregates tokens by repo, buckets repo-less tasks as null, no double-count', async () => {
+		const ts = todayUtcNoon()
+		insertTask(rig.sqlite, {
+			id: 'a1',
+			status: 'done',
+			member: 'alice',
+			updatedAt: ts,
+			repo: 'o/a',
+		})
+		insertUsage(rig.sqlite, 'a1', 1, { input: 100, output: 50 })
+		insertUsage(rig.sqlite, 'a1', 2, { input: 300, output: 150 }) // cumulative → MAX 450
+		insertTask(rig.sqlite, {
+			id: 'a2',
+			status: 'done',
+			member: 'alice',
+			updatedAt: ts,
+			repo: 'o/a',
+		})
+		insertUsage(rig.sqlite, 'a2', 1, { input: 50, output: 50 }) // 100
+		insertTask(rig.sqlite, {
+			id: 'b1',
+			status: 'failed',
+			member: 'bob',
+			updatedAt: ts,
+			repo: 'o/b',
+		})
+		insertUsage(rig.sqlite, 'b1', 1, { input: 200, output: 0 }) // 200
+		insertTask(rig.sqlite, {
+			id: 's1',
+			status: 'done',
+			member: 'alice',
+			updatedAt: ts,
+			repo: null,
+		})
+		insertUsage(rig.sqlite, 's1', 1, { input: 10, output: 10 }) // 20
+
+		const res = await rig.app.request('/api/stats/tasks?days=7')
+		const body = (await res.json()) as StatsResponseBody
+		const byRepo = (r: string | null) => body.byRepo.find((x) => x.repo === r)
+		// 450 + 100, not double-counted across a1's two usage events.
+		expect(byRepo('o/a')).toEqual({ repo: 'o/a', completed: 2, failed: 0, tokens: 550 })
+		expect(byRepo('o/b')).toEqual({ repo: 'o/b', completed: 0, failed: 1, tokens: 200 })
+		expect(byRepo(null)).toEqual({ repo: null, completed: 1, failed: 0, tokens: 20 })
 	})
 
 	it('keeps tasks without usage events at 0 tokens (LEFT JOIN on member agg)', async () => {

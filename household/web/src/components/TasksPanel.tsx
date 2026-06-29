@@ -30,7 +30,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { useQuery } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { acceptableTaskKinds } from '@night/shared'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { formatTokens } from '../format.ts'
 import { relativeTime } from '../time.ts'
@@ -139,23 +139,36 @@ export function TasksPanel({
  * hammer dispatch; surfaces the first error and how many succeeded.
  */
 function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props['onRetry'] }) {
-	const failed = tasks.filter((t) => t.status === 'failed')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	// Live handle on the task list: a task can transition out of `failed` (via
+	// the WS stream) mid-batch, and we must not re-kick one that already
+	// recovered or was retried elsewhere.
+	const tasksRef = useRef(tasks)
+	useEffect(() => {
+		tasksRef.current = tasks
+	}, [tasks])
+
+	const failed = tasks.filter((t) => t.status === 'failed')
 	if (failed.length === 0) return null
 
 	const run = async () => {
-		if (!window.confirm(`Retry ${failed.length} failed task(s)?`)) return
+		const ids = failed.map((t) => t.id)
+		if (!window.confirm(`Retry ${ids.length} failed task(s)?`)) return
 		setBusy(true)
 		setError(null)
 		let ok = 0
-		for (const t of failed) {
+		for (const id of ids) {
+			// Re-check against the latest stream snapshot — skip anything no
+			// longer failed.
+			if (tasksRef.current.find((t) => t.id === id)?.status !== 'failed') continue
 			try {
-				await onRetry(t.id)
+				await onRetry(id)
 				ok++
 			} catch (e) {
-				setError(`Stopped after ${ok}/${failed.length}: ${(e as Error).message}`)
-				break
+				setError(`Stopped after ${ok}/${ids.length}: ${(e as Error).message}`)
+				setBusy(false)
+				return
 			}
 		}
 		setBusy(false)
