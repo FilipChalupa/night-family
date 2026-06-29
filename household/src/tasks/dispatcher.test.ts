@@ -1119,4 +1119,15 @@ describe('claimNextFor — MCP routing', () => {
 		expect(claimed?.id).toBe(open)
 		expect(rig.taskStore.get(blocked)?.status).toBe('queued')
 	})
+
+	it('reaches an eligible task even behind many MCP-blocked ones (no starvation past the batch)', () => {
+		// More than the old 25-row scan window of MCP-blocked tasks queued ahead.
+		for (let i = 0; i < 30; i++) queueImplement(['linear'])
+		const open = queueImplement([]) // the only task this member can take
+		const claimed = rig.taskStore.claimNextFor(['implement'], assign('plain'), null, {
+			memberMcp: [],
+			fleetMcp: ['linear'],
+		})
+		expect(claimed?.id).toBe(open)
+	})
 })

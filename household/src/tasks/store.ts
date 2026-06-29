@@ -133,8 +133,16 @@ export function mcpEligible(requiredMcp: string[], ctx: McpClaimContext): boolea
 	return !requiredMcp.map(norm).some((s) => !has.has(s) && fleet.has(s))
 }
 
-/** How many queued candidates to consider per claim (MCP filtering happens in JS). */
+/**
+ * How many queued candidates to scan per claim. Without MCP filtering the
+ * first candidate is always claimable, so a small batch (enough to retry past
+ * a lost race) suffices. With MCP filtering the oldest candidates may all be
+ * blocked for this member while an eligible one sits further down — so scan a
+ * wide window to avoid starving it. The cap is a backstop; the real cost is
+ * the queued depth, which is small in practice.
+ */
 const CLAIM_BATCH = 25
+const MCP_SCAN_LIMIT = 1000
 
 function parseStringArray(raw: string | null): string[] {
 	if (!raw) return []
@@ -411,7 +419,7 @@ export class TaskStore {
 			.from(tasks)
 			.where(and(...baseConds))
 			.orderBy(tasks.createdAt)
-			.limit(CLAIM_BATCH)
+			.limit(mcp ? MCP_SCAN_LIMIT : CLAIM_BATCH)
 			.all()
 		return this.claimFirstEligible(candidates, assignment, mcp)
 	}
@@ -539,7 +547,7 @@ export class TaskStore {
 			.from(tasks)
 			.where(and(...baseConds))
 			.orderBy(tasks.createdAt)
-			.limit(CLAIM_BATCH)
+			.limit(mcp ? MCP_SCAN_LIMIT : CLAIM_BATCH)
 			.all()
 		return this.claimFirstEligible(candidates, assignment, mcp)
 	}

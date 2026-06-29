@@ -4,6 +4,7 @@ import {
 	Button,
 	Chip,
 	Dialog,
+	DialogActions,
 	DialogContent,
 	DialogTitle,
 	IconButton,
@@ -141,6 +142,7 @@ export function TasksPanel({
 function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props['onRetry'] }) {
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [confirmOpen, setConfirmOpen] = useState(false)
 	// Live handle on the task list: a task can transition out of `failed` (via
 	// the WS stream) mid-batch, and we must not re-kick one that already
 	// recovered or was retried elsewhere.
@@ -153,8 +155,8 @@ function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props[
 	if (failed.length === 0) return null
 
 	const run = async () => {
+		setConfirmOpen(false)
 		const ids = failed.map((t) => t.id)
-		if (!window.confirm(`Retry ${ids.length} failed task(s)?`)) return
 		setBusy(true)
 		setError(null)
 		let ok = 0
@@ -176,7 +178,13 @@ function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props[
 
 	return (
 		<Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-			<Button size="small" variant="outlined" color="warning" onClick={run} disabled={busy}>
+			<Button
+				size="small"
+				variant="outlined"
+				color="warning"
+				onClick={() => setConfirmOpen(true)}
+				disabled={busy}
+			>
 				{busy ? 'Retrying…' : `Retry all failed (${failed.length})`}
 			</Button>
 			{error ? (
@@ -184,6 +192,26 @@ function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props[
 					{error}
 				</Typography>
 			) : null}
+			<Dialog
+				open={confirmOpen}
+				onClose={() => setConfirmOpen(false)}
+				maxWidth="xs"
+				fullWidth
+			>
+				<DialogTitle>Retry failed tasks?</DialogTitle>
+				<DialogContent>
+					<Typography variant="body2">
+						Re-queue {failed.length} failed task{failed.length === 1 ? '' : 's'} for
+						another attempt.
+					</Typography>
+				</DialogContent>
+				<DialogActions>
+					<Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+					<Button color="warning" variant="contained" onClick={run}>
+						Retry {failed.length}
+					</Button>
+				</DialogActions>
+			</Dialog>
 		</Stack>
 	)
 }

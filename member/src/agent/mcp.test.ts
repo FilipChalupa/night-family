@@ -62,7 +62,10 @@ describe('wrapMcpTool', () => {
 		}))
 		const tool = wrapMcpTool('linear', descriptor, caller(spy))
 		const result = await tool.run({ id: 'ABC-1' })
-		expect(spy).toHaveBeenCalledWith({ name: 'get_issue', arguments: { id: 'ABC-1' } })
+		expect(spy).toHaveBeenCalledWith(
+			{ name: 'get_issue', arguments: { id: 'ABC-1' } },
+			{ timeout: 120_000 },
+		)
 		expect(result.output).toBe('line 1\nline 2')
 		expect(result.isError).toBe(false)
 	})
@@ -108,29 +111,23 @@ describe('wrapMcpTool', () => {
 		expect(result.output).toContain('connection reset')
 	})
 
-	it('fails a hung tool call after the timeout instead of blocking forever', async () => {
-		vi.useFakeTimers()
-		try {
-			const tool = wrapMcpTool(
-				'slack',
-				{ name: 'search' },
-				caller(() => new Promise(() => {})),
-			)
-			const pending = tool.run({})
-			await vi.advanceTimersByTimeAsync(120_000)
-			const result = await pending
-			expect(result.isError).toBe(true)
-			expect(result.output).toMatch(/timed out/)
-		} finally {
-			vi.useRealTimers()
-		}
+	it('forwards a per-call timeout so the SDK cancels a hung call', async () => {
+		const spy = vi.fn(async () => ({ content: [] }))
+		const tool = wrapMcpTool('slack', { name: 'search' }, caller(spy))
+		await tool.run({ q: 'x' })
+		// The timeout is passed to the SDK (which cancels on expiry), not a wrapper
+		// that orphans the request.
+		expect(spy).toHaveBeenCalledWith(
+			{ name: 'search', arguments: { q: 'x' } },
+			{ timeout: 120_000 },
+		)
 	})
 
 	it('coerces non-object input to empty arguments', async () => {
 		const spy = vi.fn(async () => ({ content: [] }))
 		const tool = wrapMcpTool('x', { name: 't' }, caller(spy))
 		await tool.run('not an object')
-		expect(spy).toHaveBeenCalledWith({ name: 't', arguments: {} })
+		expect(spy).toHaveBeenCalledWith({ name: 't', arguments: {} }, { timeout: 120_000 })
 	})
 })
 

@@ -51,12 +51,24 @@ const MAX_OUTPUT_CHARS = 60_000
  * agent loop until the whole-task wallclock limit; this fails the one call
  * (surfaced to the agent as a tool error) so it can move on. Generous because
  * legitimate calls (a wide search, a slow upstream) can take a while.
+ *
+ * Passed to the SDK as the request timeout so it actually *cancels* the
+ * in-flight request (sends `notifications/cancelled`) on expiry — rather than
+ * being orphaned by a wrapper timeout while the request lingers on the client.
  */
 const CALL_TIMEOUT_MS = 120_000
 
+/** Per-call request options forwarded to the SDK (a subset of its RequestOptions). */
+export interface McpCallOptions {
+	timeout?: number
+}
+
 /** The slice of the MCP client this module actually uses — keeps tests honest. */
 export interface McpToolCaller {
-	callTool(args: { name: string; arguments?: Record<string, unknown> }): Promise<unknown>
+	callTool(
+		args: { name: string; arguments?: Record<string, unknown> },
+		options?: McpCallOptions,
+	): Promise<unknown>
 }
 
 /**
@@ -109,10 +121,11 @@ export function wrapMcpTool(
 				input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
 			let raw: unknown
 			try {
-				raw = await withTimeout(
-					caller.callTool({ name: descriptor.name, arguments: args }),
-					CALL_TIMEOUT_MS,
-					`call ${serverName}/${descriptor.name}`,
+				// SDK-enforced timeout: on expiry it rejects *and* cancels the
+				// in-flight request, so a hung server can't pin the agent loop.
+				raw = await caller.callTool(
+					{ name: descriptor.name, arguments: args },
+					{ timeout: CALL_TIMEOUT_MS },
 				)
 			} catch (err) {
 				return {
@@ -402,10 +415,17 @@ const defaultConnector: McpConnector = async (server) => {
 		await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, 'connect')
 		const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, 'listTools')
 		const allow = server.allow == null ? null : new Set(server.allow)
+		// Adapter: the SDK's callTool is (params, resultSchema?, options?); the
+		// tool wrapper passes (params, options), so forward options into the 3rd
+		// slot. Keeps the per-call timeout/cancellation wired without leaking the
+		// SDK's exact signature into wrapMcpTool.
+		const caller: McpToolCaller = {
+			callTool: (args, options) => client.callTool(args, undefined, options),
+		}
 		const tools: ToolDefinition[] = []
 		for (const descriptor of listed.tools as McpToolDescriptor[]) {
 			if (allow && !allow.has(descriptor.name)) continue
-			tools.push(wrapMcpTool(server.name, descriptor, client))
+			tools.push(wrapMcpTool(server.name, descriptor, caller))
 		}
 		return { client: client as unknown as McpClient, tools }
 	} catch (err) {
