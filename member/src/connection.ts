@@ -282,11 +282,10 @@ export class HouseholdConnection {
 	 * fresh list too. On failure, emits `member.repos_error` (the previous
 	 * list is preserved — refresh is informational, not destructive).
 	 *
-	 * TODO(tests): no unit coverage for this method or the surrounding
-	 * connection layer — coalescing, error → `member.repos_error` path, and
-	 * the 6 h periodic timer are all untested. Setup is non-trivial (WS
-	 * mock + `fetchAccessibleRepos` stub + fake timers), so deferred until
-	 * a regression makes the gap painful.
+	 * Coalescing and the error → `member.repos_error` path are covered in
+	 * `connection.test.ts` (via a `send` spy + `fetchAccessibleRepos` stub).
+	 * The 6 h periodic timer that calls this is still untested (would need fake
+	 * timers around the connect loop).
 	 */
 	private refreshRepos(reason: string): Promise<void> {
 		if (this.state.refreshingRepos) return this.state.refreshingRepos
