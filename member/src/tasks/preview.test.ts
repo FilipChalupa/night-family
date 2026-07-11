@@ -106,16 +106,27 @@ describe('upsertPreviewSection', () => {
 })
 
 describe('probePort', () => {
-	it('resolves true for a listening port and false for a closed one', async () => {
+	it('resolves true for a listening port', async () => {
 		const server: Server = createServer()
 		const port = await new Promise<number>((resolve) =>
 			server.listen(0, '127.0.0.1', () =>
 				resolve((server.address() as { port: number }).port),
 			),
 		)
-		expect(await probePort(port, 500)).toBe(true)
-		await new Promise<void>((resolve) => server.close(() => resolve()))
-		expect(await probePort(port, 500)).toBe(false)
+		try {
+			expect(await probePort(port, 500)).toBe(true)
+		} finally {
+			await new Promise<void>((resolve) => server.close(() => resolve()))
+		}
+	})
+
+	it('resolves false for a port with nothing listening', async () => {
+		// Port 1 is in the privileged range, outside the ephemeral range the OS
+		// hands out for `listen(0)`, so no parallel test worker can transiently
+		// grab it — a connect to 127.0.0.1:1 deterministically gets
+		// ECONNREFUSED. (The previous "bind, close, re-probe the same ephemeral
+		// port" was racy: another worker could re-bind that port in the window.)
+		expect(await probePort(1, 500)).toBe(false)
 	})
 })
 
