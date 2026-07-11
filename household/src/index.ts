@@ -496,13 +496,13 @@ const server = serve(
 injectWebSocket(server)
 
 let shuttingDown = false
-const shutdown = (signal: string) => {
+const shutdown = (signal: string, exitCode = 0) => {
 	if (shuttingDown) return
 	shuttingDown = true
-	logger.info({ signal }, 'shutting down')
+	logger.info({ signal, exitCode }, 'shutting down')
 	// Members/UI/preview hold persistent WebSockets, which keep the HTTP
 	// server's connection count above zero — so server.close() would never fire
-	// its callback (DB close + exit 0) and we'd always fall through to the
+	// its callback (DB close + exit) and we'd always fall through to the
 	// hard-kill timer. Close the sockets explicitly first.
 	for (const client of nodeWs.wss.clients) {
 		try {
@@ -514,12 +514,14 @@ const shutdown = (signal: string) => {
 	nodeWs.wss.close()
 	server.close(() => {
 		dbHandles.close()
-		process.exit(0)
+		process.exit(exitCode)
 	})
 	// Drop any lingering keep-alive HTTP connections that would otherwise hold
 	// the server open past the WS close.
 	;(server as { closeAllConnections?: () => void }).closeAllConnections?.()
-	setTimeout(() => process.exit(1), 5000).unref()
+	// Hard-kill backstop. Preserve a non-zero exit (e.g. uncaughtException) so a
+	// restart-on-failure orchestrator still restarts us.
+	setTimeout(() => process.exit(exitCode || 1), 5000).unref()
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'))
@@ -533,5 +535,7 @@ process.on('unhandledRejection', (reason) => {
 })
 process.on('uncaughtException', (err) => {
 	logger.fatal({ err }, 'uncaught exception — shutting down')
-	shutdown('uncaughtException')
+	// Exit non-zero: the process state is undefined and a restart-on-failure
+	// orchestrator should restart us rather than treat this as a clean stop.
+	shutdown('uncaughtException', 1)
 })
