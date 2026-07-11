@@ -336,7 +336,7 @@ function routeMemberMessage(
 			break
 		}
 		case 'task.ack':
-			deps.dispatcher.onAck(msg.task_id, session.sessionId)
+			deps.dispatcher.onAck(msg.task_id, session.sessionId, msg.assignment_id)
 			break
 		case 'task.completed':
 			deps.dispatcher.onCompleted(
@@ -344,10 +344,11 @@ function routeMemberMessage(
 				msg.result,
 				msg.pr_url ?? null,
 				session.sessionId,
+				msg.assignment_id,
 			)
 			break
 		case 'task.failed':
-			deps.dispatcher.onFailed(msg.task_id, msg.reason, session.sessionId)
+			deps.dispatcher.onFailed(msg.task_id, msg.reason, session.sessionId, msg.assignment_id)
 			break
 		case 'event': {
 			const member = deps.registry.get(session.sessionId)

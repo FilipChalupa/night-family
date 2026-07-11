@@ -24,6 +24,13 @@ import { EventBuffer, eventFilePath } from './tasks/eventBuffer.ts'
 interface State {
 	status: MemberStatus
 	currentTask: string | null
+	/**
+	 * Per-dispatch nonce of the assignment we're currently acting on (from
+	 * AssignedTask.assignment_id). Echoed back on ack/completed/failed so the
+	 * Household can reject lifecycle messages from a superseded dispatch. null
+	 * when idle or when the Household didn't send one (older peer).
+	 */
+	currentAssignmentId: string | null
 	lastServerActivity: number
 	/**
 	 * Last in-flight `repos.refresh` we kicked off. Used to coalesce repeated
@@ -76,6 +83,7 @@ export class HouseholdConnection {
 	private readonly state: State = {
 		status: 'idle',
 		currentTask: null,
+		currentAssignmentId: null,
 		lastServerActivity: Date.now(),
 		refreshingRepos: null,
 	}
@@ -253,27 +261,44 @@ export class HouseholdConnection {
 				break
 			case 'task.assigned':
 				// Defensive: Household tracks our busy state and shouldn't assign a
-				// second task while we're running one, but if it does, starting a
-				// concurrent TaskRunner would overwrite the in-flight abortController
-				// (the first task becomes uncancellable) and two runs on the same
-				// repo share one bare-clone cache — a corruption risk. Decline
-				// instead so Household can requeue it elsewhere.
-				if (this.state.currentTask !== null) {
+				// *different* task while we're running one — starting a concurrent
+				// TaskRunner would overwrite the in-flight abortController (the first
+				// task becomes uncancellable) and two runs on the same repo share
+				// one bare-clone cache. Decline so Household can requeue it.
+				if (
+					this.state.currentTask !== null &&
+					this.state.currentTask !== msg.task.task_id
+				) {
 					this.logger.error(
 						{ running: this.state.currentTask, offered: msg.task.task_id },
-						'received task.assigned while already busy; declining',
+						'received task.assigned for a different task while busy; declining',
 					)
 					this.send({
 						type: 'task.failed',
 						task_id: msg.task.task_id,
 						reason: 'member_busy: already running another task',
+						...(msg.task.assignment_id
+							? { assignment_id: msg.task.assignment_id }
+							: {}),
 					})
 					break
 				}
-				this.send({ type: 'task.ack', task_id: msg.task.task_id })
-				this.state.status = 'busy'
-				this.state.currentTask = msg.task.task_id
-				this.startTaskRun(msg.task)
+				// Adopt the (possibly new) assignment nonce and re-ack. If this is a
+				// redispatch of the task we're already running (e.g. Household's
+				// ack-timeout fired and re-sent it), we simply adopt the new nonce
+				// so our eventual completed/failed echoes it — we do NOT start a
+				// second run.
+				this.state.currentAssignmentId = msg.task.assignment_id ?? null
+				this.send({
+					type: 'task.ack',
+					task_id: msg.task.task_id,
+					...(msg.task.assignment_id ? { assignment_id: msg.task.assignment_id } : {}),
+				})
+				if (this.state.currentTask === null) {
+					this.state.status = 'busy'
+					this.state.currentTask = msg.task.task_id
+					this.startTaskRun(msg.task)
+				}
 				break
 			case 'task.cancel':
 				this.logger.info({ task: msg.task_id, reason: msg.reason }, 'task cancel received')
@@ -343,18 +368,23 @@ export class HouseholdConnection {
 				metadata: task.metadata ?? null,
 			})
 			.then((outcome) => {
+				// Read the nonce at completion time, not dispatch time — a
+				// redispatch may have adopted a newer one mid-run.
+				const assignmentId = this.state.currentAssignmentId
 				if (outcome.type === 'completed') {
 					this.send({
 						type: 'task.completed',
 						task_id: task.task_id,
 						result: outcome.result ?? null,
 						...(outcome.prUrl ? { pr_url: outcome.prUrl } : {}),
+						...(assignmentId ? { assignment_id: assignmentId } : {}),
 					})
 				} else {
 					this.send({
 						type: 'task.failed',
 						task_id: task.task_id,
 						reason: outcome.reason ?? 'unknown',
+						...(assignmentId ? { assignment_id: assignmentId } : {}),
 					})
 				}
 			})
@@ -364,11 +394,15 @@ export class HouseholdConnection {
 					type: 'task.failed',
 					task_id: task.task_id,
 					reason: 'runner_crash:' + (err instanceof Error ? err.message : String(err)),
+					...(this.state.currentAssignmentId
+						? { assignment_id: this.state.currentAssignmentId }
+						: {}),
 				})
 			})
 			.finally(() => {
 				this.state.status = 'idle'
 				this.state.currentTask = null
+				this.state.currentAssignmentId = null
 				this.send({ type: 'member.ready' })
 			})
 		void runPromise

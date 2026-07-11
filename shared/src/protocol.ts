@@ -14,7 +14,7 @@
  * field/message is a major bump.
  */
 
-export const PROTOCOL_VERSION = '3.4.0'
+export const PROTOCOL_VERSION = '3.5.0'
 
 export interface ParsedProtocolVersion {
 	major: number
@@ -148,6 +148,14 @@ export interface AssignedTask {
 	repo?: string
 	pr_url?: string
 	metadata?: Record<string, unknown>
+	/**
+	 * New in 3.5.0. Per-dispatch nonce. The Member echoes it back on
+	 * `task.ack`/`task.completed`/`task.failed` so the Household can reject a
+	 * lifecycle message from a superseded dispatch (e.g. after an ack-timeout
+	 * requeued the task and redispatched it). Optional for back-compat: when
+	 * absent (older peer), the Household falls back to session-ownership checks.
+	 */
+	assignment_id?: string
 }
 
 // ---------------- Preview ----------------
@@ -266,6 +274,8 @@ export interface MsgMemberBusy {
 export interface MsgTaskAck {
 	type: 'task.ack'
 	task_id: string
+	/** New in 3.5.0. Echoes AssignedTask.assignment_id (when the peer sent one). */
+	assignment_id?: string
 }
 
 export interface MsgTaskCompleted {
@@ -273,12 +283,16 @@ export interface MsgTaskCompleted {
 	task_id: string
 	result: unknown
 	pr_url?: string
+	/** New in 3.5.0. Echoes AssignedTask.assignment_id (when the peer sent one). */
+	assignment_id?: string
 }
 
 export interface MsgTaskFailed {
 	type: 'task.failed'
 	task_id: string
 	reason: string
+	/** New in 3.5.0. Echoes AssignedTask.assignment_id (when the peer sent one). */
+	assignment_id?: string
 }
 
 export interface MsgEvent {

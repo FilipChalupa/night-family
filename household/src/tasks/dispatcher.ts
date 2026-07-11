@@ -22,6 +22,7 @@
  * (1 min / 5 min / 15 min). After 3 failures → `failed`.
  */
 
+import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import {
 	TASK_ACK_TIMEOUT_MS,
@@ -88,6 +89,13 @@ interface PendingJob {
 export class Dispatcher {
 	private readonly pendingTaskAck = new Map<string, PendingTask>()
 	private readonly pendingJobAck = new Map<string, PendingJob>()
+	/**
+	 * Nonce of the *current* dispatch of each active task. Set on every
+	 * sendTask; a lifecycle message (ack/completed/failed) echoing a different
+	 * nonce comes from a superseded dispatch and is ignored. In-memory only —
+	 * after a restart it's empty and we fall back to session-ownership checks.
+	 */
+	private readonly assignmentIds = new Map<string, string>()
 	private readonly selfReviewWakeups = new Map<string, NodeJS.Timeout>()
 	private readonly maxReviewJobsPerTask: number
 	private readonly selfReviewFallbackMs: number
@@ -406,7 +414,7 @@ export class Dispatcher {
 
 	// ─── WS event callbacks ──────────────────────────────────────────────────
 
-	onAck(id: string, sessionId: string): void {
+	onAck(id: string, sessionId: string, assignmentId?: string): void {
 		if (this.pendingJobAck.has(id)) {
 			const job = this.deps.jobStore.get(id)
 			if (job && job.assignedSessionId !== sessionId) {
@@ -432,6 +440,7 @@ export class Dispatcher {
 			)
 			return
 		}
+		if (!this.assignmentCurrent(id, assignmentId)) return
 		const pending = this.pendingTaskAck.get(id)
 		if (pending) {
 			clearTimeout(pending.timer)
@@ -459,20 +468,45 @@ export class Dispatcher {
 		this.deps.taskStore.mergeMetadata(id, { preview_ports: ports })
 	}
 
-	onCompleted(id: string, result: unknown, prUrl: string | null, sessionId: string): void {
+	onCompleted(
+		id: string,
+		result: unknown,
+		prUrl: string | null,
+		sessionId: string,
+		assignmentId?: string,
+	): void {
 		if (this.pendingJobAck.has(id) || this.deps.jobStore.get(id)) {
 			this.onJobCompleted(id, result, sessionId)
 			return
 		}
-		this.onTaskCompleted(id, result, prUrl, sessionId)
+		this.onTaskCompleted(id, result, prUrl, sessionId, assignmentId)
 	}
 
-	onFailed(id: string, reason: string, sessionId: string): void {
+	onFailed(id: string, reason: string, sessionId: string, assignmentId?: string): void {
 		if (this.pendingJobAck.has(id) || this.deps.jobStore.get(id)) {
 			this.onJobFailed(id, reason, sessionId)
 			return
 		}
-		this.onTaskFailed(id, reason, sessionId)
+		this.onTaskFailed(id, reason, sessionId, assignmentId)
+	}
+
+	/**
+	 * True when `assignmentId` matches the current dispatch's nonce (or when
+	 * either side omitted it — older peer / post-restart, where we rely on the
+	 * session-ownership check instead). A mismatch means the message comes from
+	 * a superseded dispatch and must be ignored.
+	 */
+	private assignmentCurrent(taskId: string, assignmentId: string | undefined): boolean {
+		const current = this.assignmentIds.get(taskId)
+		if (!current || !assignmentId) return true
+		if (current !== assignmentId) {
+			this.deps.logger.warn(
+				{ taskId, current, received: assignmentId },
+				'ignoring task lifecycle message from a superseded dispatch',
+			)
+			return false
+		}
+		return true
 	}
 
 	/**
@@ -515,6 +549,7 @@ export class Dispatcher {
 			.filter((t) => t.assignedSessionId === sessionId)
 		for (const task of ownedTasks) {
 			this.clearTaskPending(task.id)
+			this.assignmentIds.delete(task.id)
 			this.deps.taskStore.transition(task.id, [task.status], 'queued')
 			this.deps.taskStore.clearAssignment(task.id)
 			this.deps.logger.info(
@@ -572,6 +607,7 @@ export class Dispatcher {
 				retained++
 			} else {
 				this.clearTaskPending(task.id)
+				this.assignmentIds.delete(task.id)
 				this.deps.taskStore.transition(task.id, [task.status], 'queued')
 				this.deps.taskStore.clearAssignment(task.id)
 				this.deps.logger.info(
@@ -621,6 +657,12 @@ export class Dispatcher {
 			wireMetadata['github_issue_url'] = task.githubIssueUrl
 		}
 
+		// Fresh nonce per dispatch so a lifecycle message from a superseded
+		// dispatch (e.g. after an ack-timeout requeue) can be told apart from the
+		// current one, even when it's the same session/task.
+		const assignmentId = randomUUID()
+		this.assignmentIds.set(task.id, assignmentId)
+
 		conn.send({
 			type: 'task.assigned',
 			task: {
@@ -628,6 +670,7 @@ export class Dispatcher {
 				kind: wireKind,
 				title: task.title,
 				description: task.description,
+				assignment_id: assignmentId,
 				...(task.repo ? { repo: task.repo } : {}),
 				...(task.prUrl ? { pr_url: task.prUrl } : {}),
 				...(Object.keys(wireMetadata).length > 0 ? { metadata: wireMetadata } : {}),
@@ -672,8 +715,11 @@ export class Dispatcher {
 		result: unknown,
 		prUrl: string | null,
 		sessionId: string,
+		assignmentId?: string,
 	): void {
 		if (!this.ownsTask(taskId, sessionId)) return
+		if (!this.assignmentCurrent(taskId, assignmentId)) return
+		this.assignmentIds.delete(taskId)
 		this.clearTaskPending(taskId)
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return
@@ -806,8 +852,15 @@ export class Dispatcher {
 		)
 	}
 
-	private onTaskFailed(taskId: string, reason: string, sessionId: string): void {
+	private onTaskFailed(
+		taskId: string,
+		reason: string,
+		sessionId: string,
+		assignmentId?: string,
+	): void {
 		if (!this.ownsTask(taskId, sessionId)) return
+		if (!this.assignmentCurrent(taskId, assignmentId)) return
+		this.assignmentIds.delete(taskId)
 		this.clearTaskPending(taskId)
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return

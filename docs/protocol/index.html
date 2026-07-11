@@ -196,6 +196,31 @@
 			</p>
 
 			<section class="entry">
+				<h2>3.5.0</h2>
+				<p>
+					Per-dispatch assignment nonce so the Household can tell a task's current
+					dispatch apart from a superseded one (e.g. after an ack-timeout requeued and
+					redispatched the task). Prevents a late lifecycle message from an earlier
+					dispatch from clobbering the current owner's work, even when it's the same
+					session.
+				</p>
+				<ul>
+					<li>
+						Added optional <code>assignment_id</code> to <code>task.assigned</code>'s
+						<code>task</code> (Household → Member): a unique per-dispatch nonce.
+					</li>
+					<li>
+						Added optional <code>assignment_id</code> to <code>task.ack</code>,
+						<code>task.completed</code>, and <code>task.failed</code> (Member →
+						Household): the Member echoes the nonce of the dispatch it is acting on. The
+						Household ignores a message whose nonce doesn't match the current dispatch.
+						Both fields are optional — older peers omit them and the Household falls back
+						to session-ownership checks.
+					</li>
+				</ul>
+			</section>
+
+			<section class="entry">
 				<h2>3.4.0</h2>
 				<p>
 					Members can connect to MCP (Model Context Protocol) servers and expose their

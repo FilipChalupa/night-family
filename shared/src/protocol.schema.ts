@@ -80,6 +80,7 @@ const AssignedTaskSchema = v.object({
 	repo: v.optional(v.string()),
 	pr_url: v.optional(v.string()),
 	metadata: v.optional(v.record(v.string(), v.unknown())),
+	assignment_id: v.optional(v.string()),
 })
 
 // ---------------- Member → Household ----------------
@@ -117,6 +118,7 @@ const MsgMemberBusySchema = v.object({
 const MsgTaskAckSchema = v.object({
 	type: v.literal('task.ack'),
 	task_id: v.string(),
+	assignment_id: v.optional(v.string()),
 })
 
 const MsgTaskCompletedSchema = v.object({
@@ -124,12 +126,14 @@ const MsgTaskCompletedSchema = v.object({
 	task_id: v.string(),
 	result: v.unknown(),
 	pr_url: v.optional(v.string()),
+	assignment_id: v.optional(v.string()),
 })
 
 const MsgTaskFailedSchema = v.object({
 	type: v.literal('task.failed'),
 	task_id: v.string(),
 	reason: v.string(),
+	assignment_id: v.optional(v.string()),
 })
 
 const MsgEventSchema = v.object({

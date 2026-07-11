@@ -1197,3 +1197,64 @@ describe('Dispatcher task ack timeout', () => {
 		expect(assigns.length).toBeGreaterThanOrEqual(2)
 	})
 })
+
+describe('Dispatcher lifecycle-message guards', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	type AssignMsg = { type: string; task: { task_id: string; assignment_id?: string } }
+
+	/** Dispatch a fresh implement task to member 'a'; return its id + nonce. */
+	function dispatchOne(sent: ReturnType<typeof vi.fn>) {
+		rig.registry.add(fakeMember({ memberName: 'a', status: 'idle', send: sent }))
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+		const m = rig.registry.list().find((x) => x.memberName === 'a')!
+		rig.dispatcher.tryDispatchOne(m)
+		const assign = sent.mock.calls
+			.map((c) => c[0] as AssignMsg)
+			.find((msg) => msg.type === 'task.assigned')!
+		return { member: m, taskId: assign.task.task_id, nonce: assign.task.assignment_id! }
+	}
+
+	it('ignores task.completed from a non-owning session', () => {
+		const sent = vi.fn()
+		const { member, taskId, nonce } = dispatchOne(sent)
+		rig.dispatcher.onAck(taskId, member.sessionId, nonce)
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-progress')
+
+		// A stale member (different session) reports completion — must be ignored.
+		rig.dispatcher.onCompleted(taskId, {}, null, 'someone-elses-session', nonce)
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-progress')
+
+		// The real owner completes it → advances to in-review.
+		rig.dispatcher.onCompleted(taskId, {}, null, member.sessionId, nonce)
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-review')
+	})
+
+	it('ignores a lifecycle message carrying a stale assignment nonce', () => {
+		const sent = vi.fn()
+		const { member, taskId, nonce } = dispatchOne(sent)
+		rig.dispatcher.onAck(taskId, member.sessionId, nonce)
+
+		// Same owning session but a superseded nonce → ignored.
+		rig.dispatcher.onCompleted(taskId, {}, null, member.sessionId, 'stale-nonce')
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-progress')
+
+		// Current nonce → accepted.
+		rig.dispatcher.onCompleted(taskId, {}, null, member.sessionId, nonce)
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-review')
+	})
+
+	it('still honours lifecycle messages from an older peer that omits the nonce', () => {
+		const sent = vi.fn()
+		const { member, taskId, nonce } = dispatchOne(sent)
+		rig.dispatcher.onAck(taskId, member.sessionId, nonce)
+
+		// No assignment_id (pre-3.5.0 Member) → falls back to session ownership.
+		rig.dispatcher.onCompleted(taskId, {}, null, member.sessionId, undefined)
+		expect(rig.taskStore.get(taskId)?.status).toBe('in-review')
+	})
+})
