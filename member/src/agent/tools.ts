@@ -11,16 +11,116 @@
  * relies on to skip its own comments.
  */
 
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, normalize, relative, resolve } from 'node:path'
-import { promisify } from 'node:util'
 import { redactBashOutput } from '@night/shared'
 import { appendAttribution, type AttributionInputs } from '@night/shared'
 import { isTransientGhError, retryWithBackoff } from '../retry.ts'
 import type { ToolDefinition, ToolResult } from './types.ts'
 
-const execFileP = promisify(execFile)
+/** Error carrying captured output, thrown by {@link runCommand} on failure. */
+class CommandError extends Error {
+	constructor(
+		message: string,
+		readonly stdout: string,
+		readonly stderr: string,
+		readonly code: number | null,
+	) {
+		super(message)
+	}
+}
+
+interface RunResult {
+	stdout: string
+	stderr: string
+}
+
+/**
+ * Run a command in its **own process group** and capture stdout/stderr.
+ *
+ * Unlike `child_process.execFile`, a timeout / abort / output-overflow here
+ * kills the whole group (`kill(-pid)`), not just the direct child — so a
+ * `sh -c "npm test"` that spawns node/build grandchildren doesn't leave them
+ * orphaned and running after the task is already cancelled or timed out.
+ */
+function runCommand(
+	file: string,
+	args: string[],
+	opts: {
+		cwd: string
+		env: NodeJS.ProcessEnv
+		timeoutMs: number
+		maxBuffer: number
+		signal?: AbortSignal | undefined
+	},
+): Promise<RunResult> {
+	return new Promise((resolve, reject) => {
+		if (opts.signal?.aborted) {
+			reject(new CommandError('aborted', '', '', null))
+			return
+		}
+		const child = spawn(file, args, {
+			cwd: opts.cwd,
+			env: opts.env,
+			detached: true, // own process group so we can signal the whole tree
+			stdio: ['ignore', 'pipe', 'pipe'],
+		})
+		let stdout = ''
+		let stderr = ''
+		let killed = false
+		let killReason = ''
+		let overflowed = false
+
+		const killGroup = (sig: NodeJS.Signals) => {
+			try {
+				if (child.pid) process.kill(-child.pid, sig)
+				else child.kill(sig)
+			} catch {
+				// already gone
+			}
+		}
+		const forceKill = (reason: string) => {
+			if (killed) return
+			killed = true
+			killReason = reason
+			killGroup('SIGTERM')
+			setTimeout(() => killGroup('SIGKILL'), 2000).unref()
+		}
+
+		const timer = setTimeout(() => forceKill('timeout'), opts.timeoutMs)
+		timer.unref()
+		const onAbort = () => forceKill('aborted')
+		opts.signal?.addEventListener('abort', onAbort, { once: true })
+
+		const append = (chunk: Buffer, isErr: boolean) => {
+			if (overflowed) return
+			if (isErr) stderr += chunk.toString()
+			else stdout += chunk.toString()
+			if (stdout.length + stderr.length > opts.maxBuffer) {
+				overflowed = true
+				forceKill('maxBuffer exceeded')
+			}
+		}
+		child.stdout?.on('data', (c: Buffer) => append(c, false))
+		child.stderr?.on('data', (c: Buffer) => append(c, true))
+
+		const cleanup = () => {
+			clearTimeout(timer)
+			opts.signal?.removeEventListener('abort', onAbort)
+		}
+		child.on('error', (err) => {
+			cleanup()
+			reject(new CommandError(err.message, stdout, stderr, null))
+		})
+		child.on('close', (code) => {
+			cleanup()
+			if (killed) reject(new CommandError(killReason || 'killed', stdout, stderr, code))
+			else if (code === 0) resolve({ stdout, stderr })
+			else reject(new CommandError(`command failed (exit ${code})`, stdout, stderr, code))
+		})
+	})
+}
 
 interface CreateOpts {
 	root: string
@@ -167,26 +267,19 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 				}
 			}
 			try {
-				const { stdout, stderr } = await execFileP('/bin/sh', ['-c', command], {
+				const { stdout, stderr } = await runCommand('/bin/sh', ['-c', command], {
 					cwd: root,
 					env: { ...process.env, ...ghEnv },
-					timeout: bashTimeoutMs,
-					killSignal: 'SIGKILL',
+					timeoutMs: bashTimeoutMs,
 					signal: abortSignal,
 					maxBuffer: 5 * 1024 * 1024,
 				})
-				const combined = combineStreams(stdout.toString(), stderr.toString())
+				const combined = combineStreams(stdout, stderr)
 				return { output: redactBashOutput(combined) }
 			} catch (err) {
-				const e = err as {
-					stdout?: Buffer | string
-					stderr?: Buffer | string
-					message: string
-					code?: number
-				}
-				const stdout = e.stdout ? e.stdout.toString() : ''
-				const stderr = e.stderr ? e.stderr.toString() : ''
-				const combined = combineStreams(stdout, stderr) + `\n[exit ${e.code ?? 'n/a'}]`
+				const e = err as CommandError
+				const combined =
+					combineStreams(e.stdout ?? '', e.stderr ?? '') + `\n[exit ${e.code ?? 'n/a'}]`
 				return { output: redactBashOutput(combined), isError: true }
 			}
 		},
@@ -196,23 +289,20 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 		args: string[],
 	): Promise<{ ok: true; out: string } | { ok: false; err: string }> => {
 		try {
-			const { stdout } = await execFileP('gh', args, {
+			const { stdout } = await runCommand('gh', args, {
 				cwd: root,
 				env: { ...process.env, ...ghEnv },
-				timeout: bashTimeoutMs,
-				killSignal: 'SIGKILL',
+				timeoutMs: bashTimeoutMs,
 				signal: abortSignal,
 				maxBuffer: 5 * 1024 * 1024,
 			})
-			return { ok: true, out: stdout.toString() }
+			return { ok: true, out: stdout }
 		} catch (err) {
-			const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; code?: number }
-			const stderr = e.stderr ? e.stderr.toString() : ''
-			const stdout = e.stdout ? e.stdout.toString() : ''
+			const e = err as CommandError
 			return {
 				ok: false,
 				err:
-					redactBashOutput(combineStreams(stdout, stderr)) +
+					redactBashOutput(combineStreams(e.stdout ?? '', e.stderr ?? '')) +
 					`\n[exit ${e.code ?? 'n/a'}]`,
 			}
 		}

@@ -150,6 +150,21 @@ describe('tools — bash', () => {
 		expect(r.output).toContain('marker.txt')
 	})
 
+	it('aborts a long-running command via the signal instead of hanging', async () => {
+		const ac = new AbortController()
+		const b = findTool(
+			createDefaultTools({ root, attribution: STUB_ATTRIBUTION, abortSignal: ac.signal }),
+			'bash',
+		)
+		const started = Date.now()
+		const p = b.run({ command: 'sleep 30' })
+		setTimeout(() => ac.abort(), 50)
+		const r = await p
+		expect(r.isError).toBe(true)
+		// Interrupted promptly — nowhere near the 30s the command would take.
+		expect(Date.now() - started).toBeLessThan(5000)
+	}, 10_000)
+
 	it('rejects empty / non-string commands', async () => {
 		expect((await bash.run({ command: '' })).isError).toBe(true)
 		expect((await bash.run({ command: '   ' })).isError).toBe(true)
