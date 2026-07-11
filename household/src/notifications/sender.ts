@@ -7,6 +7,7 @@
 
 import nodemailer from 'nodemailer'
 import type { Logger } from 'pino'
+import { assertPublicUrl } from './ssrf.ts'
 import type {
 	NotificationStore,
 	NotificationEventName,
@@ -107,7 +108,11 @@ async function sendWebhook(
 		'content-type': 'application/json',
 		...config.headers,
 	}
-	const res = await fetch(config.url, { method: 'POST', headers, body })
+	// SSRF guard: the URL is admin-supplied, so refuse non-public targets before
+	// making the request (metadata endpoints, localhost, RFC 1918, …).
+	await assertPublicUrl(config.url)
+	// `redirect: 'error'` so a 3xx to an internal host can't bypass the guard.
+	const res = await fetch(config.url, { method: 'POST', headers, body, redirect: 'error' })
 	if (!res.ok) {
 		throw new Error(`webhook returned ${res.status}`)
 	}
