@@ -30,7 +30,16 @@ export function openDb(dataDir: string): DbHandles {
 	return {
 		db,
 		sqlite,
-		close: () => sqlite.close(),
+		close: () => {
+			// Fold the WAL back into the main db file on a clean shutdown so it
+			// doesn't keep growing across restarts and the main file is current.
+			try {
+				sqlite.pragma('wal_checkpoint(TRUNCATE)')
+			} catch {
+				// best-effort — proceed to close regardless
+			}
+			sqlite.close()
+		},
 	}
 }
 
