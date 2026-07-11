@@ -227,6 +227,27 @@ function runToCompletion(
 	})
 }
 
+/**
+ * Live preview server process-group leaders (detached child PIDs). Tracked so a
+ * Member shutdown can force-kill them synchronously before it exits — otherwise
+ * a detached preview that hasn't finished its graceful teardown (killTree only
+ * escalates to SIGKILL after 5s, but the Member exits 1.5s after a signal) is
+ * reparented to init and keeps holding its port.
+ */
+const livePreviewPids = new Set<number>()
+
+/** Force-kill every live preview process group. Called on Member shutdown. */
+export function killAllPreviewsNow(): void {
+	for (const pid of livePreviewPids) {
+		try {
+			process.kill(-pid, 'SIGKILL')
+		} catch {
+			// already gone
+		}
+	}
+	livePreviewPids.clear()
+}
+
 /** Spawn the long-lived server and resolve once it looks ready. */
 function spawnServer(command: string, opts: PreviewOptions): Promise<RunningPreview> {
 	return new Promise((resolve, reject) => {
@@ -237,6 +258,12 @@ function spawnServer(command: string, opts: PreviewOptions): Promise<RunningPrev
 			stdio: ['ignore', 'pipe', 'pipe'],
 			detached: true, // own process group, so stop() can kill the whole tree
 		})
+		if (child.pid) {
+			livePreviewPids.add(child.pid)
+			child.once('exit', () => {
+				if (child.pid) livePreviewPids.delete(child.pid)
+			})
+		}
 
 		let settled = false
 		const finish = (fn: () => void) => {
@@ -442,10 +469,14 @@ export async function annotatePrWithPreview(
 		}
 
 		const newBody = upsertPreviewSection(pr.body ?? '', renderPreviewSection(a))
-		await gh(['pr', 'edit', String(pr.number), '--repo', a.repo, '--body', newBody], {
-			cwd: a.cwd,
-			token: a.githubToken,
-		})
+		// Update via the REST PATCH endpoint, not `gh pr edit`: the latter goes
+		// through GraphQL and queries deprecated `projectCards`, which can fail
+		// the whole command even when the body update would succeed (same reason
+		// Workspace.upsertDraftPr avoids it).
+		await gh(
+			['api', '-X', 'PATCH', `repos/${a.repo}/pulls/${pr.number}`, '-f', `body=${newBody}`],
+			{ cwd: a.cwd, token: a.githubToken },
+		)
 		logger.info({ pr: pr.url, status: a.status }, 'preview: PR annotated')
 		return pr.url
 	} catch (err) {

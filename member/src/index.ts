@@ -5,6 +5,7 @@ import { McpManager } from './agent/mcp.ts'
 import { resolveMcpConfig } from './agent/mcp-config.ts'
 import { createProvider, DailyUsageTracker, TaskRunner } from './tasks/runner.ts'
 import { gcStaleCaches, gcStaleTaskDirs } from './tasks/workspace.ts'
+import { killAllPreviewsNow } from './tasks/preview.ts'
 import { PreviewTunnel } from './tasks/preview-tunnel.ts'
 import { PreviewWaker } from './tasks/preview-waker.ts'
 import type { MsgEvent } from '@night/shared'
@@ -130,6 +131,10 @@ const shutdown = (signal: string) => {
 	connection?.stop()
 	previewTunnel?.stop()
 	void mcpManager.close()
+	// Force-kill detached preview process groups now — the per-task teardown
+	// escalates to SIGKILL only after 5s, but we exit in 1.5s, so a stubborn
+	// preview would otherwise be orphaned holding its port.
+	killAllPreviewsNow()
 	setTimeout(() => process.exit(0), 1500).unref()
 }
 

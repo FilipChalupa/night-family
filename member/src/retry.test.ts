@@ -87,6 +87,36 @@ describe('retryWithBackoff — thrown errors', () => {
 		await expect(retryWithBackoff(op, { delays: [1, 1], jitter: 0 })).rejects.toBe(err)
 		expect(op).toHaveBeenCalledTimes(3)
 	})
+
+	it('cuts a pending backoff short when the signal aborts', async () => {
+		const ac = new AbortController()
+		const op = vi.fn(async () => {
+			throw new Error('boom')
+		})
+		// Long backoff; abort mid-wait so the retry loop rejects promptly instead
+		// of sleeping the full delay.
+		const p = retryWithBackoff(op, {
+			delays: [60_000, 60_000],
+			jitter: 0,
+			signal: ac.signal,
+		})
+		queueMicrotask(() => ac.abort())
+		await expect(p).rejects.toThrow(/aborted|abort/i)
+		// Only the initial attempt ran — the abort happened during the first backoff.
+		expect(op).toHaveBeenCalledTimes(1)
+	})
+
+	it('rejects immediately when the signal is already aborted before a backoff', async () => {
+		const ac = new AbortController()
+		ac.abort()
+		const op = vi.fn(async () => {
+			throw new Error('boom')
+		})
+		await expect(
+			retryWithBackoff(op, { delays: [60_000], jitter: 0, signal: ac.signal }),
+		).rejects.toBeDefined()
+		expect(op).toHaveBeenCalledTimes(1)
+	})
 })
 
 describe('isTransientGhError', () => {

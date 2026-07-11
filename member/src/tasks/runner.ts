@@ -248,6 +248,7 @@ export class TaskRunner {
 					githubToken: task.githubToken,
 					workspaceDir: this.deps.workspaceDir,
 					logger: this.deps.logger.child({ component: 'workspace' }),
+					signal: ac.signal,
 				})
 				workspaceForCleanup = workspace
 				await emit('log', { message: 'workspace ready', branch: workspace.branch })
@@ -513,6 +514,7 @@ export class TaskRunner {
 				githubToken: task.githubToken,
 				workspaceDir: this.deps.workspaceDir,
 				logger: this.deps.logger.child({ component: 'workspace' }),
+				signal,
 			})
 			await emit('log', { message: 'rebase workspace ready', headRef, baseRef })
 		} catch (err) {

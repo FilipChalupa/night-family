@@ -58,6 +58,8 @@ export interface WorkspaceOpts {
 	logger: Logger
 	/** Override the origin URL (default: authenticated GitHub). For tests. */
 	remoteUrl?: string
+	/** Abort signal so push retries cut their backoff short on task cancel. */
+	signal?: AbortSignal
 }
 
 export class Workspace {
@@ -81,6 +83,8 @@ export class Workspace {
 		private readonly logger: Logger,
 		/** Authenticated origin URL; overridable so tests can use a local bare repo. */
 		private readonly remoteUrl: string,
+		/** Abort signal for push retries; undefined outside a cancellable task. */
+		private readonly signal?: AbortSignal,
 	) {}
 
 	static async create(opts: WorkspaceOpts): Promise<Workspace> {
@@ -133,6 +137,7 @@ export class Workspace {
 			githubToken,
 			logger,
 			remoteUrl,
+			opts.signal,
 		)
 	}
 
@@ -162,6 +167,8 @@ export class Workspace {
 		logger: Logger
 		/** Override the origin URL (default: authenticated GitHub). For tests. */
 		remoteUrl?: string
+		/** Abort signal so push retries cut their backoff short on task cancel. */
+		signal?: AbortSignal
 	}): Promise<Workspace> {
 		const { taskId, repo, headRef, baseRef, githubToken, workspaceDir, logger } = opts
 		const remoteUrl = opts.remoteUrl ?? authenticatedRemoteUrl(repo, githubToken)
@@ -211,6 +218,7 @@ export class Workspace {
 			githubToken,
 			logger,
 			remoteUrl,
+			opts.signal,
 		)
 		ws.leaseShaBeforeRebase = (await git(['rev-parse', 'HEAD'], { cwd: taskPath })).trim()
 
@@ -368,6 +376,7 @@ export class Workspace {
 							'pushWithLease transient failure, retrying',
 						)
 					},
+					signal: this.signal,
 				},
 			)
 		} catch (err) {
@@ -420,6 +429,7 @@ export class Workspace {
 					onRetry: (attempt, delayMs) => {
 						this.logger.info({ attempt, delayMs }, 'push transient failure, retrying')
 					},
+					signal: this.signal,
 				},
 			)
 		} catch (err) {
