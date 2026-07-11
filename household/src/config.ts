@@ -58,12 +58,12 @@ function optionalNullable(name: string): string | null {
 	return value && value.length > 0 ? value : null
 }
 
-function optionalPositiveInt(name: string, fallback: number): number {
+function optionalPositiveInt(name: string, fallback: number, min = 0): number {
 	const raw = process.env[name]
 	if (!raw || raw.length === 0) return fallback
 	const n = Number.parseInt(raw, 10)
-	if (!Number.isFinite(n) || n < 0) {
-		throw new Error(`Invalid env var ${name}: expected a non-negative integer, got "${raw}"`)
+	if (!Number.isFinite(n) || n < min) {
+		throw new Error(`Invalid env var ${name}: expected an integer >= ${min}, got "${raw}"`)
 	}
 	return n
 }
@@ -132,7 +132,9 @@ export function loadConfig(): HouseholdConfig {
 		previewsDomain: process.env['PREVIEWS_DOMAIN']?.trim() || null,
 		previewIdleTtlMinutes: optionalPositiveInt('PREVIEW_IDLE_TTL_MINUTES', 0),
 		logLevel: optional('LOG_LEVEL', 'info'),
-		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2),
+		// At least 1 — 0 would silently strand implement tasks at in-review with
+		// no reviewer ever dispatched.
+		maxReviewJobsPerTask: optionalPositiveInt('MAX_REVIEW_JOBS_PER_TASK', 2, 1),
 		selfReviewFallbackMs: optionalPositiveInt('SELF_REVIEW_FALLBACK_MS', 10 * 60_000),
 	}
 }

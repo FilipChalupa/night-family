@@ -374,10 +374,20 @@ const vapidKeys = loadOrGenerateVapidKeys({
 	logger: logger.child({ component: 'push.vapid' }),
 })
 const pushStore = new PushSubscriptionStore(dbHandles.db)
+// Build a valid host label from the household name: keep [a-z0-9.-], strip
+// leading/trailing separators, and fall back to a fixed label when nothing
+// usable remains — otherwise an empty or all-punctuation HOUSEHOLD_NAME yields
+// `mailto:noreply@.local` / `@---.local`, which web-push rejects at send time
+// and breaks the whole push fan-out.
+const vapidHostLabel =
+	config.householdName
+		.toLowerCase()
+		.replace(/[^a-z0-9.-]/g, '-')
+		.replace(/^[-.]+|[-.]+$/g, '') || 'night-family'
 const pushSender = new PushSender({
 	store: pushStore,
 	keys: vapidKeys,
-	subject: `mailto:noreply@${config.householdName.toLowerCase().replace(/[^a-z0-9.-]/g, '-')}.local`,
+	subject: `mailto:noreply@${vapidHostLabel}.local`,
 	logger: logger.child({ component: 'push.sender' }),
 })
 mountPushApi(app, { store: pushStore, keys: vapidKeys, guard })

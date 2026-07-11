@@ -85,18 +85,28 @@ export class PreviewTunnelHub {
 	constructor(private readonly logger: Logger) {}
 
 	register(memberId: string, send: (data: string | Uint8Array) => void): void {
-		// A re-register (reconnect) supersedes the old socket's streams.
+		// A re-register (reconnect) supersedes the old socket. Fail its in-flight
+		// streams fast instead of leaving them to hang until the head/body idle
+		// timeouts — the old socket can no longer deliver their responses.
+		this.teardownStreams(memberId, 'tunnel superseded')
 		this.members.set(memberId, { send, streams: new Map(), wsStreams: new Map() })
 		this.logger.info({ memberId }, 'preview tunnel registered')
 	}
 
 	unregister(memberId: string): void {
+		if (this.teardownStreams(memberId, 'tunnel closed')) {
+			this.members.delete(memberId)
+			this.logger.info({ memberId }, 'preview tunnel unregistered')
+		}
+	}
+
+	/** Error out a member's in-flight HTTP/WS streams. Returns false if unknown. */
+	private teardownStreams(memberId: string, reason: string): boolean {
 		const tunnel = this.members.get(memberId)
-		if (!tunnel) return
-		for (const s of tunnel.streams.values()) s.onError('tunnel closed')
-		for (const ws of tunnel.wsStreams.values()) ws.close(1011, 'tunnel closed')
-		this.members.delete(memberId)
-		this.logger.info({ memberId }, 'preview tunnel unregistered')
+		if (!tunnel) return false
+		for (const s of tunnel.streams.values()) s.onError(reason)
+		for (const ws of tunnel.wsStreams.values()) ws.close(1011, reason)
+		return true
 	}
 
 	hasMember(memberId: string): boolean {
