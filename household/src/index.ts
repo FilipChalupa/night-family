@@ -23,6 +23,7 @@ import {
 import { RepoBindingStore } from './github/bindings.ts'
 import { sweepStalePrsForRebase } from './github/handlers/pulls.ts'
 import { mountGithubWebhook } from './github/webhook.ts'
+import { rateLimit } from './http/rateLimit.ts'
 import { logger } from './logger.ts'
 import { MemberRegistry } from './members/registry.ts'
 import { buildMembersSnapshot, getMemberSnapshotById } from './members/snapshot.ts'
@@ -419,6 +420,12 @@ taskStore.on((event) => {
 if (users) {
 	mountUsersApi(app, { users, guard })
 }
+
+// Coarse per-IP rate limits on the unauthenticated surface (DoS / brute-force
+// safety cap). Generous enough not to drop a legitimate GitHub webhook burst or
+// normal login flow. Registered before the routes so they wrap them.
+app.use('/webhooks/github', rateLimit({ windowMs: 60_000, max: 600 }))
+app.use('/auth/*', rateLimit({ windowMs: 60_000, max: 60 }))
 
 mountGithubWebhook(app, {
 	db: dbHandles.db,
