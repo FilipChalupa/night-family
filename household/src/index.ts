@@ -261,6 +261,19 @@ app.get(
 
 const guard = new AdminGuard(sessionStore, config.requireUiLogin, !!config.githubOauth)
 
+// Without OAuth configured, `requireAdmin` is a no-op — every admin mutation
+// (repo bindings, notification channels incl. an arbitrary-URL POST test =
+// SSRF, token issue/revoke) is open to anyone who can reach the port. Fine on a
+// trusted loopback/LAN, dangerous if the port is bound to 0.0.0.0 without a
+// firewall. Warn loudly so a self-hoster notices before exposing it.
+if (!config.githubOauth) {
+	logger.warn(
+		'AUTH DISABLED: no GitHub OAuth configured — all admin endpoints are OPEN to anyone who can reach this port. ' +
+			'Do NOT expose it publicly (bind to loopback/LAN or put it behind a firewall/proxy). ' +
+			'Set GITHUB_OAUTH_CLIENT_ID/SECRET + PRIMARY_ADMIN_GITHUB_USERNAME to require login.',
+	)
+}
+
 app.get('/api/members', (c) => {
 	const guardResult = guard.requireAuthenticated(c)
 	if (guardResult) return guardResult
