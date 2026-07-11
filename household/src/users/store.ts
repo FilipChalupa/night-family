@@ -15,7 +15,7 @@
  *       added_by: filiph
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { parse, stringify } from 'yaml'
 
@@ -50,7 +50,12 @@ export class UserStore {
 
 	private save(data: UsersFile): void {
 		mkdirSync(dirname(this.path), { recursive: true })
-		writeFileSync(this.path, stringify(data), 'utf8')
+		// Atomic write: a truncated users.yaml from a crash mid-write would parse
+		// as empty and lock out every configured user. rename() is atomic on the
+		// same filesystem, so a reader only ever sees a complete file.
+		const tmp = `${this.path}.${process.pid}.tmp`
+		writeFileSync(tmp, stringify(data), 'utf8')
+		renameSync(tmp, this.path)
 	}
 
 	/**

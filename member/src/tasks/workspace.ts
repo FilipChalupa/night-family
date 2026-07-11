@@ -617,7 +617,10 @@ export interface Checkout {
 export async function checkoutBranch(opts: CheckoutOpts): Promise<Checkout> {
 	const { taskId, repo, ref, githubToken, workspaceDir, logger } = opts
 	const cachePath = join(workspaceDir, '.cache', repo + '.git')
-	await ensureBareClone(cachePath, repo, githubToken, logger)
+	// ensureBareClone expects a clone/remote URL, not a bare token (matches how
+	// Workspace.create / createForRebase call it). Passing the raw token here
+	// clones/sets-url with garbage and every preview fails.
+	await ensureBareClone(cachePath, repo, authenticatedRemoteUrl(repo, githubToken), logger)
 	await touch(cachePath)
 
 	const checkoutPath = join(workspaceDir, taskId, 'preview')

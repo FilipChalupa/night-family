@@ -252,6 +252,24 @@ export class HouseholdConnection {
 				this.send({ type: 'pong' })
 				break
 			case 'task.assigned':
+				// Defensive: Household tracks our busy state and shouldn't assign a
+				// second task while we're running one, but if it does, starting a
+				// concurrent TaskRunner would overwrite the in-flight abortController
+				// (the first task becomes uncancellable) and two runs on the same
+				// repo share one bare-clone cache — a corruption risk. Decline
+				// instead so Household can requeue it elsewhere.
+				if (this.state.currentTask !== null) {
+					this.logger.error(
+						{ running: this.state.currentTask, offered: msg.task.task_id },
+						'received task.assigned while already busy; declining',
+					)
+					this.send({
+						type: 'task.failed',
+						task_id: msg.task.task_id,
+						reason: 'member_busy: already running another task',
+					})
+					break
+				}
 				this.send({ type: 'task.ack', task_id: msg.task.task_id })
 				this.state.status = 'busy'
 				this.state.currentTask = msg.task.task_id

@@ -23,7 +23,7 @@ export interface HouseholdConfig {
 	previewsDomain: string | null
 	/**
 	 * Tear down a preview after this many minutes with no proxied traffic
-	 * (`PREVIEW_IDLE_TTL_MINUTES`, default 30). 0 disables idle teardown.
+	 * (`PREVIEW_IDLE_TTL_MINUTES`, default 0 = idle teardown disabled).
 	 */
 	previewIdleTtlMinutes: number
 	logLevel: string
@@ -68,6 +68,16 @@ function optionalPositiveInt(name: string, fallback: number): number {
 	return n
 }
 
+function parsePort(name: string, fallback: number): number {
+	const raw = process.env[name]
+	if (!raw || raw.length === 0) return fallback
+	const n = Number.parseInt(raw, 10)
+	if (!Number.isInteger(n) || n < 1 || n > 65535) {
+		throw new Error(`Invalid env var ${name}: expected a port 1-65535, got "${raw}"`)
+	}
+	return n
+}
+
 function parseBoolean(name: string): boolean {
 	const raw = required(name).trim().toLowerCase()
 	if (raw === 'true') return true
@@ -82,9 +92,6 @@ export function loadConfig(): HouseholdConfig {
 	const primaryAdminGithubUsername = optionalNullable('PRIMARY_ADMIN_GITHUB_USERNAME')
 
 	if (requireUiLogin) {
-		if (!primaryAdminGithubUsername) {
-			throw new Error('Missing required env var: PRIMARY_ADMIN_GITHUB_USERNAME')
-		}
 		if (!clientId) {
 			throw new Error('Missing required env var: GITHUB_OAUTH_CLIENT_ID')
 		}
@@ -93,13 +100,31 @@ export function loadConfig(): HouseholdConfig {
 		}
 	}
 
+	// Partial OAuth config is almost certainly a mistake — fail loudly rather
+	// than silently disabling OAuth by leaving githubOauth null.
+	if (Boolean(clientId) !== Boolean(clientSecret)) {
+		throw new Error(
+			'Incomplete GitHub OAuth config: set both GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET, or neither',
+		)
+	}
+
 	const githubOauth = clientId && clientSecret ? { clientId, clientSecret } : null
+
+	// OAuth needs a primary admin to seed the users store, regardless of
+	// REQUIRE_UI_LOGIN. Without it the users store is null and startup throws
+	// deeper ("users store unavailable despite OAuth config") with an error that
+	// doesn't point at the real missing var.
+	if (githubOauth && !primaryAdminGithubUsername) {
+		throw new Error(
+			'Missing required env var: PRIMARY_ADMIN_GITHUB_USERNAME (required whenever GitHub OAuth is configured)',
+		)
+	}
 
 	return {
 		householdName: optional('HOUSEHOLD_NAME', 'Somnambulator'),
 		primaryAdminGithubUsername,
 		requireUiLogin,
-		port: Number.parseInt(optional('PORT', '8080'), 10),
+		port: parsePort('PORT', 8080),
 		dataDir: optional('DATA_DIR', '/data'),
 		configDir: optional('CONFIG_DIR', '/config'),
 		githubOauth,

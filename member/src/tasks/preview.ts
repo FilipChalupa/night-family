@@ -87,7 +87,7 @@ export class PreviewServer {
 		if (installCommand) {
 			logger.info({ installCommand }, 'preview: installing dependencies')
 			opts.onPhase?.('install', installCommand)
-			await runToCompletion(installCommand, cwd, opts.env, opts.onLog, opts.signal)
+			await runToCompletion(installCommand, cwd, opts.env, logger, opts.onLog, opts.signal)
 		}
 
 		const command = opts.command ?? detectStartCommand(pkg)
@@ -190,20 +190,26 @@ function runToCompletion(
 	command: string,
 	cwd: string,
 	env: Record<string, string> | undefined,
+	logger: Logger,
 	onLog?: (line: string) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) return reject(new Error('aborted'))
+		let aborted = false
 		const child = spawn(command, {
 			cwd,
 			env: { ...process.env, ...env },
 			shell: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
+			detached: true, // own process group so an abort kills npm ci's children too
 		})
 		const onAbort = () => {
-			child.kill('SIGKILL')
-			reject(new Error('aborted'))
+			aborted = true
+			// killTree signals the whole group (-pid); child.kill would only reap
+			// the wrapping shell and orphan the actual npm/node grandchildren. The
+			// resulting `exit` (below) settles the promise as 'aborted'.
+			void killTree(child, logger)
 		}
 		signal?.addEventListener('abort', onAbort, { once: true })
 		const cleanup = () => signal?.removeEventListener('abort', onAbort)
@@ -214,6 +220,7 @@ function runToCompletion(
 		})
 		child.on('exit', (code) => {
 			cleanup()
+			if (aborted) return reject(new Error('aborted'))
 			if (code === 0) resolve()
 			else reject(new Error(`command failed (exit ${code}): ${command}`))
 		})

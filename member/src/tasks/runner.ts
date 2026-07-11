@@ -282,6 +282,9 @@ export class TaskRunner {
 				// Read-mostly kinds get a tight per-command timeout so a slow
 				// whole-repo search fails fast instead of eating a 5-minute hang.
 				bashTimeoutMs: bashTimeoutMsForKind(task.kind),
+				// Cancel/wallclock aborts an in-flight shell/gh command instead of
+				// letting it run to completion after the task is already dead.
+				abortSignal: ac.signal,
 			})
 
 			// Append the currently-live MCP tools after the workspace tools so

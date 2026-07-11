@@ -354,9 +354,20 @@ export class McpManager {
 	}
 
 	private markDown(state: ServerState, _reason: string): void {
+		const client = state.client
 		state.status = 'down'
 		state.client = null
 		state.tools = []
+		// Detach onclose and close the old client. Without this, a stdio server
+		// whose ping timed out while its subprocess is still alive leaks that
+		// subprocess, and its stale onclose still points at this state — when it
+		// finally dies it would fire handleClose against a state we may have
+		// since reconnected, flapping the healthy new connection down (and
+		// leaking it in turn). Only full close() detached onclose before.
+		if (client) {
+			client.onclose = undefined
+			void client.close().catch(() => {})
+		}
 		// A drop counts toward the backoff so a flapping server escalates
 		// (5s → 15s → 30s → 60s) instead of re-spawning every 5s forever.
 		state.failures += 1

@@ -45,6 +45,12 @@ export interface RetryPolicy<T> {
 	 * doesn't get a thundering herd at exactly +2s.
 	 */
 	jitter?: number
+	/**
+	 * When provided, an abort (task cancel / wallclock) cuts a pending backoff
+	 * sleep short and rejects, instead of leaving a cancelled task idling in a
+	 * 30s sleep.
+	 */
+	signal?: AbortSignal | undefined
 }
 
 const DEFAULT_DELAYS = [2_000, 8_000, 30_000] as const
@@ -63,7 +69,7 @@ export async function retryWithBackoff<T>(
 			if (attempt < maxAttempts && policy.isTransient?.(result)) {
 				const delay = jitterMs(delays[attempt - 1]!, jitter)
 				policy.onRetry?.(attempt, delay, { result })
-				await sleep(delay)
+				await sleep(delay, policy.signal)
 				continue
 			}
 			return result
@@ -72,7 +78,7 @@ export async function retryWithBackoff<T>(
 			if (attempt >= maxAttempts || !transient) throw err
 			const delay = jitterMs(delays[attempt - 1]!, jitter)
 			policy.onRetry?.(attempt, delay, { error: err })
-			await sleep(delay)
+			await sleep(delay, policy.signal)
 		}
 	}
 	// Unreachable: the loop always returns or throws.
@@ -85,8 +91,20 @@ function jitterMs(baseMs: number, fraction: number): number {
 	return Math.max(0, Math.round(baseMs + (Math.random() * 2 - 1) * span))
 }
 
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	if (!signal) return new Promise((resolve) => setTimeout(resolve, ms))
+	if (signal.aborted) return Promise.reject(signal.reason ?? new Error('aborted'))
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener('abort', onAbort)
+			resolve()
+		}, ms)
+		const onAbort = () => {
+			clearTimeout(timer)
+			reject(signal.reason ?? new Error('aborted'))
+		}
+		signal.addEventListener('abort', onAbort, { once: true })
+	})
 }
 
 /**
@@ -107,7 +125,7 @@ export function isTransientGhError(stderr: string): boolean {
 	if (s.includes('connection timed out')) return true
 	if (s.includes('i/o timeout')) return true
 	if (s.includes('broken pipe')) return true
-	if (s.includes('eof')) return true
+	if (/\beof\b/.test(s)) return true
 	if (s.includes('no route to host')) return true
 	if (s.includes('network is unreachable')) return true
 	if (s.includes('etimedout')) return true

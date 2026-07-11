@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { Db } from '../db/index.ts'
 import { pushSubscriptions } from '../db/schema.ts'
 
@@ -66,10 +66,29 @@ export class PushSubscriptionStore {
 		}
 	}
 
+	/**
+	 * Unscoped delete — for system-driven pruning of dead endpoints (410 Gone).
+	 * User-facing unsubscribe must use {@link deleteByEndpointForUser} so one
+	 * user can't delete another user's subscription by its endpoint.
+	 */
 	deleteByEndpoint(endpoint: string): boolean {
 		const result = this.db
 			.delete(pushSubscriptions)
 			.where(eq(pushSubscriptions.endpoint, endpoint))
+			.run()
+		return result.changes > 0
+	}
+
+	/** Owner-scoped delete for the unsubscribe endpoint. */
+	deleteByEndpointForUser(endpoint: string, userLogin: string): boolean {
+		const result = this.db
+			.delete(pushSubscriptions)
+			.where(
+				and(
+					eq(pushSubscriptions.endpoint, endpoint),
+					eq(pushSubscriptions.userLogin, userLogin),
+				),
+			)
 			.run()
 		return result.changes > 0
 	}

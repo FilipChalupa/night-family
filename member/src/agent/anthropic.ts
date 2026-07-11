@@ -78,20 +78,25 @@ export class AnthropicProvider implements Provider {
 			// rate on the growing message history.
 			markLatestUserAsCacheBreakpoint(messages)
 
-			const stream = this.client.messages.stream({
-				model: this.model,
-				max_tokens: DEFAULT_MAX_TOKENS,
-				system: [
-					{
-						type: 'text',
-						text: systemPrompt,
-						cache_control: { type: 'ephemeral' },
-					},
-				],
-				tools: sdkTools,
-				messages,
-				...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
-			})
+			const stream = this.client.messages.stream(
+				{
+					model: this.model,
+					max_tokens: DEFAULT_MAX_TOKENS,
+					system: [
+						{
+							type: 'text',
+							text: systemPrompt,
+							cache_control: { type: 'ephemeral' },
+						},
+					],
+					tools: sdkTools,
+					messages,
+					...(useThinking ? { thinking: { type: 'adaptive' } } : {}),
+				},
+				// Interrupt an in-flight streaming request on cancel/wallclock
+				// instead of only checking between iterations.
+				{ signal: abortSignal },
+			)
 
 			const message = await stream.finalMessage()
 

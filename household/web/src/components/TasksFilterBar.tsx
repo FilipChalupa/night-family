@@ -2,7 +2,7 @@ import { Box, Chip, Divider, Stack, TextField } from '@mui/material'
 import ClearIcon from '@mui/icons-material/Clear'
 import SearchIcon from '@mui/icons-material/Search'
 import { IconButton, InputAdornment } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
 	isWaitingOnHuman,
 	OPEN_STATUSES,
@@ -60,12 +60,25 @@ export function TasksFilterBar({ q, status, waiting, openCount, waitingCount, on
 		setDraft(q)
 	}, [q])
 
+	// Latest status/waiting, read by the debounced flush below. Kept in refs so
+	// the flush picks up a chip toggle made *during* the debounce window instead
+	// of writing back the stale values captured when `draft` last changed (which
+	// would silently revert the click).
+	const statusRef = useRef(status)
+	const waitingRef = useRef(waiting)
+	statusRef.current = status
+	waitingRef.current = waiting
+
 	useEffect(() => {
 		if (draft === q) return
-		const handle = window.setTimeout(() => onChange({ q: draft, status, waiting }), 200)
+		const handle = window.setTimeout(
+			() => onChange({ q: draft, status: statusRef.current, waiting: waitingRef.current }),
+			200,
+		)
 		return () => window.clearTimeout(handle)
 		// `onChange`, `status` and `waiting` are intentionally excluded — flushing the
 		// debounced query is what this effect is for, not re-firing on filter clicks.
+		// Current status/waiting are read via refs so a toggle mid-debounce isn't lost.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draft])
 

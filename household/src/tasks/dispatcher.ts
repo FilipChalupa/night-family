@@ -78,7 +78,7 @@ export interface DispatcherDeps {
 
 interface PendingTask {
 	timer: NodeJS.Timeout
-	previousStatus: TaskStatus
+	sessionId: string
 }
 
 interface PendingJob {
@@ -406,8 +406,16 @@ export class Dispatcher {
 
 	// ─── WS event callbacks ──────────────────────────────────────────────────
 
-	onAck(id: string): void {
+	onAck(id: string, sessionId: string): void {
 		if (this.pendingJobAck.has(id)) {
+			const job = this.deps.jobStore.get(id)
+			if (job && job.assignedSessionId !== sessionId) {
+				this.deps.logger.warn(
+					{ jobId: id, owner: job.assignedSessionId, sender: sessionId },
+					'ignoring job.ack from non-owning session',
+				)
+				return
+			}
 			clearTimeout(this.pendingJobAck.get(id)!.timer)
 			this.pendingJobAck.delete(id)
 			this.deps.jobStore.setInProgress(id)
@@ -415,13 +423,20 @@ export class Dispatcher {
 			return
 		}
 
+		const task = this.deps.taskStore.get(id)
+		if (!task) return
+		if (task.assignedSessionId !== sessionId) {
+			this.deps.logger.warn(
+				{ taskId: id, owner: task.assignedSessionId, sender: sessionId },
+				'ignoring task.ack from non-owning session',
+			)
+			return
+		}
 		const pending = this.pendingTaskAck.get(id)
 		if (pending) {
 			clearTimeout(pending.timer)
 			this.pendingTaskAck.delete(id)
 		}
-		const task = this.deps.taskStore.get(id)
-		if (!task) return
 		if (task.status === 'assigned') {
 			this.deps.taskStore.transition(id, ['assigned'], 'in-progress')
 		}
@@ -444,20 +459,52 @@ export class Dispatcher {
 		this.deps.taskStore.mergeMetadata(id, { preview_ports: ports })
 	}
 
-	onCompleted(id: string, result: unknown, prUrl: string | null): void {
+	onCompleted(id: string, result: unknown, prUrl: string | null, sessionId: string): void {
 		if (this.pendingJobAck.has(id) || this.deps.jobStore.get(id)) {
-			this.onJobCompleted(id, result)
+			this.onJobCompleted(id, result, sessionId)
 			return
 		}
-		this.onTaskCompleted(id, result, prUrl)
+		this.onTaskCompleted(id, result, prUrl, sessionId)
 	}
 
-	onFailed(id: string, reason: string): void {
+	onFailed(id: string, reason: string, sessionId: string): void {
 		if (this.pendingJobAck.has(id) || this.deps.jobStore.get(id)) {
-			this.onJobFailed(id, reason)
+			this.onJobFailed(id, reason, sessionId)
 			return
 		}
-		this.onTaskFailed(id, reason)
+		this.onTaskFailed(id, reason, sessionId)
+	}
+
+	/**
+	 * A task/job lifecycle message is only honoured from the session that
+	 * currently owns it. Otherwise a member whose socket dropped (its task was
+	 * requeued and reassigned to someone else) could report completed/failed and
+	 * clobber the new owner's in-flight work.
+	 */
+	private ownsTask(taskId: string, sessionId: string): boolean {
+		const task = this.deps.taskStore.get(taskId)
+		if (!task) return false
+		if (task.assignedSessionId !== sessionId) {
+			this.deps.logger.warn(
+				{ taskId, owner: task.assignedSessionId, sender: sessionId },
+				'ignoring task lifecycle message from non-owning session',
+			)
+			return false
+		}
+		return true
+	}
+
+	private ownsJob(jobId: string, sessionId: string): boolean {
+		const job = this.deps.jobStore.get(jobId)
+		if (!job) return false
+		if (job.assignedSessionId !== sessionId) {
+			this.deps.logger.warn(
+				{ jobId, owner: job.assignedSessionId, sender: sessionId },
+				'ignoring job lifecycle message from non-owning session',
+			)
+			return false
+		}
+		return true
 	}
 
 	onMemberDisconnected(sessionId: string): void {
@@ -592,7 +639,7 @@ export class Dispatcher {
 		const timer = setTimeout(() => {
 			this.handleTaskAckTimeout(task.id)
 		}, TASK_ACK_TIMEOUT_MS)
-		this.pendingTaskAck.set(task.id, { timer, previousStatus: task.status })
+		this.pendingTaskAck.set(task.id, { timer, sessionId: conn.sessionId })
 		this.deps.logger.info(
 			{ taskId: task.id, member: conn.memberName, wireKind },
 			'task dispatched',
@@ -608,14 +655,25 @@ export class Dispatcher {
 		if (!task) return
 		if (task.status !== 'assigned') return
 
-		const returnTo: TaskStatus = pending.previousStatus
-		this.deps.taskStore.transition(taskId, [task.status], returnTo)
+		// The claim already flipped the task to `assigned`, so there is no earlier
+		// status to restore — a member that never acked leaves the task orphaned
+		// unless we push it back to `queued` (mirrors `onMemberDisconnected`).
+		this.deps.taskStore.transition(taskId, ['assigned'], 'queued')
 		this.deps.taskStore.clearAssignment(taskId)
-		this.deps.logger.warn({ taskId, returnTo }, 'task ack timeout, returned to queue')
+		// Free the member so the requeued task can be redispatched (it was set
+		// `busy` in `sendTask`). A member that never acked isn't working on it.
+		this.deps.registry.updateStatus(pending.sessionId, 'idle', null)
+		this.deps.logger.warn({ taskId, returnTo: 'queued' }, 'task ack timeout, returned to queue')
 		this.tryDispatchAll()
 	}
 
-	private onTaskCompleted(taskId: string, result: unknown, prUrl: string | null): void {
+	private onTaskCompleted(
+		taskId: string,
+		result: unknown,
+		prUrl: string | null,
+		sessionId: string,
+	): void {
+		if (!this.ownsTask(taskId, sessionId)) return
 		this.clearTaskPending(taskId)
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return
@@ -624,7 +682,7 @@ export class Dispatcher {
 			if (task.kind === 'triage') {
 				const triage = parseTriageResult(result)
 				if (triage?.outcome === 'plan') {
-					this.spawnImplementFromTriage(task, triage.size, triage.mcp)
+					this.spawnImplementFromTriage(task, triage.size, triage.mcp, triage.blockers)
 				} else {
 					this.deps.logger.info(
 						{ taskId, outcome: triage?.outcome ?? 'unknown' },
@@ -695,6 +753,7 @@ export class Dispatcher {
 		triage: TaskRecord,
 		size: 'S' | 'M' | 'L' | 'XL' | null,
 		requiredMcp: string[] = [],
+		blockers: string[] = [],
 	): void {
 		if (!triage.repo) {
 			this.deps.logger.warn(
@@ -739,7 +798,7 @@ export class Dispatcher {
 			metadata: { spawned_from_triage: triage.id },
 		})
 		if (size) {
-			this.deps.taskStore.storePlanResult(implement.id, size, [])
+			this.deps.taskStore.storePlanResult(implement.id, size, blockers)
 		}
 		this.deps.logger.info(
 			{ triageId: triage.id, implementId: implement.id, size, requiredMcp },
@@ -747,7 +806,8 @@ export class Dispatcher {
 		)
 	}
 
-	private onTaskFailed(taskId: string, reason: string): void {
+	private onTaskFailed(taskId: string, reason: string, sessionId: string): void {
+		if (!this.ownsTask(taskId, sessionId)) return
 		this.clearTaskPending(taskId)
 		const task = this.deps.taskStore.get(taskId)
 		if (!task) return
@@ -768,10 +828,14 @@ export class Dispatcher {
 				{ taskId, reason, attempt: task.retryCount + 1, backoffMs },
 				'implement task failed, scheduling retry',
 			)
+			// Best-effort in-memory nudge. Not the source of truth: the claim
+			// query already gates on nextRetryAt <= now, and a periodic sweep
+			// re-arms dispatch after a restart drops this timer. unref so a
+			// pending backoff can't hold the process open during shutdown.
 			setTimeout(() => {
 				this.deps.taskStore.clearRetryAt(taskId)
 				this.tryDispatchAll()
-			}, backoffMs)
+			}, backoffMs).unref()
 			return
 		}
 
@@ -829,7 +893,8 @@ export class Dispatcher {
 		this.tryDispatchAll()
 	}
 
-	private onJobCompleted(jobId: string, result: unknown): void {
+	private onJobCompleted(jobId: string, result: unknown, sessionId: string): void {
+		if (!this.ownsJob(jobId, sessionId)) return
 		clearTimeout(this.pendingJobAck.get(jobId)?.timer)
 		this.pendingJobAck.delete(jobId)
 		this.clearSelfReviewWakeup(jobId)
@@ -841,7 +906,8 @@ export class Dispatcher {
 		this.tryDispatchAll()
 	}
 
-	private onJobFailed(jobId: string, reason: string): void {
+	private onJobFailed(jobId: string, reason: string, sessionId: string): void {
+		if (!this.ownsJob(jobId, sessionId)) return
 		clearTimeout(this.pendingJobAck.get(jobId)?.timer)
 		this.pendingJobAck.delete(jobId)
 		this.clearSelfReviewWakeup(jobId)
@@ -889,7 +955,7 @@ function parseTriageResult(
 	result: unknown,
 ):
 	| { outcome: 'question' }
-	| { outcome: 'plan'; size: 'S' | 'M' | 'L' | 'XL' | null; mcp: string[] }
+	| { outcome: 'plan'; size: 'S' | 'M' | 'L' | 'XL' | null; mcp: string[]; blockers: string[] }
 	| null {
 	if (!result || typeof result !== 'object') return null
 	const r = result as Record<string, unknown>
@@ -903,7 +969,11 @@ function parseTriageResult(
 		const mcp = Array.isArray(rawMcp)
 			? rawMcp.filter((x): x is string => typeof x === 'string')
 			: []
-		return { outcome: 'plan', size: validSize, mcp }
+		const rawBlockers = r['blockers']
+		const blockers = Array.isArray(rawBlockers)
+			? rawBlockers.filter((x): x is string => typeof x === 'string')
+			: []
+		return { outcome: 'plan', size: validSize, mcp, blockers }
 	}
 	return null
 }

@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Logger } from 'pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TASK_ACK_TIMEOUT_MS } from '@night/shared'
 import * as schema from '../db/schema.ts'
 import { MemberRegistry, type ConnectedMember } from '../members/registry.ts'
 import { MemberStateStore } from '../members/store.ts'
@@ -341,7 +342,7 @@ describe('Dispatcher review-job republish', () => {
 		const job = rig.jobStore.listByTask(task.id)[0]!
 
 		const reviewJobsHistory = captureUpdates(task.id)
-		rig.dispatcher.onCompleted(job.id, { verdict: 'approved' }, null)
+		rig.dispatcher.onCompleted(job.id, { verdict: 'approved' }, null, job.assignedSessionId!)
 
 		expect(reviewJobsHistory.length).toBeGreaterThan(0)
 		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
@@ -356,7 +357,7 @@ describe('Dispatcher review-job republish', () => {
 		const job = rig.jobStore.listByTask(task.id)[0]!
 
 		const reviewJobsHistory = captureUpdates(task.id)
-		rig.dispatcher.onFailed(job.id, 'agent_error')
+		rig.dispatcher.onFailed(job.id, 'agent_error', job.assignedSessionId!)
 
 		expect(reviewJobsHistory.length).toBeGreaterThan(0)
 		const latest = reviewJobsHistory[reviewJobsHistory.length - 1]
@@ -399,9 +400,9 @@ describe('Dispatcher triage → implement spawning', () => {
 	}
 
 	it('plan outcome spawns an implement task for the same issue and stores the size', () => {
-		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 42 })
+		const { triageId, member } = startTriage({ repo: 'o/r', issueNumber: 42 })
 
-		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'M' }, null)
+		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'M' }, null, member.sessionId)
 
 		// Triage task itself moves to `done`.
 		expect(rig.taskStore.get(triageId)?.status).toBe('done')
@@ -420,18 +421,23 @@ describe('Dispatcher triage → implement spawning', () => {
 	})
 
 	it('carries the triage MCP estimate onto the spawned implement task', () => {
-		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 49 })
+		const { triageId, member } = startTriage({ repo: 'o/r', issueNumber: 49 })
 
-		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'S', mcp: ['linear'] }, null)
+		rig.dispatcher.onCompleted(
+			triageId,
+			{ outcome: 'plan', size: 'S', mcp: ['linear'] },
+			null,
+			member.sessionId,
+		)
 
 		const implement = rig.taskStore.list({ repo: 'o/r' }).find((t) => t.kind === 'implement')
 		expect(implement?.requiredMcp).toEqual(['linear'])
 	})
 
 	it('question outcome does NOT spawn an implement task', () => {
-		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 43 })
+		const { triageId, member } = startTriage({ repo: 'o/r', issueNumber: 43 })
 
-		rig.dispatcher.onCompleted(triageId, { outcome: 'question' }, null)
+		rig.dispatcher.onCompleted(triageId, { outcome: 'question' }, null, member.sessionId)
 
 		expect(rig.taskStore.get(triageId)?.status).toBe('done')
 		const all = rig.taskStore.list({ repo: 'o/r' })
@@ -439,7 +445,7 @@ describe('Dispatcher triage → implement spawning', () => {
 	})
 
 	it('does not spawn a duplicate implement when one is already in flight for the issue', () => {
-		const { triageId } = startTriage({ repo: 'o/r', issueNumber: 44 })
+		const { triageId, member } = startTriage({ repo: 'o/r', issueNumber: 44 })
 		// Pre-existing implement task for the same issue (e.g. from a prior triage).
 		rig.taskStore.create({
 			kind: 'implement',
@@ -449,7 +455,7 @@ describe('Dispatcher triage → implement spawning', () => {
 			githubIssueNumber: 44,
 		})
 
-		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'L' }, null)
+		rig.dispatcher.onCompleted(triageId, { outcome: 'plan', size: 'L' }, null, member.sessionId)
 
 		const implements_ = rig.taskStore
 			.list({ repo: 'o/r' })
@@ -1129,5 +1135,65 @@ describe('claimNextFor — MCP routing', () => {
 			fleetMcp: ['linear'],
 		})
 		expect(claimed?.id).toBe(open)
+	})
+})
+
+describe('Dispatcher task ack timeout', () => {
+	let rig: Rig
+	beforeEach(() => {
+		vi.useFakeTimers()
+		rig = createRig()
+	})
+	afterEach(() => {
+		rig.cleanup()
+		vi.useRealTimers()
+	})
+
+	it('returns an unacked task to queue instead of stranding it in assigned', () => {
+		const sent = vi.fn()
+		rig.registry.add(fakeMember({ memberName: 'a', status: 'idle', send: sent }))
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+
+		const m = rig.registry.list().find((x) => x.memberName === 'a')!
+		rig.dispatcher.tryDispatchOne(m)
+
+		// Dispatched: task.assigned sent, task is assigned, member busy.
+		const assigns = sent.mock.calls
+			.map((c) => c[0] as { type?: string; task?: { task_id: string } })
+			.filter((msg) => msg.type === 'task.assigned')
+		expect(assigns).toHaveLength(1)
+		const taskId = assigns[0]!.task!.task_id
+		expect(rig.taskStore.get(taskId)?.status).toBe('assigned')
+		expect(rig.registry.get(m.sessionId)?.status).toBe('busy')
+
+		// Drop the member so the requeue-then-redispatch can't immediately re-claim
+		// the task — we want to observe the requeue itself. (With the member still
+		// present the fix correctly redispatches, which is the point.)
+		rig.registry.remove(m.sessionId)
+
+		// Member never acks — advance past the ack timeout. Previously this left
+		// the task stranded in `assigned` (previousStatus was already 'assigned'),
+		// so claimNextFor — which only scans `queued` — never saw it again.
+		vi.advanceTimersByTime(TASK_ACK_TIMEOUT_MS + 1)
+
+		const after = rig.taskStore.get(taskId)!
+		expect(after.status).toBe('queued')
+		expect(after.assignedSessionId).toBeNull()
+	})
+
+	it('redispatches an unacked task to a still-connected member', () => {
+		const sent = vi.fn()
+		rig.registry.add(fakeMember({ memberName: 'a', status: 'idle', send: sent }))
+		rig.taskStore.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+
+		const m = rig.registry.list().find((x) => x.memberName === 'a')!
+		rig.dispatcher.tryDispatchOne(m)
+		vi.advanceTimersByTime(TASK_ACK_TIMEOUT_MS + 1)
+
+		// The freed member picks the requeued task straight back up.
+		const assigns = sent.mock.calls
+			.map((c) => c[0] as { type?: string })
+			.filter((msg) => msg.type === 'task.assigned')
+		expect(assigns.length).toBeGreaterThanOrEqual(2)
 	})
 })

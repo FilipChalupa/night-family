@@ -23,17 +23,35 @@ interface GitHubUser {
 	login: string
 }
 
+function effectiveProto(c: Context): string {
+	return c.req.header('x-forwarded-proto') ?? new URL(c.req.url).protocol.replace(':', '')
+}
+
 function buildRedirectUri(c: Context): string {
 	const url = new URL(c.req.url)
-	const proto = c.req.header('x-forwarded-proto') ?? url.protocol.replace(':', '')
+	const proto = effectiveProto(c)
 	const host = c.req.header('x-forwarded-host') ?? url.host
 	return `${proto}://${host}/auth/github/callback`
+}
+
+/**
+ * Only permit same-origin, in-app relative redirect targets. Anything else
+ * (absolute URL, protocol-relative `//host`, backslash trick) is an
+ * open-redirect vector, so we fall back to '/'.
+ */
+function sanitizeRedirectTarget(target: string | null | undefined): string {
+	if (!target) return '/'
+	if (!target.startsWith('/')) return '/'
+	if (target.startsWith('//') || target.startsWith('/\\')) return '/'
+	return target
 }
 
 function setSessionCookie(c: Context, sessionId: string): void {
 	setCookie(c, SESSION_COOKIE, sessionId, {
 		httpOnly: true,
-		secure: c.req.url.startsWith('https://'),
+		// Honor the proxy-forwarded proto so the cookie keeps its Secure flag
+		// behind a TLS-terminating proxy (where c.req.url is plain http).
+		secure: effectiveProto(c) === 'https',
 		sameSite: 'Lax',
 		path: '/',
 		maxAge: Math.floor(SESSION_TTL_MS / 1000),
@@ -43,7 +61,7 @@ function setSessionCookie(c: Context, sessionId: string): void {
 export function mountOAuth(app: Hono, deps: OAuthDeps): void {
 	app.get('/auth/github', async (c) => {
 		const state = randomBytes(24).toString('base64url')
-		const redirectTo = c.req.query('redirect_to') ?? '/'
+		const redirectTo = sanitizeRedirectTarget(c.req.query('redirect_to'))
 		deps.db
 			.insert(oauthStates)
 			.values({
@@ -133,7 +151,8 @@ export function mountOAuth(app: Hono, deps: OAuthDeps): void {
 		setSessionCookie(c, session.id)
 		deps.logger.info({ user: allowed.username, role: allowed.role }, 'session created')
 
-		const redirectTo = stateRow.redirectTo ?? '/'
+		// Defensively re-sanitize on use as well as on store.
+		const redirectTo = sanitizeRedirectTarget(stateRow.redirectTo)
 		return c.redirect(redirectTo)
 	})
 

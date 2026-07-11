@@ -94,11 +94,11 @@ export function mountGithubWebhook(app: Hono, deps: WebhookDeps): void {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			deps.logger.error({ err, repo, delivery, event }, 'webhook handler failed')
-			deps.db
-				.update(webhookDeliveries)
-				.set({ error: message })
-				.where(eq(webhookDeliveries.id, delivery))
-				.run()
+			// Remove the idempotency row so a GitHub redelivery of this same
+			// delivery id actually reprocesses. If we kept it, the retry would hit
+			// onConflictDoNothing → changes === 0 → silent 200 dedup, and a
+			// transient failure would permanently drop the event.
+			deps.db.delete(webhookDeliveries).where(eq(webhookDeliveries.id, delivery)).run()
 			return c.json({ error: 'handler_failed' }, 500)
 		}
 	})

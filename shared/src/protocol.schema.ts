@@ -14,7 +14,9 @@
 import * as v from 'valibot'
 import type {
 	Day,
+	EventKind,
 	HouseholdToMember,
+	McpServerInfo,
 	MemberStatus,
 	MemberToHousehold,
 	Provider,
@@ -84,7 +86,7 @@ const AssignedTaskSchema = v.object({
 
 const McpServerInfoSchema = v.object({
 	name: v.string(),
-	status: v.picklist(['live', 'down']),
+	status: v.picklist(['live', 'down'] satisfies McpServerInfo['status'][]),
 	tool_count: v.number(),
 })
 
@@ -135,7 +137,15 @@ const MsgEventSchema = v.object({
 	task_id: v.string(),
 	seq: v.number(),
 	ts: v.string(),
-	kind: v.picklist(['tool_call', 'file_edited', 'commit', 'usage', 'log', 'rebase', 'preview']),
+	kind: v.picklist([
+		'tool_call',
+		'file_edited',
+		'commit',
+		'usage',
+		'log',
+		'rebase',
+		'preview',
+	] satisfies EventKind[]),
 	payload: v.unknown(),
 })
 

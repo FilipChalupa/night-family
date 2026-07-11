@@ -156,6 +156,16 @@ const sweepStaleRebases = () => {
 }
 setInterval(guardPeriodic('rebase_sweep', sweepStaleRebases), REBASE_SWEEP_INTERVAL_MS).unref()
 
+// Dispatch sweep. Retry backoffs are nudged by an in-memory setTimeout, but a
+// Household restart drops those timers — a queued task whose nextRetryAt has
+// since passed would then wait for an unrelated member.ready/task event. A
+// cheap periodic tryDispatchAll re-arms dispatch (the claim query already gates
+// on nextRetryAt <= now, so nothing dispatches early).
+setInterval(
+	guardPeriodic('dispatch_sweep', () => dispatcher.tryDispatchAll()),
+	60_000,
+).unref()
+
 const app = new Hono()
 
 const nodeWs = createNodeWebSocket({ app })
@@ -194,14 +204,19 @@ app.get('/health', (c) => {
 	} catch {
 		dbOk = false
 	}
-	return c.json({
-		status: dbOk ? 'ok' : 'degraded',
-		household: config.householdName,
-		uptimeSec: Math.round((Date.now() - startedAt) / 1000),
-		members: registry.list().length,
-		protocolVersion: PROTOCOL_VERSION,
-		db: dbOk,
-	})
+	return c.json(
+		{
+			status: dbOk ? 'ok' : 'degraded',
+			household: config.householdName,
+			uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+			members: registry.list().length,
+			protocolVersion: PROTOCOL_VERSION,
+			db: dbOk,
+		},
+		// A broken/locked DB must surface as unhealthy so the Docker healthcheck
+		// (wget || exit 1) and depends_on: service_healthy actually trip.
+		dbOk ? 200 : 503,
+	)
 })
 
 const memberHandler = createMemberWsHandler({
@@ -480,14 +495,43 @@ const server = serve(
 
 injectWebSocket(server)
 
+let shuttingDown = false
 const shutdown = (signal: string) => {
+	if (shuttingDown) return
+	shuttingDown = true
 	logger.info({ signal }, 'shutting down')
+	// Members/UI/preview hold persistent WebSockets, which keep the HTTP
+	// server's connection count above zero — so server.close() would never fire
+	// its callback (DB close + exit 0) and we'd always fall through to the
+	// hard-kill timer. Close the sockets explicitly first.
+	for (const client of nodeWs.wss.clients) {
+		try {
+			client.close(1001, 'household shutting down')
+		} catch {
+			// already closing/closed
+		}
+	}
+	nodeWs.wss.close()
 	server.close(() => {
 		dbHandles.close()
 		process.exit(0)
 	})
+	// Drop any lingering keep-alive HTTP connections that would otherwise hold
+	// the server open past the WS close.
+	;(server as { closeAllConnections?: () => void }).closeAllConnections?.()
 	setTimeout(() => process.exit(1), 5000).unref()
 }
 
 process.on('SIGINT', () => shutdown('SIGINT'))
 process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+// Last-resort safety net. A stray rejection/throw from an un-awaited promise
+// would otherwise terminate the orchestrator on Node's default with no clean
+// shutdown. Log it and drain gracefully so the DB is checkpointed before exit.
+process.on('unhandledRejection', (reason) => {
+	logger.error({ err: reason }, 'unhandled promise rejection')
+})
+process.on('uncaughtException', (err) => {
+	logger.fatal({ err }, 'uncaught exception — shutting down')
+	shutdown('uncaughtException')
+})

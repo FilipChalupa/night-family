@@ -41,6 +41,12 @@ interface CreateOpts {
 	 * implement / respond tasks may legitimately comment more than once.
 	 */
 	oneShotIssueComment?: boolean
+	/**
+	 * Aborts in-flight shell/`gh` commands when the task is cancelled or hits
+	 * its wallclock, so a long build/test doesn't keep running detached after
+	 * the agent loop has already torn down.
+	 */
+	abortSignal?: AbortSignal
 }
 
 const REVIEW_VERDICTS = ['approve', 'request-changes', 'comment'] as const
@@ -57,6 +63,7 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 	const maxFileBytes = opts.maxFileBytes ?? 5 * 1024 * 1024
 	const ghEnv = opts.githubToken ? { GH_TOKEN: opts.githubToken } : {}
 	const attribution = opts.attribution
+	const abortSignal = opts.abortSignal
 
 	const safePath = (p: unknown): string | { error: string } => {
 		if (typeof p !== 'string' || p.length === 0)
@@ -164,6 +171,8 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 					cwd: root,
 					env: { ...process.env, ...ghEnv },
 					timeout: bashTimeoutMs,
+					killSignal: 'SIGKILL',
+					signal: abortSignal,
 					maxBuffer: 5 * 1024 * 1024,
 				})
 				const combined = combineStreams(stdout.toString(), stderr.toString())
@@ -191,6 +200,8 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 				cwd: root,
 				env: { ...process.env, ...ghEnv },
 				timeout: bashTimeoutMs,
+				killSignal: 'SIGKILL',
+				signal: abortSignal,
 				maxBuffer: 5 * 1024 * 1024,
 			})
 			return { ok: true, out: stdout.toString() }
@@ -215,6 +226,8 @@ export function createDefaultTools(opts: CreateOpts): ToolDefinition[] {
 	const runGh: typeof runGhOnce = (args) =>
 		retryWithBackoff(() => runGhOnce(args), {
 			isTransient: (r) => r.ok === false && isTransientGhError(r.err),
+			// Cut a pending backoff short when the task is cancelled.
+			signal: abortSignal,
 		})
 
 	const oneShotIssueComment = opts.oneShotIssueComment === true

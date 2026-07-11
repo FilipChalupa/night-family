@@ -20,7 +20,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { parse, stringify } from 'yaml'
 
@@ -63,7 +63,13 @@ export class TokenStore {
 
 	private save(data: TokensFile): void {
 		mkdirSync(dirname(this.path), { recursive: true })
-		writeFileSync(this.path, stringify(data), 'utf8')
+		// Write to a temp file and rename into place. writeFileSync is not
+		// atomic: a crash mid-write would leave a truncated tokens.yaml that
+		// parses as empty, silently invalidating every member token. rename() on
+		// the same filesystem is atomic, so a reader ever sees the whole file.
+		const tmp = `${this.path}.${process.pid}.tmp`
+		writeFileSync(tmp, stringify(data), 'utf8')
+		renameSync(tmp, this.path)
 	}
 
 	list(): TokenRecord[] {

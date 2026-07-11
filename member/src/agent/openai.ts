@@ -66,12 +66,16 @@ export class OpenAIProvider implements Provider {
 		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			throwIfAborted(abortSignal)
 
-			const response = await this.client.responses.create({
-				model: this.model,
-				input,
-				tools: sdkTools,
-				max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
-			})
+			const response = await this.client.responses.create(
+				{
+					model: this.model,
+					input,
+					tools: sdkTools,
+					max_output_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+				},
+				// Interrupt the in-flight request on cancel/wallclock.
+				{ signal: abortSignal },
+			)
 
 			if (response.usage) {
 				totalUsage.input += response.usage.input_tokens

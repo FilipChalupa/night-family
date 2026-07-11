@@ -89,6 +89,8 @@ export class GeminiProvider implements Provider {
 						tools: [{ functionDeclarations: sdkTools }],
 						maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
 						temperature,
+						// Interrupt the in-flight request on cancel/wallclock.
+						...(abortSignal ? { abortSignal } : {}),
 					},
 				})
 				if (r.usageMetadata) {

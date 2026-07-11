@@ -340,10 +340,16 @@ async function sendSmtp(
 		secure: config.port === 465,
 		auth: { user: config.user, pass: config.pass },
 	})
-	await transporter.sendMail({
-		from: config.from,
-		to: config.to,
-		subject: `[Night Family] ${event}`,
-		text: JSON.stringify(payload, null, 2),
-	})
+	try {
+		await transporter.sendMail({
+			from: config.from,
+			to: config.to,
+			subject: `[Night Family] ${event}`,
+			text: JSON.stringify(payload, null, 2),
+		})
+	} finally {
+		// A transporter is created per send; close it so its connection pool and
+		// timers don't leak over the process lifetime.
+		transporter.close()
+	}
 }

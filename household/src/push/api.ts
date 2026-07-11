@@ -45,6 +45,8 @@ export function mountPushApi(app: Hono, deps: Deps): void {
 	app.delete('/api/push/subscribe', async (c) => {
 		const guardResult = deps.guard.requireAuthenticated(c)
 		if (guardResult) return guardResult
+		const actor = deps.guard.currentSession(c)
+		const userLogin = actor?.githubUsername ?? 'anonymous'
 		let body: unknown
 		try {
 			body = await c.req.json()
@@ -56,7 +58,9 @@ export function mountPushApi(app: Hono, deps: Deps): void {
 		if (typeof endpoint !== 'string' || endpoint.length === 0) {
 			return c.json({ error: 'invalid_endpoint' }, 400)
 		}
-		const removed = deps.store.deleteByEndpoint(endpoint)
+		// Scope to the caller so one user can't delete another's subscription by
+		// its endpoint (subscriptions are keyed by userLogin on create).
+		const removed = deps.store.deleteByEndpointForUser(endpoint, userLogin)
 		return c.json({ ok: true, removed })
 	})
 }

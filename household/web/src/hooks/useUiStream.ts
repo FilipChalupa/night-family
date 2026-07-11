@@ -120,8 +120,13 @@ export function useUiStream(enabled: boolean): {
 						// skip (return undefined) when no entry exists, so we
 						// never fabricate a cache the next open would read as
 						// complete — that open fetches fresh instead.
-						queryClient.setQueryData<TaskLogEvent[]>(
-							['task-events', msg.taskId],
+						//
+						// The read key is ['task-events', taskId, limit], so we
+						// must match by prefix (setQueriesData) — an exact
+						// ['task-events', taskId] setQueryData would never hit the
+						// limit-suffixed cache the timeline actually reads.
+						queryClient.setQueriesData<TaskLogEvent[]>(
+							{ queryKey: ['task-events', msg.taskId] },
 							(prev) => (prev ? mergeTaskEvent(prev, msg.event) : prev),
 						)
 						break
