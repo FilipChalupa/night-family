@@ -1403,8 +1403,10 @@ export function createProvider(opts: {
 }
 
 /**
- * Simple rolling-24h token usage tracker. Bounded memory — one bucket per
- * 24h window, oldest dropped when stale.
+ * Simple token usage tracker over a **tumbling** 24h window: the bucket starts
+ * on the first record and is dropped whole once 24h have elapsed since that
+ * first record (not a sliding/rolling window). Bounded memory — a single
+ * bucket at a time.
  */
 export class DailyUsageTracker {
 	private bucket: { startedAt: number; tokens: number } | null = null
