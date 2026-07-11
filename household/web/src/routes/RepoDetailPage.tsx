@@ -16,6 +16,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useAppData } from '../AppContext.tsx'
+import { isQueueBlockedByRepo } from '../components/TasksPanel.tsx'
 import { RefreshReposButton } from '../components/RefreshReposButton.tsx'
 import { repoDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
@@ -105,10 +106,7 @@ export function RepoDetailPage() {
 			</Section>
 
 			<Section title={`Queued tasks (${queued.length})`}>
-				<QueuedForRepo
-					tasks={queued}
-					coveredCount={covered.length + unconstrained.length}
-				/>
+				<QueuedForRepo tasks={queued} members={members} />
 			</Section>
 
 			<Section title={`Members (${members.length})`}>
@@ -200,7 +198,7 @@ export function RepoDetailPage() {
 	)
 }
 
-function QueuedForRepo({ tasks, coveredCount }: { tasks: TaskRecord[]; coveredCount: number }) {
+function QueuedForRepo({ tasks, members }: { tasks: TaskRecord[]; members: MemberSnapshot[] }) {
 	if (tasks.length === 0) {
 		return <EmptyState>No queued tasks for this repo.</EmptyState>
 	}
@@ -247,8 +245,8 @@ function QueuedForRepo({ tasks, coveredCount }: { tasks: TaskRecord[]; coveredCo
 								</Tooltip>
 							</TableCell>
 							<TableCell>
-								{coveredCount === 0 ? (
-									<Tooltip title="No connected member's allowlist covers this repo. Dispatch is blocked until someone refreshes or gains push access.">
+								{isQueueBlockedByRepo(t, members) ? (
+									<Tooltip title="No online, skill-matching member's allowlist covers this repo. Dispatch is blocked until someone refreshes or gains push access.">
 										<Chip
 											label="no member covers"
 											size="small"

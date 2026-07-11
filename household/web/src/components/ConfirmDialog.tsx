@@ -34,6 +34,10 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 
 	const confirm = useCallback<Confirm>((opts) => {
 		return new Promise<boolean>((resolve) => {
+			// If a prompt is already pending, this new one supersedes it — resolve
+			// the previous as cancelled so its awaiter (and any `finally` cleanup,
+			// e.g. a "busy" flag) doesn't hang forever on the overwritten resolver.
+			resolverRef.current?.(false)
 			resolverRef.current = resolve
 			setState(opts)
 		})
