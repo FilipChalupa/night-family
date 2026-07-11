@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TokenStore } from './auth.ts'
 
@@ -111,5 +111,13 @@ describe('TokenStore', () => {
 		const fresh = new TokenStore(rig.path)
 		expect(fresh.list().map((t) => t.id)).toEqual([record.id])
 		expect(fresh.validate(raw)?.id).toBe(record.id)
+	})
+
+	it('atomic write leaves no temp file behind', () => {
+		rig.store.create('laptop', 'alice')
+		rig.store.create('desktop', 'bob')
+		const dir = dirname(rig.path)
+		const leftover = readdirSync(dir).filter((f) => f.includes('.tmp'))
+		expect(leftover).toEqual([])
 	})
 })
