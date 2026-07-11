@@ -602,9 +602,20 @@ export async function handlePullRequestReviewEvent(ctx: PullsEventCtx): Promise<
 			)
 			ctx.dispatcher.tryDispatchAll()
 		}
-	} else if (review.state === 'approved' && pr.mergeable_state === 'clean') {
+	} else if (review.state === 'approved') {
+		// Advance on the approval alone. `mergeable_state` is computed
+		// asynchronously by GitHub, so in a `pull_request_review` payload it's
+		// usually `unknown` (not yet computed) or a transient non-`clean` value
+		// like `unstable`/`blocked` (pending checks) at review time — gating on
+		// `=== 'clean'` here meant approvals almost never reached
+		// `awaiting-merge`. Conflicts/failing checks are surfaced by the rebase
+		// and check flows; the actual merge still lands via the closed+merged
+		// path regardless.
 		ctx.taskStore.transition(task.id, ['in-review'], 'awaiting-merge')
-		ctx.logger.info({ taskId: task.id }, 'review approved + clean → awaiting-merge')
+		ctx.logger.info(
+			{ taskId: task.id, mergeableState: pr.mergeable_state ?? null },
+			'review approved → awaiting-merge',
+		)
 	} else if (review.state === 'commented') {
 		// A reviewer left discussion/questions without approving or requesting
 		// changes. Queue a `respond` task so the agent reads the thread and
