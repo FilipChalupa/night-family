@@ -143,3 +143,27 @@ describe('TaskStore.tokensSpentTodayByMember', () => {
 		expect(out.size).toBe(0)
 	})
 })
+
+describe('TaskStore.findByIdPrefix', () => {
+	let rig: Rig
+	beforeEach(() => {
+		rig = createRig()
+	})
+	afterEach(() => rig.cleanup())
+
+	it('matches a real id prefix', () => {
+		const t = rig.store.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+		expect(rig.store.findByIdPrefix('o/r', t.id.slice(0, 8))?.id).toBe(t.id)
+	})
+
+	it('treats LIKE wildcards in the prefix as literal (no wrong match)', () => {
+		const t = rig.store.create({ kind: 'implement', title: 't', description: 'd', repo: 'o/r' })
+		const prefix8 = t.id.slice(0, 8)
+		// Unescaped, `<prefix8>_` → LIKE `<prefix8>_%` would match the real id
+		// (the `_` standing in for the 9th char). Escaped, `_` is literal and no
+		// UUID contains it, so there's no match.
+		expect(rig.store.findByIdPrefix('o/r', `${prefix8}_`)).toBeNull()
+		// Same for `%`.
+		expect(rig.store.findByIdPrefix('o/r', `${prefix8}%`)).toBeNull()
+	})
+})

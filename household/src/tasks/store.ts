@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, inArray, isNull, like, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { EventEmitter } from 'node:events'
 import type { TaskKind, TaskStatus } from '@night/shared'
 import type { Db } from '../db/index.ts'
@@ -266,12 +266,15 @@ export class TaskStore {
 	 * `pr/night/<prefix>-...` branch convention.
 	 */
 	findByIdPrefix(repo: string, prefix: string): TaskRecord | null {
-		const lower = prefix.toLowerCase()
+		// `prefix` comes from an external branch name (`pr/night/<prefix>-...`),
+		// so escape LIKE wildcards — a stray `_`/`%` would otherwise match the
+		// wrong task. ESCAPE '\' makes the backslash-escaped chars literal.
+		const escaped = prefix.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)
 		const rows = this.db
 			.select({ task: tasks, memberName: members.memberName })
 			.from(tasks)
 			.leftJoin(members, eq(members.memberId, tasks.assignedMemberId))
-			.where(and(eq(tasks.repo, repo), like(tasks.id, `${lower}%`)))
+			.where(and(eq(tasks.repo, repo), sql`${tasks.id} LIKE ${`${escaped}%`} ESCAPE '\\'`))
 			.limit(1)
 			.all()
 		if (!rows[0]) return null
