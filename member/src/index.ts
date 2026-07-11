@@ -126,20 +126,32 @@ if (previewTunnel) {
 	})
 }
 
-const shutdown = (signal: string) => {
+const DRAIN_MS = 8000
+let shuttingDown = false
+const shutdown = async (signal: string) => {
+	if (shuttingDown) return
+	shuttingDown = true
 	logger.info({ signal }, 'shutting down')
-	connection?.stop()
 	previewTunnel?.stop()
+	// Hard-kill backstop in case draining/cleanup hangs.
+	setTimeout(() => process.exit(0), DRAIN_MS + 2000).unref()
+	// Cancel the in-flight task and wait (bounded) for its git/worktree/preview
+	// cleanup to finish with the socket open, then the close requeues it on the
+	// Household with no retry cost.
+	try {
+		await (connection?.drain(DRAIN_MS) ?? Promise.resolve())
+	} catch (err) {
+		logger.warn({ err }, 'drain failed during shutdown')
+	}
 	void mcpManager.close()
-	// Force-kill detached preview process groups now — the per-task teardown
-	// escalates to SIGKILL only after 5s, but we exit in 1.5s, so a stubborn
-	// preview would otherwise be orphaned holding its port.
+	// Backstop: force-kill any detached preview process groups the drain didn't
+	// already stop (killTree escalates to SIGKILL only after 5s).
 	killAllPreviewsNow()
-	setTimeout(() => process.exit(0), 1500).unref()
+	process.exit(0)
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'))
-process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => void shutdown('SIGINT'))
+process.on('SIGTERM', () => void shutdown('SIGTERM'))
 
 connection.run().catch((err) => {
 	logger.error({ err }, 'connection loop crashed')

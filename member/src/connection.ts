@@ -80,6 +80,8 @@ export class HouseholdConnection {
 	private currentRepos: string[]
 	/** Household-issued session id for the live connection; null when down. */
 	private currentSessionId: string | null = null
+	/** The in-flight task run, if any — awaited (bounded) on graceful shutdown. */
+	private currentRun: Promise<void> | null = null
 	private readonly state: State = {
 		status: 'idle',
 		currentTask: null,
@@ -122,6 +124,35 @@ export class HouseholdConnection {
 		this.shuttingDown = true
 		this.deps.taskRunner.cancel('shutdown')
 		this.clearTimers()
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+			this.ws.close(1000, 'shutdown')
+		}
+		this.ws = null
+	}
+
+	/**
+	 * Graceful shutdown: cancel the in-flight task and wait (bounded) for its
+	 * cleanup — git/worktree removal, preview teardown — to finish with the
+	 * socket still open, then close. The terminal task result is suppressed
+	 * (see startTaskRun), so the socket close requeues the task on the Household
+	 * with no retry cost. Falls back to a hard close if cleanup overruns.
+	 */
+	async drain(timeoutMs: number): Promise<void> {
+		this.shuttingDown = true
+		this.clearTimers()
+		this.deps.taskRunner.cancel('shutdown')
+		const run = this.currentRun
+		if (run) {
+			let timer: NodeJS.Timeout | undefined
+			const deadline = new Promise<void>((resolve) => {
+				timer = setTimeout(resolve, timeoutMs)
+			})
+			try {
+				await Promise.race([run, deadline])
+			} finally {
+				if (timer) clearTimeout(timer)
+			}
+		}
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			this.ws.close(1000, 'shutdown')
 		}
@@ -368,6 +399,12 @@ export class HouseholdConnection {
 				metadata: task.metadata ?? null,
 			})
 			.then((outcome) => {
+				// During shutdown, don't report the (cancelled) outcome: a
+				// task.failed would burn a retry via the Household's onTaskFailed,
+				// whereas letting the socket close requeues the task with no retry
+				// cost. We still let the run's cleanup (git/workspace/preview) above
+				// finish first — that's the point of draining.
+				if (this.shuttingDown) return
 				// Read the nonce at completion time, not dispatch time — a
 				// redispatch may have adopted a newer one mid-run.
 				const assignmentId = this.state.currentAssignmentId
@@ -389,6 +426,7 @@ export class HouseholdConnection {
 				}
 			})
 			.catch((err) => {
+				if (this.shuttingDown) return
 				this.logger.error({ err }, 'task runner threw — sending task.failed')
 				this.send({
 					type: 'task.failed',
@@ -400,11 +438,13 @@ export class HouseholdConnection {
 				})
 			})
 			.finally(() => {
+				this.currentRun = null
 				this.state.status = 'idle'
 				this.state.currentTask = null
 				this.state.currentAssignmentId = null
-				this.send({ type: 'member.ready' })
+				if (!this.shuttingDown) this.send({ type: 'member.ready' })
 			})
+		this.currentRun = runPromise
 		void runPromise
 	}
 
