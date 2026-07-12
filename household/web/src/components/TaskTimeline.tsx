@@ -1,6 +1,7 @@
 import { Alert, Box, Chip, Stack, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
-import { EmptyState } from '../routes/Root.tsx'
+import { useState } from 'react'
+import { EmptyState, LoadingRows } from '../routes/Root.tsx'
 import { formatDuration, formatTokens } from '../format.ts'
 import type { TaskLogEvent } from '../types.ts'
 
@@ -11,6 +12,7 @@ import type { TaskLogEvent } from '../types.ts'
  * never drift (they used to: one was a timeline, the other a JSON dump).
  */
 export function TaskTimeline({ taskId, limit = 200 }: { taskId: string; limit?: number }) {
+	const [newestFirst, setNewestFirst] = useState(false)
 	const { data: events, error } = useQuery<TaskLogEvent[]>({
 		queryKey: ['task-events', taskId, limit],
 		queryFn: async () => {
@@ -25,7 +27,7 @@ export function TaskTimeline({ taskId, limit = 200 }: { taskId: string; limit?: 
 	})
 
 	if (error) return <Alert severity="error">{(error as Error).message}</Alert>
-	if (!events) return <EmptyState>Loading events…</EmptyState>
+	if (!events) return <LoadingRows />
 	if (events.length === 0) {
 		return (
 			<EmptyState>
@@ -67,10 +69,21 @@ export function TaskTimeline({ taskId, limit = 200 }: { taskId: string; limit?: 
 						· {formatTokens(totalTokens)} tokens
 					</Typography>
 				) : null}
+				<Box sx={{ flex: 1 }} />
+				<Chip
+					label={newestFirst ? 'Newest first' : 'Oldest first'}
+					size="small"
+					variant="outlined"
+					onClick={() => setNewestFirst((v) => !v)}
+					sx={{ cursor: 'pointer' }}
+				/>
 			</Stack>
 
-			{ordered.map((e, i) => {
-				const prevTs = i > 0 ? new Date(ordered[i - 1]!.ts).getTime() : null
+			{(newestFirst ? [...ordered].reverse() : ordered).map((e) => {
+				// Delta is time since the chronological predecessor, regardless of
+				// display order, so it stays meaningful when reversed.
+				const chronoIdx = ordered.indexOf(e)
+				const prevTs = chronoIdx > 0 ? new Date(ordered[chronoIdx - 1]!.ts).getTime() : null
 				const deltaS = prevTs !== null ? (new Date(e.ts).getTime() - prevTs) / 1000 : null
 				const { summary, tone } = summarizeEvent(e)
 				const meta = kindMeta(e.kind)

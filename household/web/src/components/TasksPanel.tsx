@@ -1,5 +1,6 @@
 import {
 	Alert,
+	Autocomplete,
 	Box,
 	Button,
 	Chip,
@@ -11,6 +12,7 @@ import {
 	Link,
 	MenuItem,
 	Paper,
+	Skeleton,
 	Stack,
 	Table,
 	TableBody,
@@ -35,6 +37,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { formatTokens } from '../format.ts'
 import { relativeTime } from '../time.ts'
+import { useConfirm } from './ConfirmDialog.tsx'
+import { useSnackbar } from './Snackbar.tsx'
 import { TaskTimeline } from './TaskTimeline.tsx'
 import {
 	OPEN_STATUSES,
@@ -202,7 +206,8 @@ function BulkRetryBar({ tasks, onRetry }: { tasks: TaskRecord[]; onRetry: Props[
 				<DialogContent>
 					<Typography variant="body2">
 						Re-queue {failed.length} failed task{failed.length === 1 ? '' : 's'} for
-						another attempt.
+						another attempt — this covers every failed task matching the current filter,
+						including any on other pages, not just the rows shown below.
 					</Typography>
 				</DialogContent>
 				<DialogActions>
@@ -226,6 +231,20 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 	const [error, setError] = useState<string | null>(null)
 
 	const isPreview = kind === 'preview'
+
+	// Known repos, to autocomplete the field and warn on a likely typo (a repo no
+	// binding covers will silently sit queued as "no member covers repo").
+	const reposQuery = useQuery<{ repos: { repo: string }[] }>({
+		queryKey: ['repos'],
+		queryFn: async () => {
+			const r = await fetch('/api/repos')
+			if (!r.ok) return { repos: [] }
+			return (await r.json()) as { repos: { repo: string }[] }
+		},
+		staleTime: 30_000,
+	})
+	const knownRepos = (reposQuery.data?.repos ?? []).map((r) => r.repo)
+	const repoUnknown = repo.trim().length > 0 && !knownRepos.includes(repo.trim())
 
 	const submit = async (e: React.SubmitEvent<HTMLFormElement>) => {
 		e.preventDefault()
@@ -276,14 +295,27 @@ function NewTaskForm({ onCreate }: { onCreate: Props['onCreate'] }) {
 						size="small"
 						fullWidth
 					/>
-					<TextField
-						label={isPreview ? 'Repository' : 'Repository (optional)'}
-						placeholder="org/name"
+					<Autocomplete
+						freeSolo
+						options={knownRepos}
 						value={repo}
-						onChange={(e) => setRepo(e.target.value)}
-						required={isPreview}
+						onInputChange={(_, v) => setRepo(v)}
 						size="small"
 						fullWidth
+						renderInput={(params) => (
+							<TextField
+								{...params}
+								label={isPreview ? 'Repository' : 'Repository (optional)'}
+								placeholder="org/name"
+								required={isPreview}
+								error={repoUnknown}
+								helperText={
+									repoUnknown
+										? "Not a known repo binding — double-check org/name, or it may sit queued as 'no member covers repo'."
+										: undefined
+								}
+							/>
+						)}
 					/>
 					{isPreview ? (
 						<TextField
@@ -356,9 +388,45 @@ function TasksTable({
 	const [eventsTaskId, setEventsTaskId] = useState<string | null>(null)
 	const [retryingId, setRetryingId] = useState<string | null>(null)
 	const [retryError, setRetryError] = useState<string | null>(null)
+	const [cancellingId, setCancellingId] = useState<string | null>(null)
 	const tokensByTask = useTaskTokens()
-	const { members } = useAppData()
+	const { members, lastMessageAt } = useAppData()
+	const confirm = useConfirm()
+	const snackbar = useSnackbar()
+
+	const cancel = async (t: TaskRecord): Promise<void> => {
+		const running = t.status === 'in-progress' || t.status === 'assigned'
+		const ok = await confirm({
+			title: 'Cancel this task?',
+			description: running
+				? 'It is being worked on right now — cancelling discards the in-progress work and the tokens already spent.'
+				: 'The task will be removed from the queue.',
+			confirmLabel: 'Cancel task',
+			cancelLabel: 'Keep',
+			confirmColor: 'error',
+		})
+		if (!ok) return
+		setCancellingId(t.id)
+		try {
+			await onCancel(t.id)
+		} catch (err) {
+			snackbar.showError(err, 'Failed to cancel task')
+		} finally {
+			setCancellingId(null)
+		}
+	}
 	if (tasks.length === 0) {
+		// Distinguish "no snapshot yet" (still connecting) from genuinely empty —
+		// otherwise the first paint / a reconnect flashes a misleading "No tasks".
+		if (lastMessageAt === null) {
+			return (
+				<Stack spacing={0.5}>
+					{[0, 1, 2].map((i) => (
+						<Skeleton key={i} variant="rounded" height={44} />
+					))}
+				</Stack>
+			)
+		}
 		return (
 			<Box
 				sx={{
@@ -404,310 +472,325 @@ function TasksTable({
 					</TableRow>
 				</TableHead>
 				<TableBody>
-					{tasks.map((t) => (
-						<TableRow
-							key={t.id}
-							hover
-							sx={
-								isWaitingOnHuman(t)
-									? {
-											// Waiting on a human (agent done reviewing, or
-											// ready to merge) — accent the row so it doesn't
-											// get lost. The status chip + ReviewWaitBadge carry
-											// the same meaning textually for screen readers.
-											borderLeft: 3,
-											borderLeftColor: 'warning.main',
-											'& > td': {
-												bgcolor: (theme) =>
-													alpha(theme.palette.warning.main, 0.08),
-											},
-										}
-									: undefined
-							}
-						>
-							<TableCell>
-								{(() => {
-									const issue = githubIssueRef(t)
-									return (
-										<Stack
-											direction="row"
-											spacing={1}
-											sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
-										>
-											<RouterLink
-												to="/tasks/$taskId"
-												params={{ taskId: t.id }}
-												style={{
-													color: 'inherit',
-													textDecoration: 'none',
-													fontWeight: 600,
-												}}
-											>
-												{t.title}
-											</RouterLink>
-											{issue?.url ? (
-												<Link
-													href={issue.url}
-													target="_blank"
-													rel="noopener noreferrer"
-													underline="hover"
-													variant="caption"
-													color="text.secondary"
-												>
-													#{issue.number ?? 'issue'} ↗
-												</Link>
-											) : null}
-										</Stack>
-									)
-								})()}
-								{(() => {
-									const state = previewState(t)
-									if (state === 'ready') {
-										const ports = previewPortsOf(t)
-										return ports.map((p) => (
-											<Box key={p.port}>
-												<Link
-													href={p.url}
-													target="_blank"
-													rel="noopener noreferrer"
-													underline="hover"
-													variant="caption"
-													color="success.main"
-												>
-													▶ Preview{ports.length > 1 ? ` ${p.label}` : ''}{' '}
-													↗
-												</Link>
-											</Box>
-										))
-									}
-									if (state === 'starting' || state === 'queued') {
+					{tasks.map((t) => {
+						// Accent rows that need attention so they don't get lost. Failed
+						// (needs retry) reads as error; waiting-on-human and
+						// blocked-by-repo read as warning. The status chip + badges carry
+						// the same meaning textually for screen readers.
+						const tone: 'error' | 'warning' | null =
+							t.status === 'failed'
+								? 'error'
+								: isWaitingOnHuman(t) || isQueueBlockedByRepo(t, members)
+									? 'warning'
+									: null
+						return (
+							<TableRow
+								key={t.id}
+								hover
+								sx={
+									tone
+										? {
+												borderLeft: 3,
+												borderLeftColor: `${tone}.main`,
+												'& > td': {
+													bgcolor: (theme) =>
+														alpha(theme.palette[tone].main, 0.08),
+												},
+											}
+										: undefined
+								}
+							>
+								<TableCell>
+									{(() => {
+										const issue = githubIssueRef(t)
 										return (
-											<Typography variant="caption" color="text.secondary">
-												⏳ Preview{' '}
-												{state === 'queued' ? 'queued' : 'starting…'}
-											</Typography>
+											<Stack
+												direction="row"
+												spacing={1}
+												sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+											>
+												<RouterLink
+													to="/tasks/$taskId"
+													params={{ taskId: t.id }}
+													style={{
+														color: 'inherit',
+														textDecoration: 'none',
+														fontWeight: 600,
+													}}
+												>
+													{t.title}
+												</RouterLink>
+												{issue?.url ? (
+													<Link
+														href={issue.url}
+														target="_blank"
+														rel="noopener noreferrer"
+														underline="hover"
+														variant="caption"
+														color="text.secondary"
+													>
+														#{issue.number ?? 'issue'} ↗
+													</Link>
+												) : null}
+											</Stack>
 										)
-									}
-									return null
-								})()}
-								{t.failureReason ? (
-									<Typography variant="caption" color="error">
-										✗ {t.failureReason}
-									</Typography>
-								) : null}
-							</TableCell>
-							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-								<Typography variant="body2" color="text.secondary">
-									{t.kind}
-								</Typography>
-							</TableCell>
-							<TableCell>
-								<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-									<Chip
-										label={t.status}
-										size="small"
-										color={statusColor(t.status)}
-										variant="outlined"
-									/>
-									{t.status === 'in-review' ? (
-										<ReviewWaitBadge jobs={t.reviewJobs} />
-									) : null}
-									{isQueueBlockedByRepo(t, members) ? (
-										<QueueBlockedByRepoBadge repo={t.repo!} />
-									) : null}
-								</Stack>
-							</TableCell>
-							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-								{t.assignedMemberId ? (
-									<RouterLink
-										to="/members/$memberId"
-										params={{ memberId: t.assignedMemberId }}
-										style={{
-											color: 'inherit',
-											textDecoration: 'underline',
-											textDecorationStyle: 'dotted',
-											fontSize: '0.875rem',
-										}}
-									>
-										{t.assignedMemberName ?? t.assignedMemberId.slice(0, 8)}
-									</RouterLink>
-								) : (
-									<Typography variant="body2" color="text.secondary">
-										—
-									</Typography>
-								)}
-							</TableCell>
-							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-								{t.repo ? (
-									<Link
-										href={`https://github.com/${t.repo}`}
-										target="_blank"
-										rel="noopener noreferrer"
-										underline="hover"
-										variant="body2"
-										color="text.secondary"
-									>
-										{t.repo}
-									</Link>
-								) : (
-									<Typography variant="body2" color="text.secondary">
-										—
-									</Typography>
-								)}
-							</TableCell>
-							<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-								{t.planSize ? (
-									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-										<Tooltip title={planSizeTooltip(t.planSize)}>
-											<Chip
-												label={t.planSize}
-												size="small"
-												color={planSizeColor(t.planSize)}
-												variant="filled"
-												sx={{ fontWeight: 600, minWidth: 36 }}
-											/>
-										</Tooltip>
-										{t.planBlockers && t.planBlockers.length > 0 ? (
-											<Tooltip title={t.planBlockers.join('\n')}>
+									})()}
+									{(() => {
+										const state = previewState(t)
+										if (state === 'ready') {
+											const ports = previewPortsOf(t)
+											return ports.map((p) => (
+												<Box key={p.port}>
+													<Link
+														href={p.url}
+														target="_blank"
+														rel="noopener noreferrer"
+														underline="hover"
+														variant="caption"
+														color="success.main"
+													>
+														▶ Preview
+														{ports.length > 1 ? ` ${p.label}` : ''} ↗
+													</Link>
+												</Box>
+											))
+										}
+										if (state === 'queued') {
+											return (
 												<Typography
 													variant="caption"
 													color="text.secondary"
 												>
-													blockers: {t.planBlockers.length}
+													⏳ Preview queued
 												</Typography>
-											</Tooltip>
+											)
+										}
+										if (state === 'starting') {
+											return <PreviewStartingLabel since={t.updatedAt} />
+										}
+										return null
+									})()}
+									{t.failureReason ? (
+										<Typography variant="caption" color="error">
+											✗ {t.failureReason}
+										</Typography>
+									) : null}
+								</TableCell>
+								<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+									<Typography variant="body2" color="text.secondary">
+										{t.kind}
+									</Typography>
+								</TableCell>
+								<TableCell>
+									<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+										<Chip
+											label={t.status}
+											size="small"
+											color={statusColor(t.status)}
+											variant="outlined"
+										/>
+										{t.status === 'in-review' ? (
+											<ReviewWaitBadge jobs={t.reviewJobs} />
+										) : null}
+										{isQueueBlockedByRepo(t, members) ? (
+											<QueueBlockedByRepoBadge repo={t.repo!} />
 										) : null}
 									</Stack>
-								) : (
-									<Typography variant="body2" color="text.secondary">
-										—
-									</Typography>
-								)}
-							</TableCell>
-							<TableCell
-								align="right"
-								sx={{ display: { xs: 'none', lg: 'table-cell' } }}
-							>
-								{(() => {
-									const n = tokensByTask[t.id]
-									if (!n) {
-										return (
-											<Typography variant="body2" color="text.secondary">
-												—
-											</Typography>
-										)
-									}
-									return (
-										<Tooltip title={n.toLocaleString()}>
-											<Typography
-												variant="body2"
-												color="text.secondary"
-												sx={{ fontVariantNumeric: 'tabular-nums' }}
-											>
-												{formatTokens(n)}
-											</Typography>
-										</Tooltip>
-									)
-								})()}
-							</TableCell>
-							<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
-								<Tooltip title={t.createdAt}>
-									<Typography variant="body2" color="text.secondary">
-										{relativeTime(t.createdAt)}
-									</Typography>
-								</Tooltip>
-							</TableCell>
-							<TableCell align="right">
-								<Stack
-									direction="row"
-									spacing={1}
-									sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
+								</TableCell>
+								<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+									{t.assignedMemberId ? (
+										<RouterLink
+											to="/members/$memberId"
+											params={{ memberId: t.assignedMemberId }}
+											style={{
+												color: 'inherit',
+												textDecoration: 'underline',
+												textDecorationStyle: 'dotted',
+												fontSize: '0.875rem',
+											}}
+										>
+											{t.assignedMemberName ?? t.assignedMemberId.slice(0, 8)}
+										</RouterLink>
+									) : (
+										<Typography variant="body2" color="text.secondary">
+											—
+										</Typography>
+									)}
+								</TableCell>
+								<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+									{t.repo ? (
+										<Link
+											href={`https://github.com/${t.repo}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											underline="hover"
+											variant="body2"
+											color="text.secondary"
+										>
+											{t.repo}
+										</Link>
+									) : (
+										<Typography variant="body2" color="text.secondary">
+											—
+										</Typography>
+									)}
+								</TableCell>
+								<TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+									{t.planSize ? (
+										<Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+											<Tooltip title={planSizeTooltip(t.planSize)}>
+												<Chip
+													label={t.planSize}
+													size="small"
+													color={planSizeColor(t.planSize)}
+													variant="filled"
+													sx={{ fontWeight: 600, minWidth: 36 }}
+												/>
+											</Tooltip>
+											{t.planBlockers && t.planBlockers.length > 0 ? (
+												<Tooltip title={t.planBlockers.join('\n')}>
+													<Typography
+														variant="caption"
+														color="text.secondary"
+													>
+														blockers: {t.planBlockers.length}
+													</Typography>
+												</Tooltip>
+											) : null}
+										</Stack>
+									) : (
+										<Typography variant="body2" color="text.secondary">
+											—
+										</Typography>
+									)}
+								</TableCell>
+								<TableCell
+									align="right"
+									sx={{ display: { xs: 'none', lg: 'table-cell' } }}
 								>
 									{(() => {
-										const suspicious =
-											(t.status === 'in-review' && !t.prUrl) ||
-											(t.status === 'failed' &&
-												t.failureReason === 'no_changes')
-										const tooltip = suspicious
-											? t.status === 'failed'
-												? 'Failed with no_changes — agent claimed it finished but did not modify any files. Click to inspect events.'
-												: 'Marked in-review but no PR was opened. Click to inspect events.'
-											: 'Inspect events from this task.'
+										const n = tokensByTask[t.id]
+										if (!n) {
+											return (
+												<Typography variant="body2" color="text.secondary">
+													—
+												</Typography>
+											)
+										}
 										return (
-											<Tooltip title={tooltip}>
-												<IconButton
-													size="small"
-													color={suspicious ? 'warning' : 'default'}
-													onClick={() => setEventsTaskId(t.id)}
+											<Tooltip title={n.toLocaleString()}>
+												<Typography
+													variant="body2"
+													color="text.secondary"
+													sx={{ fontVariantNumeric: 'tabular-nums' }}
 												>
-													{suspicious ? (
-														<WarningAmberIcon fontSize="small" />
-													) : (
-														<HistoryIcon fontSize="small" />
-													)}
-												</IconButton>
+													{formatTokens(n)}
+												</Typography>
 											</Tooltip>
 										)
 									})()}
-									{canManage && OPEN_STATUSES.includes(t.status) ? (
-										<Button
-											size="small"
-											variant="outlined"
-											color="error"
-											onClick={() => {
-												void onCancel(t.id)
-											}}
-										>
-											Cancel
-										</Button>
-									) : null}
-									{canManage && t.status === 'failed' ? (
-										<Tooltip
-											title={
-												t.failureReason
-													? `Retry this task. Last failure: ${t.failureReason}`
-													: 'Retry this task'
-											}
-										>
-											<span>
-												<Button
-													size="small"
-													variant="outlined"
-													disabled={retryingId === t.id}
-													onClick={async () => {
-														setRetryingId(t.id)
-														setRetryError(null)
-														try {
-															await onRetry(t.id)
-														} catch (err) {
-															setRetryError(
-																err instanceof Error
-																	? err.message
-																	: String(err),
-															)
-														} finally {
-															setRetryingId(null)
-														}
-													}}
-												>
-													{retryingId === t.id ? 'Retrying…' : 'Retry'}
-												</Button>
-											</span>
-										</Tooltip>
-									) : null}
-								</Stack>
-								{retryError && retryingId === null && t.status === 'failed' ? (
-									<Typography
-										variant="caption"
-										color="error"
-										sx={{ display: 'block', mt: 0.5 }}
+								</TableCell>
+								<TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
+									<Tooltip title={t.createdAt}>
+										<Typography variant="body2" color="text.secondary">
+											{relativeTime(t.createdAt)}
+										</Typography>
+									</Tooltip>
+								</TableCell>
+								<TableCell align="right">
+									<Stack
+										direction="row"
+										spacing={1}
+										sx={{ justifyContent: 'flex-end', alignItems: 'center' }}
 									>
-										{retryError}
-									</Typography>
-								) : null}
-							</TableCell>
-						</TableRow>
-					))}
+										{(() => {
+											const suspicious =
+												(t.status === 'in-review' && !t.prUrl) ||
+												(t.status === 'failed' &&
+													t.failureReason === 'no_changes')
+											const tooltip = suspicious
+												? t.status === 'failed'
+													? 'Failed with no_changes — agent claimed it finished but did not modify any files. Click to inspect events.'
+													: 'Marked in-review but no PR was opened. Click to inspect events.'
+												: 'Inspect events from this task.'
+											return (
+												<Tooltip title={tooltip}>
+													<IconButton
+														size="small"
+														color={suspicious ? 'warning' : 'default'}
+														onClick={() => setEventsTaskId(t.id)}
+														aria-label="Inspect task events"
+													>
+														{suspicious ? (
+															<WarningAmberIcon fontSize="small" />
+														) : (
+															<HistoryIcon fontSize="small" />
+														)}
+													</IconButton>
+												</Tooltip>
+											)
+										})()}
+										{canManage && OPEN_STATUSES.includes(t.status) ? (
+											<Button
+												size="small"
+												variant="outlined"
+												color="error"
+												disabled={cancellingId === t.id}
+												onClick={() => void cancel(t)}
+											>
+												{cancellingId === t.id ? 'Cancelling…' : 'Cancel'}
+											</Button>
+										) : null}
+										{canManage && t.status === 'failed' ? (
+											<Tooltip
+												title={
+													t.failureReason
+														? `Retry this task. Last failure: ${t.failureReason}`
+														: 'Retry this task'
+												}
+											>
+												<span>
+													<Button
+														size="small"
+														variant="outlined"
+														disabled={retryingId === t.id}
+														onClick={async () => {
+															setRetryingId(t.id)
+															setRetryError(null)
+															try {
+																await onRetry(t.id)
+															} catch (err) {
+																setRetryError(
+																	err instanceof Error
+																		? err.message
+																		: String(err),
+																)
+															} finally {
+																setRetryingId(null)
+															}
+														}}
+													>
+														{retryingId === t.id
+															? 'Retrying…'
+															: 'Retry'}
+													</Button>
+												</span>
+											</Tooltip>
+										) : null}
+									</Stack>
+									{retryError && retryingId === null && t.status === 'failed' ? (
+										<Typography
+											variant="caption"
+											color="error"
+											sx={{ display: 'block', mt: 0.5 }}
+										>
+											{retryError}
+										</Typography>
+									) : null}
+								</TableCell>
+							</TableRow>
+						)
+					})}
 				</TableBody>
 			</Table>
 			<TaskEventsDialog taskId={eventsTaskId} onClose={() => setEventsTaskId(null)} />
@@ -901,6 +984,36 @@ export function previewPortsOf(task: TaskRecord): PreviewPortLink[] {
 			},
 		]
 	})
+}
+
+/**
+ * Live "starting…" label with elapsed time, so a hung preview (checkout /
+ * install / boot stuck) is visibly distinct from a healthy one that's just
+ * booting. Turns to a warning tone past 3 minutes.
+ */
+function PreviewStartingLabel({ since }: { since: string }) {
+	const [, tick] = useState(0)
+	useEffect(() => {
+		const id = window.setInterval(() => tick((n) => n + 1), 1000)
+		return () => window.clearInterval(id)
+	}, [])
+	const elapsedSec = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 1000))
+	const slow = elapsedSec > 180
+	return (
+		<Tooltip title="Checking out, installing dependencies, and booting the dev server.">
+			<Typography variant="caption" color={slow ? 'warning.main' : 'text.secondary'}>
+				⏳ Preview starting… ({formatElapsed(elapsedSec)}
+				{slow ? ' — taking longer than usual' : ''})
+			</Typography>
+		</Tooltip>
+	)
+}
+
+function formatElapsed(sec: number): string {
+	if (sec < 60) return `${sec}s`
+	const m = Math.floor(sec / 60)
+	const s = sec % 60
+	return `${m}m ${s}s`
 }
 
 export type PreviewUiState = 'queued' | 'starting' | 'ready' | 'failed' | 'ended'

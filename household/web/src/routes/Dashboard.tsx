@@ -1,14 +1,14 @@
-import { Box, Skeleton, Stack } from '@mui/material'
+import { Alert, Box, Skeleton, Stack } from '@mui/material'
 import { Link } from '@tanstack/react-router'
 import { Suspense, lazy } from 'react'
 import { useAppData } from '../AppContext.tsx'
 import { MembersPanel } from '../components/MembersPanel.tsx'
 import { NotificationsPanel } from '../components/NotificationsPanel.tsx'
 import { ReposPanel } from '../components/ReposPanel.tsx'
-import { TasksPanel } from '../components/TasksPanel.tsx'
+import { TasksPanel, isQueueBlockedByRepo } from '../components/TasksPanel.tsx'
 import { TokensPanel, useTokensQuery } from '../components/TokensPanel.tsx'
 import { UsersPanel } from '../components/UsersPanel.tsx'
-import { OPEN_STATUSES, isWaitingOnHuman } from '../types.ts'
+import { OPEN_STATUSES, isWaitingOnHuman, type MemberSnapshot, type TaskRecord } from '../types.ts'
 import { EmptyState, Section } from './Root.tsx'
 
 // Charts (`@mui/x-charts`) are heavy and live only in ActivityPanel, so split
@@ -30,6 +30,7 @@ export function Dashboard() {
 		createTask,
 		cancelTask,
 		retryTask,
+		lastMessageAt,
 	} = useAppData()
 
 	const visibleTasks = tasks.slice(0, DASHBOARD_TASKS_LIMIT)
@@ -42,6 +43,7 @@ export function Dashboard() {
 
 	return (
 		<>
+			<NeedsAttention tasks={tasks} members={members} />
 			<Section title="Activity">
 				<Suspense fallback={<Skeleton variant="rounded" height={240} />}>
 					<ActivityPanel />
@@ -109,9 +111,13 @@ export function Dashboard() {
 
 			<Section title={`Members (${members.length})`}>
 				{members.length === 0 ? (
-					<EmptyState>
-						No connected members yet. Spin up a Member container to see it here.
-					</EmptyState>
+					lastMessageAt === null ? (
+						<Skeleton variant="rounded" height={72} />
+					) : (
+						<EmptyState>
+							No connected members yet. Spin up a Member container to see it here.
+						</EmptyState>
+					)
 				) : (
 					<MembersPanel
 						members={members}
@@ -135,5 +141,53 @@ export function Dashboard() {
 				</>
 			) : null}
 		</>
+	)
+}
+
+const TASKS_SEARCH = { page: 0, pageSize: 25, q: '', status: null, waiting: null } as const
+const ATTENTION_LINK_SX = {
+	color: 'inherit',
+	textDecoration: 'underline',
+	fontSize: '0.875rem',
+} as const
+
+/**
+ * A single roll-up of things that need the operator's attention, so the signals
+ * (otherwise scattered across panels) are visible at a glance on first paint.
+ * Renders nothing when all is well. Uses only the live WS snapshot — no fetches.
+ */
+function NeedsAttention({ tasks, members }: { tasks: TaskRecord[]; members: MemberSnapshot[] }) {
+	const failed = tasks.filter((t) => t.status === 'failed').length
+	const blocked = tasks.filter((t) => isQueueBlockedByRepo(t, members)).length
+	const reposErrors = members.filter((m) => m.status !== 'offline' && m.lastReposError).length
+
+	if (failed === 0 && blocked === 0 && reposErrors === 0) return null
+
+	return (
+		<Alert severity="warning" variant="outlined" sx={{ mb: 3 }}>
+			<Stack spacing={0.25}>
+				{failed > 0 ? (
+					<Link
+						to="/tasks"
+						search={{ ...TASKS_SEARCH, status: ['failed'] }}
+						style={ATTENTION_LINK_SX}
+					>
+						{failed} failed task{failed === 1 ? '' : 's'} →
+					</Link>
+				) : null}
+				{blocked > 0 ? (
+					<Link to="/tasks" search={TASKS_SEARCH} style={ATTENTION_LINK_SX}>
+						{blocked} queued task{blocked === 1 ? '' : 's'} with no member covering the
+						repo →
+					</Link>
+				) : null}
+				{reposErrors > 0 ? (
+					<Link to="/" style={ATTENTION_LINK_SX}>
+						{reposErrors} member{reposErrors === 1 ? '' : 's'} failed to refresh
+						accessible repos →
+					</Link>
+				) : null}
+			</Stack>
+		</Alert>
 	)
 }

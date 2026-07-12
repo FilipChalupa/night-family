@@ -306,7 +306,7 @@ export function ActivityPanel() {
 						sx={{ alignItems: 'baseline', flexWrap: 'wrap', mb: 0.5 }}
 					>
 						<Typography variant="body2" color="text.secondary">
-							Cumulative spend · last {data.windowDays} days
+							Cumulative tokens · last {data.windowDays} days
 						</Typography>
 						{(() => {
 							const total = data.daily.reduce((sum, d) => sum + d.tokens, 0)
