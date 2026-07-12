@@ -51,6 +51,8 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 
 	const value = useMemo(() => confirm, [confirm])
 
+	const destructive = state?.confirmColor === 'error' || state?.confirmColor === 'warning'
+
 	return (
 		<ConfirmContext.Provider value={value}>
 			{children}
@@ -62,12 +64,16 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 					</DialogContent>
 				) : null}
 				<DialogActions>
-					<Button onClick={() => close(false)}>{state?.cancelLabel ?? 'Cancel'}</Button>
+					{/* For destructive actions (error/warning), default focus to Cancel
+					    so a reflexive Enter doesn't fire the dangerous button. */}
+					<Button onClick={() => close(false)} autoFocus={destructive}>
+						{state?.cancelLabel ?? 'Cancel'}
+					</Button>
 					<Button
 						onClick={() => close(true)}
 						variant="contained"
 						color={state?.confirmColor ?? 'primary'}
-						autoFocus
+						autoFocus={!destructive}
 					>
 						{state?.confirmLabel ?? 'Confirm'}
 					</Button>

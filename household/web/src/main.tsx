@@ -5,6 +5,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { AppErrorBoundary } from './components/AppErrorBoundary.tsx'
 import { ConfirmDialogProvider } from './components/ConfirmDialog.tsx'
+import { SnackbarProvider } from './components/Snackbar.tsx'
 import { registerServiceWorker } from './registerSW.ts'
 import { router } from './router.tsx'
 
@@ -48,9 +49,11 @@ createRoot(root).render(
 			<CssBaseline enableColorScheme />
 			<AppErrorBoundary>
 				<QueryClientProvider client={queryClient}>
-					<ConfirmDialogProvider>
-						<RouterProvider router={router} />
-					</ConfirmDialogProvider>
+					<SnackbarProvider>
+						<ConfirmDialogProvider>
+							<RouterProvider router={router} />
+						</ConfirmDialogProvider>
+					</SnackbarProvider>
 				</QueryClientProvider>
 			</AppErrorBoundary>
 		</ThemeProvider>

@@ -1,4 +1,4 @@
-import { Box, Button, Container, Stack, Typography } from '@mui/material'
+import { Box, Button, Container, Skeleton, Stack, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet } from '@tanstack/react-router'
 import { AppDataProvider, type Health } from '../AppContext.tsx'
@@ -235,6 +235,17 @@ export function Section({ title, children }: { title: string; children: React.Re
 			</Typography>
 			{children}
 		</Box>
+	)
+}
+
+/** Skeleton placeholder rows for a table/list still loading its first data. */
+export function LoadingRows({ rows = 3, height = 44 }: { rows?: number; height?: number }) {
+	return (
+		<Stack spacing={0.5}>
+			{Array.from({ length: rows }, (_, i) => (
+				<Skeleton key={i} variant="rounded" height={height} />
+			))}
+		</Stack>
 	)
 }
 
