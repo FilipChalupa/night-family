@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
+import { useConfirm } from './ConfirmDialog.tsx'
 import { relativeTime } from '../time.ts'
 import type {
 	McpServerInfo,
@@ -48,7 +49,17 @@ export function MembersPanel({
 	const tokenById = new Map((tokens ?? []).map((t) => [t.id, t]))
 	const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null)
 	const [cancelError, setCancelError] = useState<{ taskId: string; message: string } | null>(null)
+	const confirm = useConfirm()
 	const handleCancel = async (taskId: string) => {
+		const ok = await confirm({
+			title: 'Cancel this task?',
+			description:
+				'The member is working on it right now — cancelling discards the in-progress work and the tokens already spent.',
+			confirmLabel: 'Cancel task',
+			cancelLabel: 'Keep',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		setCancellingTaskId(taskId)
 		setCancelError(null)
 		try {

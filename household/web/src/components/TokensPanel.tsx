@@ -19,10 +19,12 @@ import AddIcon from '@mui/icons-material/Add'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { EmptyState } from '../routes/Root.tsx'
+import { EmptyState, LoadingRows } from '../routes/Root.tsx'
 import { relativeTime } from '../time.ts'
 import type { MemberSnapshot } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
+import { CopyField } from './CopyField.tsx'
+import { useSnackbar } from './Snackbar.tsx'
 
 export interface TokenRecord {
 	id: string
@@ -68,6 +70,7 @@ export function TokensPanel({ canManage, members }: Props) {
 	const [showForm, setShowForm] = useState(false)
 	const [newToken, setNewToken] = useState<string | null>(null)
 	const confirm = useConfirm()
+	const snackbar = useSnackbar()
 
 	const tokensQuery = useTokensQuery()
 
@@ -124,11 +127,11 @@ export function TokensPanel({ canManage, members }: Props) {
 		try {
 			await revokeMutation.mutateAsync(id)
 		} catch (err) {
-			alert(err instanceof Error ? err.message : String(err))
+			snackbar.showError(err, 'Failed to revoke token')
 		}
 	}
 
-	if (tokensQuery.isLoading) return <EmptyState>Loading tokens…</EmptyState>
+	if (tokensQuery.isLoading) return <LoadingRows />
 	if (tokensQuery.error)
 		return <Alert severity="error">{(tokensQuery.error as Error).message}</Alert>
 	const data = tokensQuery.data
@@ -187,23 +190,7 @@ export function TokensPanel({ canManage, members }: Props) {
 					<Typography sx={{ fontWeight: 600 }} gutterBottom>
 						New token generated — copy it now, it will not be shown again:
 					</Typography>
-					<Box
-						component="pre"
-						sx={{
-							fontFamily: 'monospace',
-							fontSize: '0.85rem',
-							p: 1.5,
-							borderRadius: 1,
-							border: 1,
-							borderColor: 'divider',
-							backgroundColor: 'background.default',
-							wordBreak: 'break-all',
-							whiteSpace: 'pre-wrap',
-							m: 0,
-						}}
-					>
-						{newToken}
-					</Box>
+					<CopyField label="Join token" value={newToken} multiline />
 				</Alert>
 			) : null}
 
@@ -258,7 +245,7 @@ export function TokensPanel({ canManage, members }: Props) {
 										<TableCell>
 											<Tooltip title={t.created_at}>
 												<Typography variant="body2" color="text.secondary">
-													{new Date(t.created_at).toLocaleDateString()}
+													{relativeTime(t.created_at)}
 												</Typography>
 											</Tooltip>
 										</TableCell>

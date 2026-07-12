@@ -20,12 +20,13 @@ import {
 	Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import { CopyField } from './CopyField.tsx'
+import { useSnackbar } from './Snackbar.tsx'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link as RouterLink } from '@tanstack/react-router'
 import { useState } from 'react'
-import { EmptyState } from '../routes/Root.tsx'
+import { EmptyState, LoadingRows } from '../routes/Root.tsx'
 import { relativeTime } from '../time.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
 
@@ -58,6 +59,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 	const [showWizard, setShowWizard] = useState(false)
 	const [prefillRepo, setPrefillRepo] = useState('')
 	const confirm = useConfirm()
+	const snackbar = useSnackbar()
 
 	const reposQuery = useQuery<ReposResponse>({
 		queryKey: ['repos'],
@@ -74,9 +76,14 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 
 	const removeMutation = useMutation({
 		mutationFn: async (repo: string) => {
-			await fetch(`/api/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' })
+			const r = await fetch(`/api/repos/${encodeURIComponent(repo)}`, { method: 'DELETE' })
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
 		},
 		onSuccess: refresh,
+		onError: (err) => snackbar.showError(err, 'Failed to remove repo binding'),
 	})
 
 	const remove = async (repo: string) => {
@@ -95,7 +102,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 		removeMutation.mutate(repo)
 	}
 
-	if (reposQuery.isLoading) return <EmptyState>Loading repos…</EmptyState>
+	if (reposQuery.isLoading) return <LoadingRows />
 	if (reposQuery.error)
 		return <Alert severity="error">{(reposQuery.error as Error).message}</Alert>
 	const repos = reposQuery.data?.repos ?? []
@@ -188,7 +195,7 @@ export function ReposPanel({ canManage }: { canManage: boolean }) {
 										<TableCell>
 											<Tooltip title={r.createdAt}>
 												<Typography variant="body2" color="text.secondary">
-													{new Date(r.createdAt).toLocaleDateString()}
+													{relativeTime(r.createdAt)}
 												</Typography>
 											</Tooltip>
 										</TableCell>
@@ -439,39 +446,5 @@ function RepoWizard({
 				) : null}
 			</Stack>
 		</Paper>
-	)
-}
-
-function CopyField({ label, value }: { label: string; value: string }) {
-	const [copied, setCopied] = useState(false)
-	const copy = async () => {
-		await navigator.clipboard.writeText(value)
-		setCopied(true)
-		setTimeout(() => setCopied(false), 1500)
-	}
-	return (
-		<TextField
-			label={label}
-			value={value}
-			size="small"
-			fullWidth
-			slotProps={{
-				input: {
-					readOnly: true,
-					endAdornment: (
-						<Tooltip title={copied ? 'Copied' : 'Copy'}>
-							<IconButton
-								size="small"
-								onClick={() => {
-									void copy()
-								}}
-							>
-								<ContentCopyIcon fontSize="small" />
-							</IconButton>
-						</Tooltip>
-					),
-				},
-			}}
-		/>
 	)
 }

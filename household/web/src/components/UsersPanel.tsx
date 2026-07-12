@@ -18,9 +18,11 @@ import {
 import AddIcon from '@mui/icons-material/Add'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { EmptyState } from '../routes/Root.tsx'
+import { EmptyState, LoadingRows } from '../routes/Root.tsx'
+import { relativeTime } from '../time.ts'
 import type { UserRecord, UserRole } from '../types.ts'
 import { useConfirm } from './ConfirmDialog.tsx'
+import { useSnackbar } from './Snackbar.tsx'
 
 interface Props {
 	canManage: boolean
@@ -36,6 +38,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
 	const confirm = useConfirm()
+	const snackbar = useSnackbar()
 
 	const usersQuery = useQuery<UsersResponse>({
 		queryKey: ['users'],
@@ -66,6 +69,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 			}
 		},
 		onSuccess: refresh,
+		onError: (err) => snackbar.showError(err, 'Failed to change role'),
 	})
 
 	const removeMutation = useMutation({
@@ -79,6 +83,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 			}
 		},
 		onSuccess: refresh,
+		onError: (err) => snackbar.showError(err, 'Failed to remove user'),
 	})
 
 	const updateRole = (username: string, role: UserRole) => {
@@ -100,7 +105,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 		removeMutation.mutate(username)
 	}
 
-	if (usersQuery.isLoading) return <EmptyState>Loading users…</EmptyState>
+	if (usersQuery.isLoading) return <LoadingRows />
 	if (usersQuery.error)
 		return <Alert severity="error">{(usersQuery.error as Error).message}</Alert>
 	const data = usersQuery.data
@@ -190,7 +195,7 @@ export function UsersPanel({ canManage, currentUsername }: Props) {
 									<TableCell>
 										<Tooltip title={user.added_at}>
 											<Typography variant="body2" color="text.secondary">
-												{new Date(user.added_at).toLocaleDateString()}
+												{relativeTime(user.added_at)}
 											</Typography>
 										</Tooltip>
 									</TableCell>

@@ -7,7 +7,6 @@ import {
 	FormGroup,
 	MenuItem,
 	Paper,
-	Snackbar,
 	Stack,
 	Table,
 	TableBody,
@@ -23,8 +22,10 @@ import AddIcon from '@mui/icons-material/Add'
 import SendIcon from '@mui/icons-material/Send'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { EmptyState } from '../routes/Root.tsx'
+import { relativeTime } from '../time.ts'
+import { EmptyState, LoadingRows } from '../routes/Root.tsx'
 import { useConfirm } from './ConfirmDialog.tsx'
+import { useSnackbar } from './Snackbar.tsx'
 
 type ChannelKind = 'webhook' | 'smtp'
 type WebhookFormat = 'generic' | 'slack' | 'discord'
@@ -70,12 +71,9 @@ interface Props {
 export function NotificationsPanel({ canManage }: Props) {
 	const queryClient = useQueryClient()
 	const [showForm, setShowForm] = useState(false)
-	const [snackbar, setSnackbar] = useState<{
-		severity: 'success' | 'error'
-		message: string
-	} | null>(null)
 	const [testingId, setTestingId] = useState<string | null>(null)
 	const confirm = useConfirm()
+	const snackbar = useSnackbar()
 
 	const channelsQuery = useQuery<Channel[]>({
 		queryKey: ['notifications', 'channels'],
@@ -102,15 +100,28 @@ export function NotificationsPanel({ canManage }: Props) {
 
 	const deleteMutation = useMutation({
 		mutationFn: async (id: string) => {
-			await fetch(`/api/notifications/channels/${id}`, { method: 'DELETE' })
+			const r = await fetch(`/api/notifications/channels/${id}`, { method: 'DELETE' })
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
 		},
 		onSuccess: invalidate,
+		onError: (err) => snackbar.showError(err, 'Failed to delete channel'),
 	})
 	const retryMutation = useMutation({
 		mutationFn: async (id: string) => {
-			await fetch(`/api/notifications/deliveries/${id}/retry`, { method: 'POST' })
+			const r = await fetch(`/api/notifications/deliveries/${id}/retry`, { method: 'POST' })
+			if (!r.ok) {
+				const b = (await r.json().catch(() => ({}))) as { error?: string }
+				throw new Error(b.error ?? `HTTP ${r.status}`)
+			}
 		},
-		onSuccess: invalidate,
+		onSuccess: () => {
+			invalidate()
+			snackbar.showSuccess('Delivery retried')
+		},
+		onError: (err) => snackbar.showError(err, 'Retry failed'),
 	})
 
 	const deleteChannel = async (id: string, name: string) => {
@@ -141,17 +152,17 @@ export function NotificationsPanel({ canManage }: Props) {
 				const b = (await r.json().catch(() => ({}))) as { error?: string }
 				throw new Error(b.error ?? `HTTP ${r.status}`)
 			}
-			setSnackbar({ severity: 'success', message: `Test sent to "${name}".` })
+			snackbar.showSuccess(`Test sent to "${name}".`)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
-			setSnackbar({ severity: 'error', message: `Test to "${name}" failed: ${message}` })
+			snackbar.show(`Test to "${name}" failed: ${message}`, 'error')
 		} finally {
 			setTestingId(null)
 		}
 	}
 
 	if (channelsQuery.isLoading || deliveriesQuery.isLoading) {
-		return <EmptyState>Loading notification channels…</EmptyState>
+		return <LoadingRows />
 	}
 	const loadError = channelsQuery.error ?? deliveriesQuery.error
 	if (loadError) return <Alert severity="error">{(loadError as Error).message}</Alert>
@@ -223,7 +234,7 @@ export function NotificationsPanel({ canManage }: Props) {
 									<TableCell>
 										<Tooltip title={ch.createdAt}>
 											<Typography variant="body2" color="text.secondary">
-												{new Date(ch.createdAt).toLocaleDateString()}
+												{relativeTime(ch.createdAt)}
 											</Typography>
 										</Tooltip>
 									</TableCell>
@@ -293,24 +304,44 @@ export function NotificationsPanel({ canManage }: Props) {
 													?.name ?? d.channelId}
 											</Typography>
 										</TableCell>
-										<TableCell>
-											<Typography variant="caption" color="text.secondary">
-												{d.error ?? '—'}
-											</Typography>
+										<TableCell sx={{ maxWidth: 280 }}>
+											<Tooltip title={d.error ?? ''}>
+												<Typography
+													variant="caption"
+													color="text.secondary"
+													sx={{
+														display: 'block',
+														overflow: 'hidden',
+														textOverflow: 'ellipsis',
+														whiteSpace: 'nowrap',
+													}}
+												>
+													{d.error ?? '—'}
+												</Typography>
+											</Tooltip>
 										</TableCell>
 										<TableCell>
-											<Typography variant="body2" color="text.secondary">
-												{new Date(d.createdAt).toLocaleDateString()}
-											</Typography>
+											<Tooltip title={new Date(d.createdAt).toLocaleString()}>
+												<Typography variant="body2" color="text.secondary">
+													{relativeTime(d.createdAt)}
+												</Typography>
+											</Tooltip>
 										</TableCell>
 										<TableCell align="right">
 											{canManage ? (
 												<Button
 													size="small"
 													variant="outlined"
+													disabled={
+														retryMutation.isPending &&
+														retryMutation.variables === d.id
+													}
 													onClick={() => void retryDelivery(d.id)}
 												>
-													Retry
+													{retryMutation.isPending &&
+													retryMutation.variables === d.id
+														? 'Retrying…'
+														: 'Retry'}
 												</Button>
 											) : null}
 										</TableCell>
@@ -321,23 +352,6 @@ export function NotificationsPanel({ canManage }: Props) {
 					</TableContainer>
 				</Stack>
 			) : null}
-
-			<Snackbar
-				open={snackbar !== null}
-				autoHideDuration={5000}
-				anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-				onClose={() => setSnackbar(null)}
-			>
-				{snackbar ? (
-					<Alert
-						severity={snackbar.severity}
-						variant="filled"
-						onClose={() => setSnackbar(null)}
-					>
-						{snackbar.message}
-					</Alert>
-				) : undefined}
-			</Snackbar>
 		</Stack>
 	)
 }

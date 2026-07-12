@@ -4,6 +4,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications'
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff'
 import { useEffect, useState } from 'react'
 import { hasPushSubscription, subscribeToPush, unsubscribeFromPush } from '../pushSubscribe.ts'
+import { useSnackbar } from './Snackbar.tsx'
 
 type Permission = 'default' | 'granted' | 'denied' | 'unsupported'
 
@@ -30,6 +31,7 @@ export function NotificationsToggle() {
 	const [perm, setPerm] = useState<Permission>(() => readPermission())
 	const [subscribed, setSubscribed] = useState<boolean | null>(null)
 	const [busy, setBusy] = useState(false)
+	const snackbar = useSnackbar()
 
 	useEffect(() => {
 		if (typeof navigator === 'undefined' || !navigator.permissions) return
@@ -98,6 +100,7 @@ export function NotificationsToggle() {
 								setSubscribed(sub !== null)
 							}
 						})
+						.catch((err) => snackbar.showError(err, 'Failed to enable notifications'))
 						.finally(() => setBusy(false))
 				}}
 			>
@@ -118,6 +121,7 @@ export function NotificationsToggle() {
 					setBusy(true)
 					void subscribeToPush()
 						.then((sub) => setSubscribed(sub !== null))
+						.catch((err) => snackbar.showError(err, 'Failed to subscribe to push'))
 						.finally(() => setBusy(false))
 				}}
 			>
@@ -138,6 +142,7 @@ export function NotificationsToggle() {
 						setBusy(true)
 						void unsubscribeFromPush()
 							.then(() => setSubscribed(false))
+							.catch((err) => snackbar.showError(err, 'Failed to unsubscribe'))
 							.finally(() => setBusy(false))
 					}}
 				>

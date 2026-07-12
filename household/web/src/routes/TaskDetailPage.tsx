@@ -13,6 +13,7 @@ import {
 	QueueBlockedByRepoBadge,
 	ReviewWaitBadge,
 } from '../components/TasksPanel.tsx'
+import { useConfirm } from '../components/ConfirmDialog.tsx'
 import { taskDetailRoute } from '../router.tsx'
 import { relativeTime } from '../time.ts'
 import type { TaskRecord, TaskStatus } from '../types.ts'
@@ -40,8 +41,20 @@ export function TaskDetailPage() {
 
 	const [actionError, setActionError] = useState<string | null>(null)
 	const [busy, setBusy] = useState<'cancel' | 'retry' | 'restart' | null>(null)
+	const confirm = useConfirm()
 	const handleCancel = async () => {
 		if (!task) return
+		const running = task.status === 'in-progress' || task.status === 'assigned'
+		const ok = await confirm({
+			title: 'Cancel this task?',
+			description: running
+				? 'It is being worked on right now — cancelling discards the in-progress work and the tokens already spent.'
+				: 'The task will be removed from the queue.',
+			confirmLabel: 'Cancel task',
+			cancelLabel: 'Keep',
+			confirmColor: 'error',
+		})
+		if (!ok) return
 		setBusy('cancel')
 		setActionError(null)
 		try {
